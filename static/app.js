@@ -33,31 +33,31 @@ const app = createApp({
         const hasPrev = computed(() => currentImageIndex.value > 0);
         const hasNext = computed(() => currentImageIndex.value < detailImageList.value.length - 1);
 
-        const prevImage = async () => {
+        const prevImage = () => {
             if (!hasPrev.value) {
                 ElMessage.info('已经是第一张图片了');
                 return;
             }
             const image = detailImageList.value[currentImageIndex.value - 1];
             if (image && image.source_type === 'library') {
-                await viewLibraryImage(image, false);
+                void viewLibraryImage(image, false);
             } else if (image && image.source_type === 'library-share') {
-                await viewSharedImage(image, false);
+                void viewSharedImage(image, false);
             } else {
                 currentImage.value = image;
             }
         };
 
-        const nextImage = async () => {
+        const nextImage = () => {
             if (!hasNext.value) {
                 ElMessage.info('已经是最后一张图片了');
                 return;
             }
             const image = detailImageList.value[currentImageIndex.value + 1];
             if (image && image.source_type === 'library') {
-                await viewLibraryImage(image, false);
+                void viewLibraryImage(image, false);
             } else if (image && image.source_type === 'library-share') {
-                await viewSharedImage(image, false);
+                void viewSharedImage(image, false);
             } else {
                 currentImage.value = image;
             }
@@ -1006,44 +1006,114 @@ const app = createApp({
             return `/api/images/${image.id}/file?type=${encodeURIComponent(variant)}`;
         };
 
+        // Detail navigation must not wait for image-info before switching images.
+        // The directory listing already contains enough information to render the next
+        // image immediately; width/height and persisted state are hydrated afterwards.
+        const detailImageInfoCache = new Map();
+        const detailAssetPrefetches = new Set();
+
+        const libraryImageInfoUrl = (item) =>
+            `/api/library/sources/${item.source_id || (currentLibrarySource.value && currentLibrarySource.value.id)}/image-info?path=${encodeURIComponent(item.relative_path)}`;
+
+        const sharedImageInfoUrl = (item) =>
+            `/api/library/shares/${encodeURIComponent(item.share_token || currentShareToken.value)}/image-info?path=${encodeURIComponent(item.relative_path)}`;
+
+        const cacheImageInfo = (data) => {
+            if (data && data.id) detailImageInfoCache.set(data.id, data);
+            return data;
+        };
+
+        const fetchImageInfo = async (item) => {
+            if (!item || !item.id) return null;
+            if (detailImageInfoCache.has(item.id)) return detailImageInfoCache.get(item.id);
+
+            const url = item.source_type === 'library-share'
+                ? sharedImageInfoUrl(item)
+                : libraryImageInfoUrl(item);
+            const response = await fetch(url);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '读取图片信息失败');
+            return cacheImageInfo(data);
+        };
+
+        const updateLibraryListingState = (data) => {
+            if (!data || data.source_type !== 'library') return;
+            const index = (libraryListing.value.items || []).findIndex(i => i.relative_path === data.relative_path);
+            if (index !== -1) {
+                libraryListing.value.items[index] = {
+                    ...libraryListing.value.items[index],
+                    is_favorited: data.is_favorited,
+                    description: data.description
+                };
+            }
+        };
+
+        const hydrateCurrentImage = async (item) => {
+            const expectedId = item && item.id;
+            if (!expectedId) return;
+            try {
+                const data = await fetchImageInfo(item);
+                updateLibraryListingState(data);
+                if (currentImage.value && currentImage.value.id === expectedId) {
+                    currentImage.value = {...currentImage.value, ...data};
+                }
+            } catch (error) {
+                console.warn('读取图片信息失败:', error);
+                // The image itself can still be displayed from the directory listing.
+            }
+        };
+
+        const prefetchDetailAsset = (item) => {
+            if (!item || (item.source_type !== 'library' && item.source_type !== 'library-share')) return;
+            const url = detailImageUrl(item, 'compressed');
+            if (!url || detailAssetPrefetches.has(url)) return;
+            detailAssetPrefetches.add(url);
+            const image = new Image();
+            image.decoding = 'async';
+            image.src = url;
+            void fetchImageInfo(item).catch(() => {});
+        };
+
+        const scheduleAdjacentDetailPrefetch = (expectedId) => {
+            nextTick(() => {
+                const detailEl = document.querySelector('.detail-image');
+                if (!detailEl) return;
+
+                const run = () => {
+                    if (!currentImage.value || currentImage.value.id !== expectedId) return;
+                    const index = currentImageIndex.value;
+                    if (index < 0) return;
+                    const list = detailImageList.value;
+                    // Prefer the next image first because forward navigation is more common.
+                    prefetchDetailAsset(list[index + 1]);
+                    prefetchDetailAsset(list[index - 1]);
+                };
+
+                if (detailEl.complete && detailEl.naturalWidth > 0) {
+                    window.setTimeout(run, 0);
+                } else {
+                    detailEl.addEventListener('load', run, {once: true});
+                }
+            });
+        };
+
+        const showLibraryDetailImmediately = (item, changeView) => {
+            const cached = item && item.id ? detailImageInfoCache.get(item.id) : null;
+            currentImage.value = cached ? {...item, ...cached} : {...item};
+            if (changeView) currentView.value = 'image-detail';
+            scheduleAdjacentDetailPrefetch(currentImage.value.id);
+        };
+
         const viewLibraryImage = async (item, changeView = true) => {
             if (!currentLibrarySource.value || !item) return;
-            try {
-                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/image-info?path=${encodeURIComponent(item.relative_path)}`);
-                const data = await response.json();
-                if (!response.ok) {
-                    ElMessage.error(data.error || '读取图片信息失败');
-                    return;
-                }
-                const index = (libraryListing.value.items || []).findIndex(i => i.relative_path === data.relative_path);
-                if (index !== -1) {
-                    libraryListing.value.items[index] = {
-                        ...libraryListing.value.items[index],
-                        is_favorited: data.is_favorited,
-                        description: data.description
-                    };
-                }
-                currentImage.value = data;
-                if (changeView) currentView.value = 'image-detail';
-            } catch (error) {
-                ElMessage.error('读取图片信息失败');
-            }
+            showLibraryDetailImmediately(item, changeView);
+            await hydrateCurrentImage(item);
         };
 
         const viewSharedImage = async (item, changeView = true) => {
             if (!currentShareToken.value || !item) return;
-            try {
-                const response = await fetch(`/api/library/shares/${encodeURIComponent(currentShareToken.value)}/image-info?path=${encodeURIComponent(item.relative_path)}`);
-                const data = await response.json();
-                if (!response.ok) {
-                    ElMessage.error(data.error || '读取图片信息失败');
-                    return;
-                }
-                currentImage.value = data;
-                if (changeView) currentView.value = 'image-detail';
-            } catch (error) {
-                ElMessage.error('读取图片信息失败');
-            }
+            showLibraryDetailImmediately(item, changeView);
+            await hydrateCurrentImage(item);
         };
 
         const toggleLibraryFavorite = async (image) => {
