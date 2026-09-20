@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260920-03">
+    <link rel="stylesheet" href="style.css?v=20260920-13">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -244,17 +244,13 @@
                         </div>
                         <div class="album-info">
                             <div class="album-name">{{ item.name }}</div>
-                            <div class="album-meta">
-                                <div v-if="item.is_set && item.has_manifest && item.manifest_valid">SET · manifest</div>
-                                <div v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</div>
-                                <div v-else-if="item.is_set">SET</div>
-                                <div v-else>文件夹</div>
+                            <div class="album-meta library-folder-meta">
+                                <span v-if="item.is_set && item.has_manifest && item.manifest_valid">SET · manifest</span>
+                                <span v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</span>
+                                <span v-else-if="item.is_set">SET</span>
+                                <span v-else>文件夹</span>
                             </div>
-                            <div v-if="item.directory_count || item.image_count || item.file_count" class="library-folder-counts">
-                                <span v-if="item.directory_count">{{ item.directory_count }} 目录</span>
-                                <span v-if="item.image_count">{{ item.image_count }} 图片</span>
-                                <span v-if="item.file_count">{{ item.file_count }} 文件</span>
-                            </div>
+                            <div class="library-folder-stats">{{ formatLibraryFolderCounts(item) }}</div>
                         </div>
                     </div>
                 </div>
@@ -1391,8 +1387,9 @@
                         <div class="manifest-detail-item"><span>Date</span><strong>{{ formatManifestValue(currentManifestData.shoot.date) }}</strong></div>
                         <div class="manifest-detail-item"><span>Start Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.start_time) }}</strong></div>
                         <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.end_time) }}</strong></div>
+                        <div v-if="manifestShootDuration" class="manifest-detail-item manifest-computed-item"><span>Duration</span><strong>{{ manifestShootDuration }}</strong></div>
                         <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatEnumValue(currentManifestData.shoot.weather) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
                     </div>
                 </section>
 
@@ -1425,6 +1422,7 @@
                         <div class="manifest-detail-item"><span>Model Fee</span><strong>{{ formatManifestValue(currentManifestData.production.model_fee) }}</strong></div>
                         <div class="manifest-detail-item"><span>Venue Fee</span><strong>{{ formatManifestValue(currentManifestData.production.venue_fee) }}</strong></div>
                         <div class="manifest-detail-item"><span>Venue Fee Payer</span><strong>{{ formatEnumValue(currentManifestData.production.venue_fee_payer) }}</strong></div>
+                        <div v-if="manifestVenuePaid !== null" class="manifest-detail-item manifest-computed-item"><span>Venue Fee Paid</span><strong>{{ formatManifestValue(manifestVenuePaid) }}</strong></div>
                     </div>
                 </section>
 
@@ -1439,7 +1437,7 @@
                 <section class="manifest-detail-section">
                     <div class="manifest-section-heading">
                         <h3>Lighting</h3>
-                        <span class="manifest-light-count">{{ currentManifestData.lighting.length }} light{{ currentManifestData.lighting.length === 1 ? '' : 's' }}</span>
+                        <span class="manifest-light-count">{{ currentManifestLightCount }} light{{ currentManifestLightCount === 1 ? '' : 's' }}</span>
                     </div>
                     <div v-if="currentManifestData.lighting.length" class="manifest-light-list">
                         <div v-for="(light, index) in currentManifestData.lighting" :key="index" class="manifest-light-card">
@@ -1791,6 +1789,6 @@
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260920-02"></script>
 <script src="workflow-tools.js?v=20260920-01"></script>
-<script type="module" src="app.js?v=20260920-04"></script>
+<script type="module" src="app.js?v=20260920-12"></script>
 </body>
 </html>

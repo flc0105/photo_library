@@ -881,6 +881,100 @@ const app = createApp({
             return String(value);
         };
 
+
+        // Detail-only computed fields. These are deliberately not part of the
+        // manifest editor/serializer and never get written back to manifest.json.
+        const parseClockMinutes = (value) => {
+            const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+            if (!match) return null;
+            const hours = Number(match[1]);
+            const minutes = Number(match[2]);
+            if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+                return null;
+            }
+            return hours * 60 + minutes;
+        };
+
+        const manifestShootDuration = computed(() => {
+            const data = currentManifestData.value;
+            if (!data) return '';
+            const start = parseClockMinutes(data.shoot.start_time);
+            const end = parseClockMinutes(data.shoot.end_time);
+            if (start === null || end === null) return '';
+
+            let duration = end - start;
+            // If a shoot crosses midnight, treat the end time as the next day.
+            if (duration < 0) duration += 24 * 60;
+
+            const hours = Math.floor(duration / 60);
+            const minutes = duration % 60;
+            if (hours && minutes) return `${hours}h ${minutes}m`;
+            if (hours) return `${hours}h`;
+            return `${minutes}m`;
+        });
+
+        const currentManifestLightCount = computed(() => {
+            const data = currentManifestData.value;
+            if (!data || !Array.isArray(data.lighting)) return 0;
+            return data.lighting.reduce((total, light) => {
+                const count = Number(light && light.count);
+                return total + (Number.isFinite(count) && count > 0 ? count : 1);
+            }, 0);
+        });
+
+        const manifestVenuePaid = computed(() => {
+            const data = currentManifestData.value;
+            if (!data) return null;
+            const production = data.production || {};
+            const fee = Number(production.venue_fee);
+            if (!Number.isFinite(fee) || fee <= 0) return null;
+
+            if (production.venue_fee_payer === 'photographer') return fee;
+            if (production.venue_fee_payer === 'split') return fee / 2;
+            if (production.venue_fee_payer === 'model') return 0;
+            return null;
+        });
+
+        const formatWeatherValue = (value) => {
+            if (value === null || value === undefined || value === '') return '—';
+            const key = String(value).trim().toLowerCase();
+            const icons = {
+                sunny: '☀️',
+                cloudy: '⛅️',
+                overcast: '☁️',
+                rainy: '🌧️',
+                snowy: '🌨️'
+            };
+            return icons[key] ? `${icons[key]}${key}` : formatEnumValue(value);
+        };
+
+        const formatLibraryFolderCounts = (item) => {
+            if (!item) return '';
+            const directoryCount = Number(item.directory_count) || 0;
+            const imageCount = Number(item.image_count) || 0;
+            const fileCount = Number(item.file_count) || 0;
+            const parts = [];
+
+            if (directoryCount > 0) {
+                parts.push(`${directoryCount} 目录`);
+            }
+
+            if (fileCount > 0) {
+                if (imageCount > 0 && fileCount === imageCount) {
+                    parts.push(`${imageCount} 图片`);
+                } else if (imageCount > 0) {
+                    parts.push(`${fileCount} 文件（含 ${imageCount} 图片）`);
+                } else {
+                    parts.push(`${fileCount} 文件`);
+                }
+            } else if (imageCount > 0) {
+                // Defensive fallback for older API payloads where file_count was absent.
+                parts.push(`${imageCount} 图片`);
+            }
+
+            return parts.length > 0 ? parts.join(' · ') : 'empty';
+        };
+
         const addLightingRow = () => {
             if (!Array.isArray(manifestForm.value.lighting)) manifestForm.value.lighting = [];
             manifestForm.value.lighting.push(newLightingRow());
@@ -3145,6 +3239,11 @@ const app = createApp({
             currentManifestData,
             formatEnumValue,
             formatManifestValue,
+            formatWeatherValue,
+            manifestShootDuration,
+            currentManifestLightCount,
+            manifestVenuePaid,
+            formatLibraryFolderCounts,
             showManifestDialog,
             showManifestDetailDialog,
             manifestForm,

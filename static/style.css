@@ -1374,17 +1374,49 @@ body {
 .library-folder-card.manifest-invalid {
     outline-color: #f56c6c;
 }
-.library-folder-counts {
+/* Folder cards align per grid row, not globally.
+   A row with only one-line titles stays compact; when any title wraps,
+   CSS Grid stretches the sibling cards to that row's natural height and
+   margin-top:auto keeps the type/stats lines aligned at the bottom. */
+.library-folder-card {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    margin-top: 4px;
+    flex-direction: column;
+}
+.library-folder-card .album-cover {
+    flex: 0 0 200px;
+}
+.library-folder-card .album-info {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    box-sizing: border-box;
+}
+.library-folder-card .album-name {
+    line-height: 1.35;
+    min-height: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+.library-folder-meta {
+    display: flex;
+    align-items: baseline;
+    min-height: 1.35em;
+    line-height: 1.35;
+    margin-top: auto;
+}
+.library-folder-stats {
+    min-height: 1.35em;
+    margin-top: 2px;
     color: #a0a4ab;
     font-size: 11px;
+    font-weight: 400;
     line-height: 1.35;
-}
-.library-folder-counts span {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .library-directory-state {
     padding-top: 24px;
@@ -1442,6 +1474,13 @@ body {
 .manifest-detail-item span {
     color: #909399;
     font-size: 12px;
+}
+
+.manifest-computed-item span::after {
+    content: " · calc";
+    color: #c0c4cc;
+    font-size: 10px;
+    font-weight: 400;
 }
 
 .manifest-detail-item strong {
