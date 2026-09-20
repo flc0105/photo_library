@@ -636,6 +636,16 @@ const app = createApp({
             message: ElMessage
         });
 
+        const workflowTools = window.WorkflowTools.createController({
+            getSource: () => currentLibrarySource.value,
+            getSetPath: () => libraryListing.value && libraryListing.value.path,
+            refreshCurrent: async () => {
+                if (currentLibrarySource.value && libraryListing.value && libraryListing.value.path !== null && libraryListing.value.path !== undefined) {
+                    await loadLibraryDirectory(libraryListing.value.path || '');
+                }
+            }
+        });
+
         // Controlled vocabularies. The first six lists are migrated from the
         // legacy photo-metadata system and normalized to lowercase machine values.
         const manifestOptions = {
@@ -3113,6 +3123,25 @@ const app = createApp({
             exportLibraryFavorites,
             manifestSummary,
             isSetDirectory,
+            workflowPreviewVisible: workflowTools.previewVisible,
+            workflowPreviewLoading: workflowTools.previewLoading,
+            workflowPreviewKind: workflowTools.previewKind,
+            workflowPreviewTitle: workflowTools.previewTitle,
+            workflowPreviewData: workflowTools.previewData,
+            workflowThreshold: workflowTools.threshold,
+            workflowProgressVisible: workflowTools.progressVisible,
+            workflowTask: workflowTools.task,
+            workflowCanExecute: workflowTools.canExecute,
+            openVisualRenameTool: workflowTools.openVisualRename,
+            rerunVisualRenamePreview: workflowTools.analyzeVisualRename,
+            openSyncRawByJpgTool: workflowTools.openSyncRawByJpg,
+            openSyncJpgByRawTool: workflowTools.openSyncJpgByRaw,
+            openSelectRawTool: workflowTools.openSelectRaw,
+            startWorkflowOperation: workflowTools.startCurrent,
+            closeWorkflowProgress: workflowTools.closeProgress,
+            workflowStatusLabel: workflowTools.statusLabel,
+            workflowStatusType: workflowTools.statusType,
+            workflowFormatSize: workflowTools.formatSize,
             currentManifestData,
             formatEnumValue,
             formatManifestValue,

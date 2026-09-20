@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260920-01">
+    <link rel="stylesheet" href="style.css?v=20260920-03">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -187,6 +187,17 @@
                         <el-button v-if="isSetDirectory" @click="openManifestEditor">
                             {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
                         </el-button>
+                        <el-dropdown v-if="isSetDirectory" trigger="click" placement="bottom-end">
+                            <el-button title="高级功能" aria-label="高级功能">高级功能</el-button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item @click="openVisualRenameTool">Visual Rename · Model Edit</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openSyncRawByJpgTool">同步 RAW（以 JPG 为准）</el-dropdown-item>
+                                    <el-dropdown-item @click="openSyncJpgByRawTool">同步 JPG（以 RAW 为准）</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openSelectRawTool">收藏 JPG → RAW Selects</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                         <el-button :disabled="libraryFavoriteCount === 0" @click="exportLibraryFavorites">
                             选图{{ libraryFavoriteCount > 0 ? `(${libraryFavoriteCount})` : '' }}
                         </el-button>
@@ -238,6 +249,11 @@
                                 <div v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</div>
                                 <div v-else-if="item.is_set">SET</div>
                                 <div v-else>文件夹</div>
+                            </div>
+                            <div v-if="item.directory_count || item.image_count || item.file_count" class="library-folder-counts">
+                                <span v-if="item.directory_count">{{ item.directory_count }} 目录</span>
+                                <span v-if="item.image_count">{{ item.image_count }} 图片</span>
+                                <span v-if="item.file_count">{{ item.file_count }} 文件</span>
                             </div>
                         </div>
                     </div>
@@ -1213,6 +1229,152 @@
             <template #footer><el-button @click="showLibrarySourcesDialog = false">关闭</el-button></template>
         </el-dialog>
 
+        <!-- Advanced per-Set workflow preview -->
+        <el-dialog v-model="workflowPreviewVisible"
+                   :title="workflowPreviewTitle"
+                   width="1000px"
+                   class="workflow-preview-dialog"
+                   :close-on-click-modal="!workflowPreviewLoading">
+            <div v-loading="workflowPreviewLoading" class="workflow-preview-body">
+                <template v-if="workflowPreviewKind === 'visual_rename'">
+                    <div class="workflow-toolbar-row">
+                        <div class="workflow-toolbar-copy">
+                            <strong>02_Base_Edit → 03_Model_Edit</strong>
+                            <span>保持原 Qt 逻辑：pHash 相似度、最高匹配、阈值过滤、冲突时追加 _1/_2。</span>
+                        </div>
+                        <div class="workflow-threshold-control">
+                            <span>Threshold</span>
+                            <el-input-number v-model="workflowThreshold" :min="0" :max="1" :step="0.01" :precision="2" size="small"></el-input-number>
+                            <el-button size="small" @click="rerunVisualRenamePreview" :loading="workflowPreviewLoading">重新分析</el-button>
+                        </div>
+                    </div>
+
+                    <div v-if="workflowPreviewData" class="workflow-summary-strip">
+                        <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
+                        <span>Model <strong>{{ workflowPreviewData.summary.model_count }}</strong></span>
+                        <span>Rename <strong>{{ workflowPreviewData.summary.rename_count }}</strong></span>
+                        <span>Already named <strong>{{ workflowPreviewData.summary.already_named_count }}</strong></span>
+                        <span>Below threshold <strong>{{ workflowPreviewData.summary.skipped_count }}</strong></span>
+                    </div>
+
+                    <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
+                        <el-table-column label="Current" min-width="230">
+                            <template #default="scope"><code>{{ scope.row.current_name }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="→ New" min-width="230">
+                            <template #default="scope"><code>{{ scope.row.new_name || '—' }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="Matched Base" min-width="220">
+                            <template #default="scope"><span>{{ scope.row.source_name || '—' }}</span></template>
+                        </el-table-column>
+                        <el-table-column label="Similarity" width="110" align="right">
+                            <template #default="scope">{{ Number(scope.row.similarity || 0).toFixed(3) }}</template>
+                        </el-table-column>
+                        <el-table-column label="Status" width="135">
+                            <template #default="scope">
+                                <el-tag size="small" :type="workflowStatusType(scope.row.status)">{{ workflowStatusLabel(scope.row.status) }}</el-tag>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </template>
+
+                <template v-else-if="workflowPreviewKind === 'sync_originals'">
+                    <div v-if="workflowPreviewData" class="workflow-warning-box">
+                        <strong>{{ workflowPreviewData.direction === 'raw_by_jpg' ? 'RAW 以 JPG 为准' : 'JPG 以 RAW 为准' }}</strong>
+                        <span>预览中的多余文件执行时先移动到 <code>Deleted</code>，随后将整个 <code>Deleted</code> 移入系统回收站。不会永久删除。</span>
+                    </div>
+                    <div v-if="workflowPreviewData" class="workflow-summary-strip">
+                        <span>Target <strong>{{ workflowPreviewData.summary.target_count }}</strong></span>
+                        <span>Reference <strong>{{ workflowPreviewData.summary.reference_count }}</strong></span>
+                        <span>Move into Deleted <strong>{{ workflowPreviewData.summary.move_count }}</strong></span>
+                        <span v-if="workflowPreviewData.summary.already_deleted_count">Already in Deleted <strong>{{ workflowPreviewData.summary.already_deleted_count }}</strong></span>
+                        <span>Trash total <strong>{{ workflowPreviewData.summary.trash_count }}</strong></span>
+                    </div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.warnings && workflowPreviewData.warnings.length" class="workflow-inline-warnings">
+                        <div v-for="warning in workflowPreviewData.warnings" :key="warning">{{ warning }}</div>
+                    </div>
+                    <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
+                        <el-table-column label="File to remove" min-width="520">
+                            <template #default="scope"><code>{{ scope.row.relative_path }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="Status" width="135">
+                            <template #default="scope">
+                                <el-tag size="small" :type="workflowStatusType(scope.row.status)">{{ workflowStatusLabel(scope.row.status) }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Size" width="130" align="right">
+                            <template #default="scope">{{ workflowFormatSize(scope.row.size) }}</template>
+                        </el-table-column>
+                    </el-table>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.trash_count === 0" class="workflow-empty-result">两边文件名已经对应，无需处理。</div>
+                </template>
+
+                <template v-else-if="workflowPreviewKind === 'select_raw'">
+                    <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
+                        <strong>Destination: {{ workflowPreviewData.destination }}</strong>
+                        <span>只读取当前 Set 下已收藏的 JPG/JPEG；按逻辑文件 ID 查找 01_Original/RAW 中对应 CR3，并复制一份。不会移动或修改原 RAW。</span>
+                    </div>
+                    <div v-if="workflowPreviewData" class="workflow-summary-strip">
+                        <span>Favorite JPG <strong>{{ workflowPreviewData.summary.favorite_jpg_count }}</strong></span>
+                        <span>Copy <strong>{{ workflowPreviewData.summary.copy_count }}</strong></span>
+                        <span>Exists <strong>{{ workflowPreviewData.summary.already_exists_count }}</strong></span>
+                        <span>Missing <strong>{{ workflowPreviewData.summary.missing_count }}</strong></span>
+                        <span>Ambiguous <strong>{{ workflowPreviewData.summary.ambiguous_count }}</strong></span>
+                    </div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.ignored_non_jpg_count" class="workflow-inline-warnings">
+                        另有 {{ workflowPreviewData.summary.ignored_non_jpg_count }} 个收藏项不是 JPG/JPEG，按本功能定义忽略。
+                    </div>
+                    <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
+                        <el-table-column label="ID" width="130">
+                            <template #default="scope"><code>{{ scope.row.logical_id }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="Favorite JPG" min-width="260">
+                            <template #default="scope">{{ scope.row.favorite_files.join(' · ') }}</template>
+                        </el-table-column>
+                        <el-table-column label="RAW" min-width="210">
+                            <template #default="scope"><code>{{ scope.row.raw_name || '—' }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="Status" width="135">
+                            <template #default="scope">
+                                <el-tag size="small" :type="workflowStatusType(scope.row.status)">{{ workflowStatusLabel(scope.row.status) }}</el-tag>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </template>
+            </div>
+            <template #footer>
+                <el-button @click="workflowPreviewVisible = false" :disabled="workflowPreviewLoading">取消</el-button>
+                <el-button type="primary" @click="startWorkflowOperation" :disabled="!workflowCanExecute || workflowPreviewLoading">执行预览结果</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- First version uses a blocking progress dialog intentionally: file operations stay visible. -->
+        <el-dialog v-model="workflowProgressVisible"
+                   title="Workflow Progress"
+                   width="620px"
+                   class="workflow-progress-dialog"
+                   :close-on-click-modal="false"
+                   :close-on-press-escape="false"
+                   :show-close="false">
+            <div class="workflow-progress-main">
+                <div class="workflow-progress-head">
+                    <strong>{{ workflowTask.message || '处理中…' }}</strong>
+                    <span v-if="workflowTask.total">{{ workflowTask.completed }} / {{ workflowTask.total }}</span>
+                </div>
+                <el-progress :percentage="workflowTask.percent || 0"
+                             :status="workflowTask.status === 'error' ? 'exception' : (workflowTask.status === 'done' ? 'success' : '')"></el-progress>
+                <div v-if="workflowTask.error" class="workflow-task-error">{{ workflowTask.error }}</div>
+                <div v-if="workflowTask.logs && workflowTask.logs.length" class="workflow-progress-log">
+                    <div v-for="(line, index) in workflowTask.logs.slice(-10)" :key="index">{{ line }}</div>
+                </div>
+            </div>
+            <template #footer>
+                <el-button type="primary"
+                           :disabled="workflowTask.status === 'running' || workflowTask.status === 'queued'"
+                           @click="closeWorkflowProgress">关闭</el-button>
+            </template>
+        </el-dialog>
+
         <!-- Set metadata detail -->
         <el-dialog v-model="showManifestDetailDialog" title="Set Details" width="900px" class="manifest-detail-dialog">
             <div v-if="currentManifestData" class="manifest-detail-content">
@@ -1628,6 +1790,7 @@
 
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260920-03"></script>
+<script src="workflow-tools.js?v=20260920-01"></script>
+<script type="module" src="app.js?v=20260920-04"></script>
 </body>
 </html>

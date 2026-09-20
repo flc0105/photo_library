@@ -1374,6 +1374,18 @@ body {
 .library-folder-card.manifest-invalid {
     outline-color: #f56c6c;
 }
+.library-folder-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 4px;
+    color: #a0a4ab;
+    font-size: 11px;
+    line-height: 1.35;
+}
+.library-folder-counts span {
+    white-space: nowrap;
+}
 .library-directory-state {
     padding-top: 24px;
     padding-bottom: 24px;
@@ -2059,4 +2071,164 @@ body {
     opacity: 1;
     color: var(--el-color-primary);
     background: var(--el-fill-color-light);
+}
+
+/* ==================== Set workflow tools ==================== */
+.workflow-preview-dialog .el-dialog__body {
+    max-height: 72vh;
+    overflow-y: auto;
+    padding-top: 12px;
+}
+
+.workflow-preview-body {
+    min-height: 150px;
+}
+
+.workflow-toolbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+}
+
+.workflow-toolbar-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.workflow-toolbar-copy span,
+.workflow-warning-box span {
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.workflow-threshold-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    font-size: 13px;
+    color: #606266;
+}
+
+.workflow-summary-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.workflow-summary-strip span {
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    background: #fafafa;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #606266;
+}
+
+.workflow-summary-strip strong {
+    color: #303133;
+    margin-left: 3px;
+}
+
+.workflow-warning-box {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 12px;
+    border: 1px solid #f3d19e;
+    background: #fdf6ec;
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+
+.workflow-warning-box.neutral {
+    border-color: #dcdfe6;
+    background: #f7f8fa;
+}
+
+.workflow-inline-warnings {
+    margin: 8px 0 12px;
+    padding: 8px 10px;
+    border-left: 3px solid #e6a23c;
+    background: #fdf6ec;
+    color: #7a5b21;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.workflow-preview-table {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.workflow-preview-table code,
+.workflow-warning-box code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+}
+
+.workflow-empty-result {
+    padding: 24px 0 8px;
+    text-align: center;
+    color: #909399;
+}
+
+.workflow-progress-dialog .el-dialog__body {
+    padding-top: 12px;
+}
+
+.workflow-progress-main {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.workflow-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.workflow-progress-head span {
+    color: #909399;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.workflow-progress-log {
+    border: 1px solid #ebeef5;
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #606266;
+}
+
+.workflow-task-error {
+    padding: 9px 11px;
+    border-radius: 7px;
+    background: #fef0f0;
+    color: #c45656;
+    font-size: 13px;
+}
+
+@media (max-width: 780px) {
+    .workflow-toolbar-row {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .workflow-threshold-control {
+        width: 100%;
+        flex-wrap: wrap;
+    }
 }

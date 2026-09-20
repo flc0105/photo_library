@@ -20,6 +20,7 @@ from auth_utils import verify_auth_token, generate_auth_token, album_token_expir
 from image_utils import generate_thumbnail, generate_compressed, get_image_exif_simple
 from gps_utils import extract_gps_from_image
 from manifest_autofill import build_manifest_reference_index, get_original_jpg_time_range
+from workflow_tools import create_workflow_blueprint
 
 app = Flask(__name__)
 
@@ -1639,6 +1640,44 @@ def _directory_cover_path(root, directory, direct_manifest=None):
     return None
 
 
+def _directory_content_counts(directory):
+    """Return recursive, metadata-only counts for a folder card.
+
+    This deliberately never opens/decodes image files. Hidden/control files are
+    ignored so the numbers describe the actual photo tree rather than Gallery
+    bookkeeping. Symlinked directories are not traversed.
+    """
+    counts = {
+        'directory_count': 0,
+        'image_count': 0,
+        'file_count': 0
+    }
+    ignored_names = {MANIFEST_FILENAME, MANIFEST_FILENAME + '.bak', MANIFEST_FILENAME + '.tmp'}
+    stack = [Path(directory)]
+
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if entry.name.startswith('.') or entry.name in ignored_names:
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            counts['directory_count'] += 1
+                            stack.append(Path(entry.path))
+                        elif entry.is_file(follow_symlinks=False):
+                            counts['file_count'] += 1
+                            if Path(entry.name).suffix.lower() in LIBRARY_IMAGE_EXTENSIONS:
+                                counts['image_count'] += 1
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+    return counts
+
+
 def _list_library_directory(source, relative_path=''):
     root, target, rel = _resolve_library_path(source, relative_path)
     if not target.is_dir():
@@ -1664,6 +1703,7 @@ def _list_library_directory(source, relative_path=''):
         if child.is_dir():
             stats['directory_count'] += 1
             direct_manifest = _read_manifest(child)
+            content_counts = _directory_content_counts(child)
             items.append({
                 'type': 'directory',
                 'name': child.name,
@@ -1672,7 +1712,10 @@ def _list_library_directory(source, relative_path=''):
                 'has_manifest': direct_manifest is not None,
                 'manifest_valid': bool(direct_manifest and direct_manifest.get('valid')),
                 'cover_path': _directory_cover_path(root, child, direct_manifest),
-                'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds')
+                'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds'),
+                'directory_count': content_counts['directory_count'],
+                'image_count': content_counts['image_count'],
+                'file_count': content_counts['file_count']
             })
             continue
 
@@ -2292,6 +2335,16 @@ def toggle_library_share_selection(token):
     listing = _list_library_directory(source, base)
     count = sum(1 for item in listing['items'] if item['type'] == 'image' and item.get('is_favorited'))
     return jsonify({'selected': selected, 'is_favorited': selected, 'selected_count': count})
+
+
+# Advanced per-Set workflow tools live in a separate module so the gallery core
+# remains focused on browsing/state management.
+app.register_blueprint(create_workflow_blueprint(
+    _library_admin_guard,
+    _get_library_source,
+    _resolve_library_path,
+    get_db_connection,
+))
 
 
 @app.route('/api/admin/logout', methods=['POST'])
