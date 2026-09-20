@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260920-23">
+    <link rel="stylesheet" href="style.css?v=20260920-26">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -169,6 +169,20 @@
                     <div class="library-path">{{ currentLibrarySource ? currentLibrarySource.name : '' }}<span v-if="libraryListing.path"> / {{ libraryListing.path }}</span></div>
                 </div>
                 <div class="album-actions">
+                    <!-- 目录布局切换只在当前层含有文件夹时显示；纯图片目录不显示。 -->
+                    <el-dropdown v-if="libraryDirectories.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
+                        <el-button>
+                            <span>{{ folderViewMode === 'grid' ? '目录网格' : '目录列表' }}</span>
+                            <el-icon class="el-icon--right"><arrow-down/></el-icon>
+                        </el-button>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item :class="{ 'is-active': folderViewMode === 'grid' }" @click="folderViewMode = 'grid'">目录网格</el-dropdown-item>
+                                <el-dropdown-item :class="{ 'is-active': folderViewMode === 'list' }" @click="folderViewMode = 'list'">目录列表</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
+
                     <!-- 与原相册图片页一致的浏览模式切换。只在当前层有图片时显示。 -->
                     <el-dropdown v-if="libraryImages.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
                         <el-button>
@@ -227,9 +241,9 @@
                 <el-button plain @click="openManifestDetails">Detail</el-button>
             </div>
 
-            <!-- 文件夹：严格复用原相册 album-grid / album-card / album-cover。 -->
+            <!-- 文件夹：网格和紧凑列表两种布局；切换入口放在 album-actions。 -->
             <div v-if="libraryDirectories.length > 0" class="library-section">
-                <div class="album-grid">
+                <div v-if="folderViewMode === 'grid'" class="album-grid">
                     <div v-for="item in libraryDirectories" :key="item.relative_path"
                          class="album-card library-folder-card"
                          :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid}"
@@ -253,6 +267,31 @@
                             </div>
                             <div class="library-folder-stats">{{ formatLibraryFolderCounts(item) }}</div>
                         </div>
+                    </div>
+                </div>
+
+                <div v-else class="library-folder-list">
+                    <div v-for="item in libraryDirectories" :key="item.relative_path"
+                         class="library-folder-list-row"
+                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid}"
+                         @click="openLibraryDirectory(item)">
+                        <div class="library-folder-list-cover">
+                            <img v-if="item.cover_path"
+                                 :src="libraryPathAssetUrl(item.cover_path, 'thumbnail')"
+                                 :alt="item.name">
+                            <el-icon v-else><Folder/></el-icon>
+                        </div>
+                        <div class="library-folder-list-main">
+                            <div class="library-folder-list-name">{{ item.name }}</div>
+                            <div class="library-folder-list-type">
+                                <span v-if="item.is_set && item.has_manifest && item.manifest_valid">SET · manifest</span>
+                                <span v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</span>
+                                <span v-else-if="item.is_set">SET</span>
+                                <span v-else>文件夹</span>
+                            </div>
+                        </div>
+                        <div class="library-folder-list-stats">{{ formatLibraryFolderCounts(item) }}</div>
+                        <div class="library-folder-list-arrow" aria-hidden="true">›</div>
                     </div>
                 </div>
             </div>
@@ -1906,6 +1945,6 @@
 <script src="manifest-autofill.js?v=20260920-02"></script>
 <script src="workflow-tools.js?v=20260920-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260920-15"></script>
+<script type="module" src="app.js?v=20260920-26"></script>
 </body>
 </html>

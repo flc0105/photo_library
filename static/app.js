@@ -3013,8 +3013,9 @@ const app = createApp({
             });
         };
 
-        // 添加浏览模式状态
+        // 图片浏览模式与文件夹浏览模式彼此独立。
         const viewMode = ref('grid'); // 'grid' 或 'waterfall'
+        const folderViewMode = ref('grid'); // 'grid' 或 'list'；仅在当前层包含文件夹时显示切换
 
 
         //exif waterfall
@@ -3426,7 +3427,7 @@ const app = createApp({
 
             showShareDialog,
             generateAlbumShareUrl,
-            generateImageShareUrl, viewMode,
+            generateImageShareUrl, viewMode, folderViewMode,
 
 
             cacheImageExif,
