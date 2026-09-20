@@ -1178,6 +1178,25 @@ const app = createApp({
             manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
             manifestJsonError.value = '';
             showManifestDialog.value = true;
+
+            // EXIF scanning can be slow on a large Original/JPG folder. Do it only
+            // after the editor is opened, never as part of ordinary Set browsing.
+            if (!manifest.valid) {
+                try {
+                    const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest-suggestion?path=${encodeURIComponent(manifestEditPath.value || '')}`);
+                    const suggested = await response.json();
+                    if (!response.ok) throw new Error(suggested.error || '读取拍摄时间失败');
+                    if (!manifestForm.value.shoot.start_time && suggested.shoot?.start_time) {
+                        manifestForm.value.shoot.start_time = suggested.shoot.start_time;
+                    }
+                    if (!manifestForm.value.shoot.end_time && suggested.shoot?.end_time) {
+                        manifestForm.value.shoot.end_time = suggested.shoot.end_time;
+                    }
+                } catch (error) {
+                    ElMessage.warning(error?.message || '读取 Original/JPG EXIF 时间失败');
+                }
+            }
+
             await manifestAutofill.syncCurrent();
             manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
         };

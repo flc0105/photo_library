@@ -1453,10 +1453,14 @@ def _parse_set_folder_name(name):
     return date, model, theme
 
 
-def _suggest_manifest(target):
-    """Return a clean manifest template with only real inferred values filled."""
+def _suggest_manifest(target, include_times=False):
+    """Return a clean manifest template.
+
+    Folder browsing must stay cheap, so EXIF time scanning is opt-in and is
+    performed only when the manifest editor explicitly asks for it.
+    """
     date, model, theme = _parse_set_folder_name(target.name)
-    times = get_original_jpg_time_range(target)
+    times = get_original_jpg_time_range(target) if include_times else {'start_time': '', 'end_time': ''}
     return {
         'model': model,
         'shoot': {
@@ -1889,6 +1893,25 @@ def get_library_asset(source_id):
         return jsonify({'error': str(exc)}), 404
 
 
+
+
+@app.route('/api/library/sources/<int:source_id>/manifest-suggestion', methods=['GET'])
+def get_library_manifest_suggestion(source_id):
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+    source = _get_library_source(source_id)
+    if not source:
+        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+    try:
+        _, target, _ = _resolve_library_path(source, request.args.get('path', ''))
+        if not target.is_dir():
+            return jsonify({'error': '目标不是目录'}), 400
+        if not _is_set_folder_name(target.name):
+            return jsonify({'error': '目标不是 Set 目录'}), 400
+        return jsonify(_suggest_manifest(target, include_times=True))
+    except (ValueError, FileNotFoundError, NotADirectoryError, OSError) as exc:
+        return jsonify({'error': str(exc)}), 400
 
 
 @app.route('/api/library/sources/<int:source_id>/manifest-reference', methods=['GET'])
