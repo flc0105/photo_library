@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260920-15">
+    <link rel="stylesheet" href="style.css?v=20260920-23">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -1384,10 +1384,14 @@
                             <span>Normal <strong>{{ validationData.summary.info_count }}</strong></span>
                             <span>OK <strong>{{ validationData.summary.ok_count }}</strong></span>
                         </div>
-                        <el-radio-group v-model="validationSortMode" size="small" class="validation-sort-switch">
+                        <el-radio-group v-model="validationSortMode" class="validation-sort-switch">
                             <el-radio-button label="severity">Severity</el-radio-button>
                             <el-radio-button label="date">Date</el-radio-button>
                         </el-radio-group>
+                    </div>
+                    <div v-if="validationData.versions && validationData.versions.length" class="validation-root-versions">
+                        <span class="validation-muted-label">Version tags</span>
+                        <el-tag v-for="item in validationData.versions" :key="item.name" size="small" effect="plain">{{ item.name }} ×{{ item.count }}</el-tag>
                     </div>
 
                     <el-table :data="validationSortedSets" stripe class="validation-table">
@@ -1420,7 +1424,7 @@
                             </template>
                         </el-table-column>
                         <el-table-column prop="name" label="Set" min-width="300"></el-table-column>
-                        <el-table-column label="Original JPG/RAW" width="140" align="center">
+                        <el-table-column label="JPG / RAW" width="100" align="center">
                             <template #default="scope"><span>{{ scope.row.jpg_count }} / {{ scope.row.raw_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Base / Model" width="125" align="center">

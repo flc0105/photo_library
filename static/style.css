@@ -2461,3 +2461,79 @@ body {
         align-self: flex-end;
     }
 }
+
+/* ==================== Validation toolbar native alignment v20 ==================== */
+/* Let the native default Element Plus radio buttons define the toolbar row height.
+   The summary strip contributes no vertical height of its own and simply stretches to match. */
+.validation-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.validation-toolbar .validation-summary-strip {
+    margin: 0;
+    padding: 0 14px;
+    min-height: 0;
+    height: auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
+    white-space: nowrap;
+}
+
+.validation-sort-switch {
+    align-self: stretch;
+}
+
+/* Keep the version-tag row visually separate and leave enough breathing room
+   that the first tag border can never be clipped by the toolbar above. */
+.validation-root-versions {
+    position: relative;
+    z-index: 0;
+    overflow: visible;
+    margin: 0 0 12px;
+    padding-top: 4px;
+}
+
+.validation-table .el-table__header-wrapper th.el-table__cell {
+    vertical-align: middle;
+}
+
+.validation-table .el-table__header-wrapper .cell {
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .validation-toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .validation-sort-switch {
+        justify-self: end;
+    }
+}
+
+
+/* ==================== Validation sort switch top edge v23 ==================== */
+/* Keep the v20 toolbar/version-tag layout. Only restore the visually missing
+   top edge of the Severity / Date segmented control. */
+.validation-sort-switch {
+    position: relative;
+}
+
+.validation-sort-switch::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 1px;
+    right: 1px;
+    height: 1px;
+    background: var(--el-border-color, #dcdfe6);
+    border-radius: 4px 4px 0 0;
+    pointer-events: none;
+    z-index: 10;
+}

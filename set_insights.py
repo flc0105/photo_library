@@ -390,11 +390,12 @@ def _validate_one_set(set_dir: Path):
     model_count = len(model_files)
     ready_count = len(ready_files)
 
-    # Base and Model are allowed to be absent independently in the archive.  A
-    # mismatch is only suspicious when both stages contain files; one-sided
-    # stages are a normal workflow variant and are surfaced as informational.
+    # Base/Model status semantics:
+    # - both non-zero but counts differ -> Issue (unexpected mismatch)
+    # - Base is zero -> Normal, regardless of whether Model has files
+    # - Base has files but Model is zero -> Normal (no return / no retouch needed)
     if base_count > 0 and model_count > 0 and base_count != model_count:
-        warnings.append(f'Base/Model count mismatch: {base_count} / {model_count}')
+        issues.append(f'Base/Model count mismatch: {base_count} / {model_count}')
     elif base_count > 0 and model_count == 0:
         info.append(f'Base Edit has {base_count} file(s), Model Edit is empty')
     elif base_count == 0 and model_count > 0:
@@ -454,6 +455,18 @@ def _validate_root(root: Path):
         sets.append(_validate_one_set(set_dir))
 
     status_counts = Counter(item['status'] for item in sets)
+    version_counter = Counter()
+    for item in sets:
+        for version in item.get('versions', []):
+            name = str(version.get('name', '')).strip()
+            if not name:
+                continue
+            try:
+                count = int(version.get('count', 0))
+            except (TypeError, ValueError):
+                count = 0
+            if count > 0:
+                version_counter[name] += count
 
     return {
         'root': str(root),
@@ -465,6 +478,10 @@ def _validate_root(root: Path):
             'info_count': status_counts.get('info', 0),
             'ok_count': status_counts.get('ok', 0),
         },
+        'versions': [
+            {'name': name, 'count': count}
+            for name, count in sorted(version_counter.items(), key=lambda item: (-item[1], item[0].casefold()))
+        ],
         'sets': sets,
     }
 
