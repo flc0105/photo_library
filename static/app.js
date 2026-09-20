@@ -625,13 +625,15 @@ const app = createApp({
         const manifestJsonText = ref('');
         const manifestJsonError = ref('');
 
+        // Controlled vocabularies. The first six lists are migrated from the
+        // legacy photo-metadata system and normalized to lowercase machine values.
         const manifestOptions = {
-            environment: ['studio', 'indoor', 'outdoor'],
-            weather: ['sunny', 'overcast', 'rainy'],
-            genre: ['cosplay', 'jk', 'lolita'],
-            source_type: ['mobile_game', 'anime', 'galgame', 'other'],
-            collaboration_type: ['tf', 'group_shoot'],
-            venue_fee_payer: ['photographer', 'model', 'split'],
+            environment: ['studio', 'outdoor', 'indoor'],
+            weather: ['sunny', 'cloudy', 'overcast', 'rainy', 'snowy'],
+            genre: ['cosplay', 'jk', 'lolita', 'casual', 'jirai'],
+            source_type: ['mobile_game', 'galgame', 'anime', 'comic', 'original', 'vtuber', 'other'],
+            collaboration_type: ['tf', 'photographer_paid', 'group_shoot', 'client_commissioned'],
+            venue_fee_payer: ['model', 'photographer', 'split'],
             light_type: ['strobe', 'continuous', 'natural'],
             role: ['rim', 'fill', 'bounce', 'top', 'face'],
             modifier: ['bare_bulb', 'deep_parabolic', 'standard_reflector'],

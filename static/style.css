@@ -1805,3 +1805,231 @@ body {
         min-height: 420px !important;
     }
 }
+
+/* ==================== Set manifest editor v4 refinements ==================== */
+/* Keep the summary metadata on one visual baseline. */
+.library-manifest-meta {
+    align-items: center;
+    column-gap: 18px;
+    row-gap: 8px;
+    line-height: 20px;
+}
+
+.library-manifest-meta > span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    margin: 0;
+    padding: 0;
+    line-height: 20px;
+    vertical-align: middle;
+}
+
+/* One scroll container only: the dialog body. */
+.el-dialog.manifest-edit-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(980px, calc(100vw - 40px)) !important;
+    max-width: min(980px, calc(100vw - 40px)) !important;
+    max-height: 92vh;
+    margin: 4vh auto !important;
+    overflow: hidden;
+}
+
+.manifest-edit-dialog .el-dialog__header,
+.manifest-edit-dialog .el-dialog__footer {
+    flex: 0 0 auto;
+}
+
+.manifest-edit-dialog .el-dialog__header {
+    padding: 18px 20px 12px;
+    margin-right: 0;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.manifest-edit-dialog .el-dialog__headerbtn {
+    top: 10px;
+    right: 12px;
+}
+
+.manifest-edit-dialog .el-dialog__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none !important;
+    padding: 14px 18px 18px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: #f6f7f9;
+}
+
+.manifest-edit-dialog .el-dialog__footer {
+    padding: 12px 18px 14px;
+    border-top: 1px solid #ebeef5;
+    background: #fff;
+}
+
+.manifest-editor-shell {
+    min-height: 0;
+}
+
+/* The mode switch is deliberately non-sticky so it never overlays the form. */
+.manifest-editor-toolbar {
+    position: static;
+    z-index: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 14px;
+    padding: 11px 13px;
+    border: 1px solid #e1e5ec;
+    border-radius: 10px;
+    background: #fff;
+    backdrop-filter: none;
+    box-shadow: none;
+}
+
+.manifest-editor-mode-copy {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.manifest-editor-kicker {
+    color: #909399;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+}
+
+.manifest-editor-mode-copy strong {
+    color: #303133;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.manifest-form {
+    gap: 14px;
+}
+
+.manifest-form-section {
+    padding: 17px 18px 19px;
+    border-color: #e2e6ed;
+    border-radius: 11px;
+    box-shadow: none;
+}
+
+.manifest-form-section-title {
+    margin-bottom: 15px;
+}
+
+.manifest-form-section-title h3 {
+    font-size: 16px;
+    line-height: 1.25;
+}
+
+.manifest-form-section-title p {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.manifest-form-grid {
+    column-gap: 16px;
+    row-gap: 17px;
+    align-items: stretch;
+}
+
+.manifest-form .el-form-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.manifest-form .el-form-item__label {
+    display: block;
+    width: 100%;
+    min-height: 18px;
+    margin: 0 0 7px;
+    padding: 0;
+    line-height: 18px;
+}
+
+.manifest-form .el-form-item__content {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 40px;
+    line-height: normal;
+}
+
+.manifest-form .el-input__wrapper,
+.manifest-form .el-select__wrapper,
+.manifest-form .el-input-number .el-input__wrapper,
+.manifest-switch-control {
+    min-height: 40px;
+    box-sizing: border-box;
+}
+
+.manifest-form .el-input-number .el-input__inner {
+    text-align: left;
+}
+
+.manifest-switch-control {
+    margin: 0;
+    border-color: #dcdfe6;
+}
+
+.manifest-light-card {
+    border-color: #e2e6ed;
+    background: #fafbfc;
+}
+
+/* Raw JSON grows with its content; the dialog body supplies the only scrollbar. */
+.manifest-json-editor {
+    padding: 15px;
+    border-color: #e2e6ed;
+    background: #fff;
+}
+
+.manifest-json-textarea,
+.manifest-json-textarea .el-textarea {
+    width: 100%;
+}
+
+.manifest-json-textarea .el-textarea__inner {
+    min-height: 460px !important;
+    overflow-y: hidden !important;
+    resize: none !important;
+    scrollbar-width: none;
+}
+
+.manifest-json-textarea .el-textarea__inner::-webkit-scrollbar {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    .el-dialog.manifest-edit-dialog {
+        width: calc(100vw - 20px) !important;
+        max-width: calc(100vw - 20px) !important;
+        max-height: 96vh;
+        margin: 2vh auto !important;
+    }
+
+    .manifest-edit-dialog .el-dialog__body {
+        padding: 12px;
+    }
+
+    .manifest-editor-toolbar {
+        align-items: center;
+        flex-direction: row;
+    }
+
+    .manifest-editor-mode-copy {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+    }
+}

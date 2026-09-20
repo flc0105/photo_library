@@ -1461,11 +1461,11 @@ def _suggest_manifest(target):
     return {
         'model': model,
         'shoot': {
-            'date': date,
-            'start_time': '',
-            'end_time': '',
-            'environment': '',
-            'weather': ''
+            'date': date or 'yyyy-MM-dd',
+            'start_time': 'HH:mm',
+            'end_time': 'HH:mm',
+            'environment': 'studio|outdoor|indoor',
+            'weather': 'sunny|cloudy|overcast|rainy|snowy'
         },
         'location': {
             'name': '',
@@ -1475,17 +1475,17 @@ def _suggest_manifest(target):
         },
         'theme': {
             'name': theme,
-            'genre': '',
+            'genre': 'cosplay|jk|lolita|casual|jirai',
             'source_title': '',
-            'source_type': '',
+            'source_type': 'mobile_game|galgame|anime|comic|original|vtuber|other',
             'character': ''
         },
         'production': {
-            'collaboration_type': '',
+            'collaboration_type': 'tf|photographer_paid|group_shoot|client_commissioned',
             'lead_photographer': True,
             'model_fee': 0,
             'venue_fee': None,
-            'venue_fee_payer': ''
+            'venue_fee_payer': 'model|photographer|split'
         },
         'props': {
             'subject': [],
