@@ -1379,7 +1379,7 @@ body {
     padding-bottom: 24px;
 }
 
-/* ==================== Set manifest v2 ==================== */
+/* ==================== Set manifest v3 ==================== */
 .library-manifest-summary {
     display: flex;
     align-items: center;
@@ -1391,45 +1391,25 @@ body {
     min-width: 0;
 }
 
-.manifest-detail-content,
-.manifest-form {
+/* Detail dialog */
+.manifest-detail-content {
     display: flex;
     flex-direction: column;
     gap: 18px;
 }
 
-.manifest-detail-section,
-.manifest-form-section {
+.manifest-detail-section {
     padding: 16px 18px;
     border: 1px solid #ebeef5;
     border-radius: 10px;
     background: #fff;
 }
 
-.manifest-detail-section h3,
-.manifest-form-section h3 {
+.manifest-detail-section h3 {
     margin: 0 0 14px;
     font-size: 15px;
     font-weight: 700;
     color: #303133;
-}
-
-.manifest-section-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
-}
-
-.manifest-section-heading h3 {
-    margin: 0;
-}
-
-.manifest-light-count,
-.manifest-empty-value {
-    color: #909399;
-    font-size: 13px;
 }
 
 .manifest-detail-grid {
@@ -1464,6 +1444,160 @@ body {
     grid-column: 1 / -1;
 }
 
+.manifest-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.manifest-section-heading h3 {
+    margin: 0;
+}
+
+.manifest-light-count,
+.manifest-empty-value {
+    color: #909399;
+    font-size: 13px;
+}
+
+/* Editor shell */
+.manifest-editor-shell {
+    min-height: 340px;
+}
+
+.manifest-editor-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin: -4px 0 18px;
+    padding: 10px 12px;
+    border: 1px solid #e4e7ed;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+}
+
+.manifest-editor-mode-copy {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+}
+
+.manifest-editor-mode-copy strong {
+    color: #303133;
+    font-size: 14px;
+}
+
+.manifest-editor-mode-copy span {
+    color: #909399;
+    font-size: 12px;
+}
+
+.manifest-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.manifest-form-section {
+    padding: 18px 20px 20px;
+    border: 1px solid #e4e7ed;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.025);
+}
+
+.manifest-form-section-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.manifest-form-section-title h3 {
+    margin: 0;
+    color: #303133;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.manifest-form-section-title p {
+    margin: 3px 0 0;
+    color: #a0a4ad;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.manifest-section-title-inline {
+    margin-bottom: 0;
+}
+
+.manifest-form-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 16px 18px;
+    align-items: start;
+}
+
+.manifest-span-4 { grid-column: span 4; }
+.manifest-span-6 { grid-column: span 6; }
+.manifest-span-12 { grid-column: 1 / -1; }
+
+.manifest-form .el-form-item {
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.manifest-form .el-form-item__label {
+    height: auto;
+    margin-bottom: 7px;
+    padding: 0;
+    color: #606266;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.manifest-form .el-input,
+.manifest-form .el-select,
+.manifest-form .el-input-number {
+    width: 100%;
+}
+
+.manifest-form .el-input__wrapper,
+.manifest-form .el-select__wrapper,
+.manifest-form .el-input-number .el-input__wrapper {
+    min-height: 38px;
+}
+
+.manifest-switch-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    border: 1px solid #dcdfe6;
+    border-radius: 4px;
+    box-sizing: border-box;
+    background: #fff;
+}
+
+.manifest-switch-control span {
+    color: #606266;
+    font-size: 13px;
+}
+
+/* Lighting editor */
 .manifest-light-list {
     display: flex;
     flex-direction: column;
@@ -1473,8 +1607,14 @@ body {
 .manifest-light-card {
     padding: 14px 16px;
     border: 1px solid #dcdfe6;
-    border-radius: 8px;
+    border-radius: 10px;
     background: #fafafa;
+}
+
+.manifest-light-editor {
+    padding: 16px 18px 18px;
+    border-color: #e4e7ed;
+    background: #fbfcfe;
 }
 
 .manifest-light-header {
@@ -1482,7 +1622,31 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 15px;
+}
+
+.manifest-light-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.manifest-light-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #eef4ff;
+    color: #409eff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.manifest-light-title strong {
+    color: #303133;
+    font-size: 14px;
 }
 
 .manifest-light-actions {
@@ -1491,12 +1655,112 @@ body {
     gap: 10px;
 }
 
-.manifest-light-editor .el-form-item {
-    margin-bottom: 14px;
+.manifest-empty-panel {
+    padding: 20px;
+    border: 1px dashed #dcdfe6;
+    border-radius: 9px;
+    text-align: center;
+    background: #fafafa;
 }
 
-.manifest-form-section .el-form-item:last-child {
-    margin-bottom: 0;
+/* Raw JSON editor */
+.manifest-json-editor {
+    padding: 16px;
+    border: 1px solid #e4e7ed;
+    border-radius: 12px;
+    background: #f8f9fb;
+}
+
+.manifest-json-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.manifest-json-editor-head > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.manifest-json-editor-head strong {
+    color: #303133;
+    font-size: 14px;
+}
+
+.manifest-json-editor-head span {
+    color: #909399;
+    font-size: 12px;
+}
+
+.manifest-json-textarea .el-textarea__inner {
+    min-height: 520px !important;
+    padding: 14px 16px;
+    border: 0;
+    box-shadow: 0 0 0 1px #dcdfe6 inset;
+    background: #fff;
+    color: #303133;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    tab-size: 2;
+}
+
+.manifest-json-error {
+    margin-top: 10px;
+    padding: 9px 11px;
+    border-radius: 7px;
+    background: #fef0f0;
+    color: #f56c6c;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.manifest-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+}
+
+.manifest-editor-footnote {
+    color: #a0a4ad;
+    font-size: 12px;
+}
+
+.manifest-dialog-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.manifest-detail-dialog .el-dialog,
+.manifest-edit-dialog .el-dialog {
+    max-width: calc(100vw - 32px);
+}
+
+.manifest-detail-dialog .el-dialog__body,
+.manifest-edit-dialog .el-dialog__body {
+    max-height: 72vh;
+    overflow-y: auto;
+}
+
+.manifest-edit-dialog .el-dialog__body {
+    padding-top: 12px;
+    background: #f6f7f9;
+}
+
+.manifest-edit-dialog .el-dialog__footer {
+    border-top: 1px solid #ebeef5;
+}
+
+@media (max-width: 900px) {
+    .manifest-span-4,
+    .manifest-span-6 {
+        grid-column: span 6;
+    }
 }
 
 @media (max-width: 720px) {
@@ -1511,15 +1775,33 @@ body {
     .manifest-detail-wide {
         grid-column: auto;
     }
-}
 
-.manifest-detail-dialog .el-dialog,
-.manifest-edit-dialog .el-dialog {
-    max-width: calc(100vw - 32px);
-}
+    .manifest-editor-toolbar,
+    .manifest-dialog-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
 
-.manifest-detail-dialog .el-dialog__body,
-.manifest-edit-dialog .el-dialog__body {
-    max-height: 68vh;
-    overflow-y: auto;
+    .manifest-form-section {
+        padding: 16px;
+    }
+
+    .manifest-form-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .manifest-span-4,
+    .manifest-span-6,
+    .manifest-span-12 {
+        grid-column: 1;
+    }
+
+    .manifest-light-header {
+        align-items: flex-start;
+    }
+
+    .manifest-json-textarea .el-textarea__inner {
+        min-height: 420px !important;
+    }
 }

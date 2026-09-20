@@ -621,6 +621,22 @@ const app = createApp({
         const showManifestDetailDialog = ref(false);
         const manifestEditPath = ref('');
         const manifestForm = ref({});
+        const manifestEditorMode = ref('form');
+        const manifestJsonText = ref('');
+        const manifestJsonError = ref('');
+
+        const manifestOptions = {
+            environment: ['studio', 'indoor', 'outdoor'],
+            weather: ['sunny', 'overcast', 'rainy'],
+            genre: ['cosplay', 'jk', 'lolita'],
+            source_type: ['mobile_game', 'anime', 'galgame', 'other'],
+            collaboration_type: ['tf', 'group_shoot'],
+            venue_fee_payer: ['photographer', 'model', 'split'],
+            light_type: ['strobe', 'continuous', 'natural'],
+            role: ['rim', 'fill', 'bounce', 'top', 'face'],
+            modifier: ['bare_bulb', 'deep_parabolic', 'standard_reflector'],
+            position: ['front', 'overhead', 'high_rear_right', 'high_rear_left', 'rear_right', 'rear_left', 'side_right', 'side_left', 'ceiling']
+        };
 
         const showLibraryShareDialog = ref(false);
         const libraryShareForm = ref({title: '', password: '', allow_select: true});
@@ -777,6 +793,47 @@ const app = createApp({
                     return item;
                 })
             };
+        };
+
+        const parseManifestJsonText = () => {
+            try {
+                const parsed = JSON.parse(manifestJsonText.value || '');
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    throw new Error('manifest root must be a JSON object');
+                }
+                manifestJsonError.value = '';
+                return parsed;
+            } catch (error) {
+                manifestJsonError.value = error && error.message ? error.message : 'Invalid JSON';
+                return null;
+            }
+        };
+
+        const refreshManifestJsonText = () => {
+            manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
+            manifestJsonError.value = '';
+        };
+
+        const switchManifestEditorMode = (mode) => {
+            if (mode === manifestEditorMode.value) return;
+            if (mode === 'json') {
+                refreshManifestJsonText();
+                manifestEditorMode.value = 'json';
+                return;
+            }
+            const parsed = parseManifestJsonText();
+            if (!parsed) {
+                ElMessage.error('JSON 格式有误，修复后才能切回 Form');
+                return;
+            }
+            manifestForm.value = normalizeManifest(parsed);
+            manifestEditorMode.value = 'form';
+        };
+
+        const formatManifestJson = () => {
+            const parsed = parseManifestJsonText();
+            if (!parsed) return;
+            manifestJsonText.value = JSON.stringify(parsed, null, 2);
         };
 
         const currentManifestData = computed(() => {
@@ -1097,6 +1154,9 @@ const app = createApp({
             const data = manifest.valid ? manifest.data : (libraryListing.value.suggested_manifest || {});
             manifestEditPath.value = libraryListing.value.path || '';
             manifestForm.value = normalizeManifest(data);
+            manifestEditorMode.value = 'form';
+            manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
+            manifestJsonError.value = '';
             showManifestDialog.value = true;
         };
 
@@ -1106,7 +1166,16 @@ const app = createApp({
         };
 
         const saveManifest = async () => {
-            const payload = serializeManifestForm();
+            let payload;
+            if (manifestEditorMode.value === 'json') {
+                payload = parseManifestJsonText();
+                if (!payload) {
+                    ElMessage.error('JSON 格式有误，无法保存');
+                    return;
+                }
+            } else {
+                payload = serializeManifestForm();
+            }
             try {
                 const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {
                     method: 'PUT',
@@ -2938,6 +3007,12 @@ const app = createApp({
             showManifestDialog,
             showManifestDetailDialog,
             manifestForm,
+            manifestEditorMode,
+            manifestJsonText,
+            manifestJsonError,
+            manifestOptions,
+            switchManifestEditorMode,
+            formatManifestJson,
             openManifestDetails,
             openManifestEditor,
             editManifestFromDetail,
