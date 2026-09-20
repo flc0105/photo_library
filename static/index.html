@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的相册</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <link rel="stylesheet" href="style.css?v=20260919-32">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <script src="//unpkg.com/@element-plus/icons-vue"></script>
+
+        <!-- 添加noscript警告（在body显示） -->
+    <noscript>
+        <div style="position:fixed; top:0; left:0; right:0; background:#e53e3e; color:white; text-align:center; padding:15px; z-index:9999; font-weight:bold;">
+            ⚠️ 请启用JavaScript以继续访问
+        </div>
+    </noscript>
+
+    <!-- 引入auth.js -->
+    <script src="/auth.js?v=20260919-32"></script>
+</head>
+<body>
+<div id="app">
+    <div class="container">
+
+        <!-- 相册列表页面 -->
+        <div v-if="currentView === 'albums'">
+            <div class="header">
+                <h1 @dblclick="isAdmin ? editSiteTitle() : null" class="site-title">
+                    {{ siteTitle }}
+                </h1>
+                <div>
+                    <el-button v-if="isAdmin" type="primary" @click="resetAlbumDialog">新建相册</el-button>
+<!--                    <el-button v-if="isAdmin" type="primary" @click="showCreateAlbumDialog = true">新建相册</el-button>-->
+                    <el-button v-if="isAdmin" @click="showManageGroupsDialog = true">管理分组</el-button>
+                    <el-button v-if="isAdmin" @click="showLibrarySourcesDialog = true">本地目录</el-button>
+                    <el-button v-if="!isAdmin" @click="showAdminLogin = true">管理员登录</el-button>
+                    <el-button v-if="isAdmin" @click="adminLogout">退出管理</el-button>
+                    <el-button v-if="isAdmin" @click="showConfigDialog = true">设置</el-button>
+
+                </div>
+            </div>
+
+            <!-- 分组显示区域 -->
+            <div v-if="albumGroups.length > 0">
+                <div v-for="group in albumGroups" :key="group.id" class="album-group">
+                    <div class="group-header">
+
+                        <div class="group-title" @click="toggleGroupCollapse(group.id)">
+                        <h2>{{ group.name }} <span class="album-count">({{ group.album_count }}个相册)</span></h2>
+                        </div>
+
+                         <div class="group-actions">
+                <!-- 添加相册按钮 -->
+                <span class="el-dropdown-link"
+                    v-if="isAdmin"
+                    @click="showCreateAlbumInGroup(group)"
+                    title="在此分组添加相册"
+                >
+                    <el-icon><Plus /></el-icon>
+                </span>
+                            <el-dropdown v-if="!group.is_ungrouped" @command="handleGroupCommand" size="small">
+                    <span class="el-dropdown-link" v-if="isAdmin">
+                        <el-icon><More/></el-icon>
+                    </span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item :command="{action: 'edit', group: group}">编辑分组
+                                    </el-dropdown-item>
+                                    <el-dropdown-item :command="{action: 'collapse', group: group}">
+                            {{ isGroupCollapsed(group.id) ? '展开分组' : '折叠分组' }}
+                        </el-dropdown-item>
+                                    <el-dropdown-item :command="{action: 'delete', group: group}" divided>删除分组
+                                    </el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                         </div></div>
+
+
+<div class="group-content" :class="{ 'collapsed': isGroupCollapsed(group.id) }">
+                    <div v-if="group.albums && group.albums.length > 0" class="album-grid">
+                        <div v-for="album in group.albums" :key="album.id" class="album-card"
+                             @click="openAlbum(album.id)">
+                            <div class="album-cover locked-cover"
+                                 v-if="album.has_password && !checkAlbumAccess(album.id)"
+                                 style="display: flex; align-items: center; justify-content: center;">
+                                <el-icon class="lock-icon">
+                                    <Lock/>
+                                </el-icon>
+                                <div class="lock-text">已锁定</div>
+                            </div>
+                            <div v-else>
+                                <img v-if="album.cover_filename"
+                                     :src="`/api/images/${album.cover_image_id}/file?type=thumbnail`"
+                                     :alt="album.name" class="album-cover">
+                                <div v-else class="album-cover locked-cover"
+                                     style="display: flex; align-items: center; justify-content: center;">
+                                    <el-icon class="lock-icon">
+                                        <Folder/>
+                                    </el-icon>
+                                    <span class="lock-text">暂无封面</span>
+                                </div>
+                            </div>
+                            <div class="album-info">
+                                <div class="album-name">{{ album.name }}<span v-if="album.has_password"> (加密)</span>
+                                </div>
+                                <div class="album-meta">
+                                    <div>图片: {{ album.image_count || 0 }}</div>
+                                    <div>创建: {{ formatDate(album.created_at) }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state">
+                        <p>此分组还没有相册</p>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- 本地文件系统 Source：仅管理员看到完整目录。分享访客只走随机 token 页面。 -->
+            <div v-if="isAdmin" class="album-group library-source-group">
+                <div class="group-header">
+                    <div class="group-title"><h2>本地目录 <span class="album-count">({{ librarySources.length }}个 Source)</span></h2></div>
+                    <div class="group-actions">
+                        <el-button size="small" @click="showLibrarySourcesDialog = true">管理 Source</el-button>
+                    </div>
+                </div>
+                <div class="group-content">
+                    <div v-if="librarySources.length" class="album-grid">
+                        <div v-for="source in librarySources" :key="source.id" class="album-card library-source-card"
+                             @click="openLibrarySource(source)">
+                            <div class="album-cover locked-cover library-source-cover"
+                                 style="display:flex; align-items:center; justify-content:center;">
+                                <el-icon class="lock-icon"><Folder /></el-icon>
+                                <span class="lock-text">{{ source.available ? '暂无封面' : '目录不可用' }}</span>
+                            </div>
+                            <div class="album-info">
+                                <div class="album-name">{{ source.name }}</div>
+                                <div class="album-meta"><div class="library-root-path">{{ source.root_path }}</div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state">
+                        <p>还没有本地目录 Source。点击“管理 Source”添加 Completed。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="albumGroups.length === 0 && (!ungroupedAlbums || ungroupedAlbums.length === 0)"
+                 class="empty-state">
+                <p>还没有相册，创建一个吧！</p>
+            </div>
+        </div>
+        </div>
+
+
+        <!-- 本地目录浏览：文件夹复用相册卡片；图片复用原相册详情的网格/瀑布流。 -->
+        <div v-if="currentView === 'library'" v-loading="libraryLoading">
+            <div class="back-button">
+                <el-button @click="libraryBack">返回上一级</el-button>
+            </div>
+
+            <div class="header">
+                <div>
+                    <h1>{{ libraryListing.name || (currentLibrarySource && currentLibrarySource.name) }}</h1>
+                    <div class="library-path">{{ currentLibrarySource ? currentLibrarySource.name : '' }}<span v-if="libraryListing.path"> / {{ libraryListing.path }}</span></div>
+                </div>
+                <div class="album-actions">
+                    <!-- 与原相册图片页一致的浏览模式切换。只在当前层有图片时显示。 -->
+                    <el-dropdown v-if="libraryImages.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
+                        <el-button>
+                            <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
+                            <el-icon class="el-icon--right"><arrow-down/></el-icon>
+                        </el-button>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item :class="{ 'is-active': viewMode === 'grid' }" @click="viewMode = 'grid'">网格模式</el-dropdown-item>
+                                <el-dropdown-item :class="{ 'is-active': viewMode === 'waterfall' }" @click="viewMode = 'waterfall'">瀑布流模式</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
+
+                    <template v-if="isAdmin">
+                        <el-button @click="openManifestEditor">
+                            {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
+                        </el-button>
+                        <el-button :disabled="libraryFavoriteCount === 0" @click="exportLibraryFavorites">
+                            选图{{ libraryFavoriteCount > 0 ? `(${libraryFavoriteCount})` : '' }}
+                        </el-button>
+                        <el-button type="primary"
+                                   :disabled="libraryImages.length === 0"
+                                   :title="libraryImages.length === 0 ? '当前目录没有可分享的图片，请进入包含图片的目录' : '分享当前目录中的图片'"
+                                   @click="openLibraryShareDialog">分享当前目录</el-button>
+                    </template>
+                </div>
+            </div>
+
+            <div v-if="libraryListing.manifest && libraryListing.manifest.exists && !libraryListing.manifest.valid"
+                 class="library-manifest-error">
+                manifest.json 读取失败：{{ libraryListing.manifest.error }}
+            </div>
+
+            <div v-if="manifestSummary" class="library-manifest-card">
+                <div class="library-manifest-title">{{ manifestSummary.title || '未命名 Set' }}</div>
+                <div class="library-manifest-meta">
+                    <span v-if="manifestSummary.date">{{ manifestSummary.date }}</span>
+                    <span v-if="manifestSummary.model">模特：{{ manifestSummary.model }}</span>
+                    <span v-if="manifestSummary.location">地点：{{ manifestSummary.location }}</span>
+                    <span v-if="manifestSummary.theme">主题：{{ manifestSummary.theme }}</span>
+                    <span v-if="manifestSummary.style">风格：{{ manifestSummary.style }}</span>
+                </div>
+            </div>
+
+            <!-- 文件夹：严格复用原相册 album-grid / album-card / album-cover。 -->
+            <div v-if="libraryDirectories.length > 0" class="library-section">
+                <div class="album-grid">
+                    <div v-for="item in libraryDirectories" :key="item.relative_path"
+                         class="album-card library-folder-card"
+                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid}"
+                         @click="openLibraryDirectory(item)">
+                        <img v-if="item.cover_path"
+                             :src="libraryPathAssetUrl(item.cover_path, 'thumbnail')"
+                             :alt="item.name"
+                             class="album-cover">
+                        <div v-else class="album-cover locked-cover"
+                             style="display:flex; align-items:center; justify-content:center;">
+                            <el-icon class="lock-icon"><Folder/></el-icon>
+                            <span class="lock-text">暂无封面</span>
+                        </div>
+                        <div class="album-info">
+                            <div class="album-name">{{ item.name }}</div>
+                            <div class="album-meta">
+                                <div v-if="item.has_manifest && item.manifest_valid">SET · manifest</div>
+                                <div v-else-if="item.has_manifest" class="manifest-error-text">manifest error</div>
+                                <div v-else>文件夹</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图片：完全沿用原相册的筛选/排序状态和两种布局。 -->
+            <div v-if="libraryImages.length > 0" class="library-section">
+                <div v-if="filteredImages.length > 0" style="margin: 10px 0; color: #666; font-size: 13px;">
+                    <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
+                    <span>排序: {{ getCurrentSortLabel }}</span>
+                </div>
+
+                <div v-if="viewMode === 'grid'">
+                    <div class="image-grid">
+                        <div v-for="image in filteredImages"
+                             :key="image.id"
+                             class="image-item"
+                             @click="handleImageClick(image.id)">
+                            <img :src="libraryAssetUrl(image, 'thumbnail')"
+                                 :alt="image.original_filename"
+                                 class="image-thumb" />
+                            <div class="image-actions" :class="{ 'always-visible': image.is_favorited }">
+                                <button class="action-button"
+                                        :class="{ 'favorited': image.is_favorited }"
+                                        @click.stop="toggleImageFavorite(image)"
+                                        :title="image.is_favorited ? '取消收藏' : '收藏'">
+                                    <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'"><Star/></el-icon>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="viewMode === 'waterfall'">
+                    <div class="gallery-waterfall">
+                        <div v-for="image in filteredImages"
+                             :key="image.id"
+                             class="gallery-item"
+                             @click="handleImageClick(image.id)">
+                            <img :src="libraryAssetUrl(image, 'compressed')"
+                                 :alt="image.original_filename"
+                                 class="w-100 shadow-1-strong rounded gallery-img" />
+
+                            <div class="overlay"
+                                 @mouseenter="showExifOnHover ? loadExifOnHover(image) : null"
+                                 @mouseleave="showExifOnHover ? clearExifTimer(image.id) : null">
+                                <div class="caption">
+                                    <template v-if="showExifOnHover">
+                                        <div class="exif-content" v-if="hasExifInfo(image.id)">
+                                            <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
+                                                <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                            </div>
+                                            <div class="exposure-line">
+                                                <span class="exposure-item"><span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span></span>
+                                                <span class="exposure-sep">｜</span>
+                                                <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span></span>
+                                                <span class="exposure-sep">｜</span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span></span>
+                                                <span class="exposure-sep">｜</span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '焦距') }}</span></span>
+                                            </div>
+                                        </div>
+                                        <div class="exif-loading" v-else-if="exifLoading[image.id]"><div class="loading-spinner"></div></div>
+                                        <div class="file-info" v-else>{{ image.original_filename }}</div>
+                                    </template>
+                                    <template v-else><div class="file-info">{{ image.original_filename }}</div></template>
+                                </div>
+                                <div class="favorite-button" @click.stop="toggleImageFavorite(image)">
+                                    <el-icon :size="18" :color="image.is_favorited ? '#f56c6c' : 'rgba(255,255,255,0.8)'"><Star/></el-icon>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="libraryImages.length === 0" class="empty-state library-directory-state">
+                <p>{{ libraryEmptyMessage }}</p>
+            </div>
+        </div>
+
+        <!-- 随机 token 分享页：解锁后完全复用原相册的图片网格 / 瀑布流。 -->
+        <div v-if="currentView === 'library-share'" v-loading="shareLoading">
+            <div v-if="shareNeedsPassword" class="share-password-box">
+                <h2 style="margin:0;">{{ libraryShare.title || '分享相册' }}</h2>
+                <el-input v-model="sharePassword" type="password" show-password placeholder="输入分享密码"
+                          @keyup.enter="unlockLibraryShare"></el-input>
+                <el-button type="primary" @click="unlockLibraryShare">进入</el-button>
+            </div>
+
+            <template v-else>
+                <div class="header">
+                    <div>
+                        <h1>{{ libraryShare.title || '分享相册' }}</h1>
+                        <div v-if="libraryShare.manifest" class="library-path">
+                            <span v-if="libraryShare.manifest.shoot && libraryShare.manifest.shoot.date">{{ libraryShare.manifest.shoot.date }}</span>
+                            <span v-if="libraryShare.manifest.subjects && libraryShare.manifest.subjects.length">
+                                <span v-if="libraryShare.manifest.shoot && libraryShare.manifest.shoot.date"> · </span>{{ libraryShare.manifest.subjects.map(s => s.name).filter(Boolean).join(' / ') }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="album-actions">
+                        <el-dropdown v-if="shareImages.length > 0" trigger="click" placement="bottom-start" style="margin-right:10px;">
+                            <el-button>
+                                <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
+                                <el-icon class="el-icon--right"><arrow-down/></el-icon>
+                            </el-button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item :class="{ 'is-active': viewMode === 'grid' }" @click="viewMode = 'grid'">网格模式</el-dropdown-item>
+                                    <el-dropdown-item :class="{ 'is-active': viewMode === 'waterfall' }" @click="viewMode = 'waterfall'">瀑布流模式</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                        <el-button v-if="libraryShare.allow_select" :disabled="shareSelectedImages.length === 0" @click="exportShareSelection">
+                            选图{{ shareSelectedImages.length > 0 ? `(${shareSelectedImages.length})` : '' }}
+                        </el-button>
+                    </div>
+                </div>
+
+                <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
+                    <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
+                    <span>排序: {{ getCurrentSortLabel }}</span>
+                </div>
+
+                <div v-if="shareImages.length > 0 && viewMode === 'grid'">
+                    <div class="image-grid">
+                        <div v-for="image in filteredImages" :key="image.id" class="image-item" @click="handleImageClick(image.id)">
+                            <img :src="shareAssetUrl(image, 'thumbnail')" :alt="image.original_filename" class="image-thumb" />
+                            <div v-if="libraryShare.allow_select" class="image-actions" :class="{ 'always-visible': image.is_favorited }">
+                                <button class="action-button"
+                                        :class="{ 'favorited': image.is_favorited }"
+                                        @click.stop="toggleImageFavorite(image)"
+                                        :title="image.is_favorited ? '取消收藏' : '收藏'">
+                                    <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'"><Star/></el-icon>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="shareImages.length > 0 && viewMode === 'waterfall'">
+                    <div class="gallery-waterfall">
+                        <div v-for="image in filteredImages" :key="image.id" class="gallery-item" @click="handleImageClick(image.id)">
+                            <img :src="shareAssetUrl(image, 'compressed')"
+                                 :alt="image.original_filename"
+                                 class="w-100 shadow-1-strong rounded gallery-img" />
+                            <div class="overlay"
+                                 @mouseenter="showExifOnHover ? loadExifOnHover(image) : null"
+                                 @mouseleave="showExifOnHover ? clearExifTimer(image.id) : null">
+                                <div class="caption">
+                                    <template v-if="showExifOnHover">
+                                        <div class="exif-content" v-if="hasExifInfo(image.id)">
+                                            <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
+                                                <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                            </div>
+                                            <div class="exposure-line">
+                                                <span class="exposure-item"><span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span></span>
+                                                <span class="exposure-sep">｜</span>
+                                                <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span></span>
+                                                <span class="exposure-sep">｜</span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span></span>
+                                                <span class="exposure-sep">｜</span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '焦距') }}</span></span>
+                                            </div>
+                                        </div>
+                                        <div class="exif-loading" v-else-if="exifLoading[image.id]"><div class="loading-spinner"></div></div>
+                                        <div class="file-info" v-else>{{ image.original_filename }}</div>
+                                    </template>
+                                    <template v-else><div class="file-info">{{ image.original_filename }}</div></template>
+                                </div>
+                                <div v-if="libraryShare.allow_select" class="favorite-button" @click.stop="toggleImageFavorite(image)">
+                                    <el-icon :size="18" :color="image.is_favorited ? '#f56c6c' : 'rgba(255,255,255,0.8)'"><Star/></el-icon>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="shareImages.length === 0" class="empty-state"><p>这个分享目录没有可预览图片</p></div>
+            </template>
+        </div>
+
+        <div v-if="currentView === 'album-detail'">
+            <div class="back-button">
+                <el-button @click="backToAlbums">返回相册列表</el-button>
+            </div>
+
+            <div class="header">
+                <h1>{{ currentAlbum.name }}</h1>
+                <div class="album-actions">
+                    <!-- 浏览模式切换 -->
+                    <el-dropdown trigger="click" placement="bottom-start" style="margin-right: 10px;">
+                        <el-button>
+                            <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
+                            <el-icon class="el-icon--right">
+                                <arrow-down/>
+                            </el-icon>
+                        </el-button>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item
+                                        :class="{ 'is-active': viewMode === 'grid' }"
+                                        @click="viewMode = 'grid'"
+                                >
+                                    网格模式
+                                </el-dropdown-item>
+                                <el-dropdown-item
+                                        :class="{ 'is-active': viewMode === 'waterfall' }"
+                                        @click="viewMode = 'waterfall'"
+                                >
+                                    瀑布流模式
+                                </el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
+
+                    <el-button v-if="isAdmin" @click="showEditAlbumDialog = true">编辑相册</el-button>
+                    <el-button v-if="canUpload" @click="showUploadDialog = true">上传图片</el-button>
+                    <el-button v-if="isAdmin" type="danger" @click="deleteAlbum(currentAlbum.id)">删除相册</el-button>
+                    <el-button @click="showShareDialog('album')">
+                        分享相册
+                    </el-button>
+
+                    <el-button :disabled="getFavoriteCount === 0" @click="exportFavoriteList">
+                        选图{{ getFavoriteCount > 0 ? `(${getFavoriteCount})` : '' }}
+                    </el-button>
+                </div>
+            </div>
+
+            <!-- 相册元信息 -->
+            <div class="album-meta" style="margin-bottom: 20px;">
+                <p v-if="currentAlbum.shoot_date"><strong>拍摄日期:</strong> {{ formatDate(currentAlbum.shoot_date) }}
+                </p>
+                <p v-if="currentAlbum.model_name"><strong>模特:</strong> {{ currentAlbum.model_name }}</p>
+                <p v-if="currentAlbum.location"><strong>地点:</strong> {{ currentAlbum.location }}</p>
+                <p v-if="currentAlbum.description"><strong>描述:</strong> {{ currentAlbum.description }}</p>
+            </div>
+
+            <!-- 筛选和排序状态显示 -->
+            <div v-if="filteredImages.length > 0" style="margin: 10px 0; color: #666; font-size: 13px;">
+                <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
+                <span>排序: {{ getCurrentSortLabel }}</span>
+            </div>
+
+            <!-- 网格模式 -->
+            <div v-if="viewMode === 'grid'">
+                <div v-if="images.length === 0" class="empty-state">
+                    <p>这个相册还没有图片，上传一些吧！</p>
+                </div>
+                <div v-else class="image-grid">
+                    <div
+                            v-for="image in filteredImages"
+                            :key="image.id"
+                            class="image-item"
+                            :class="{ 'selected': selectionMode && selectedImages.includes(image.id) }"
+                            @click="handleImageClick(image.id)"
+                    >
+                        <div class="selection-checkbox" v-if="selectionMode && selectedImages.includes(image.id)">
+                            <el-icon>
+                                <Check/>
+                            </el-icon>
+                        </div>
+                        <img
+                                :src="`/api/images/${image.id}/file?type=thumbnail`"
+                                :alt="image.original_filename"
+                                class="image-thumb"
+                        />
+                        <div class="image-actions" :class="{ 'always-visible': image.is_favorited }">
+                            <button
+                                    class="action-button"
+                                    :class="{ 'favorited': image.is_favorited }"
+                                    @click.stop="toggleFavorite(image.id)"
+                                    :title="image.is_favorited ? '取消收藏' : '收藏'"
+                            >
+                                <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'">
+                                    <Star/>
+                                </el-icon>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 瀑布流模式 -->
+            <div v-if="viewMode === 'waterfall'">
+                <div v-if="images.length === 0" class="empty-state">
+                    <p>这个相册还没有图片，上传一些吧！</p>
+                </div>
+                <div v-else class="gallery-waterfall">
+                    <div
+                            v-for="image in filteredImages"
+                            :key="image.id"
+                            class="gallery-item"
+                            :class="{ 'selected': selectionMode && selectedImages.includes(image.id) }"
+                            @click="handleImageClick(image.id)"
+
+                    >
+                        <!-- 选择状态复选框 -->
+                        <div class="selection-checkbox" v-if="selectionMode && selectedImages.includes(image.id)">
+                            <el-icon>
+                                <Check/>
+                            </el-icon>
+                        </div>
+
+                        <!-- 图片 @load="cacheImageExif(image.id)"-->
+                        <img
+                                :src="`/api/images/${image.id}/file?type=compressed`"
+                                :alt="image.original_filename"
+                                class="w-100 shadow-1-strong rounded gallery-img"
+
+                        />
+
+
+                        <div class="overlay"
+     @mouseenter="showExifOnHover ? loadExifOnHover(image.id) : null"
+     @mouseleave="showExifOnHover ? clearExifTimer(image.id) : null">
+
+    <div class="caption">
+
+        <template v-if="showExifOnHover">
+
+
+
+
+
+                                        <div class="exif-content" v-if="hasExifInfo(image.id)">
+
+
+                                    <!-- 第二行：相机信息 -->
+                                    <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
+                                        <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                    </div>
+
+
+                                    <!-- 第一行：曝光三要素 -->
+                                    <div class="exposure-line">
+                <span class="exposure-item">
+                    <span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span>
+                </span>
+                                        <span class="exposure-sep">｜</span>
+                                        <span class="exposure-item">
+                    <span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span>
+                </span>
+                                        <span class="exposure-sep">｜</span>
+                                        <span class="exposure-item">
+                    <span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span>
+                </span>
+                                        <span class="exposure-sep">｜</span>
+                                        <span class="exposure-item">
+                    <span class="exposure-value">{{getExifValue(image.id, '焦距') }}</span>
+                </span>
+                                    </div>
+                                </div>
+
+                                <!-- 加载状态 -->
+                                <div class="exif-loading" v-else-if="exifLoading[image.id]">
+                                    <div class="loading-spinner"></div>
+                                </div>
+
+                                <!-- 无EXIF时显示文件名 -->
+                                <div class="file-info" v-else>
+                                    {{ image.original_filename }}
+                                </div>
+        </template>
+
+            <!-- 如果禁用EXIF显示，始终显示文件名 -->
+        <template v-else>
+            <div class="file-info">
+                {{ image.original_filename }}
+            </div>
+        </template>
+
+
+
+    </div>
+
+    <!-- 收藏按钮 -->
+    <div class="favorite-button" @click.stop="toggleFavorite(image.id)">
+        <el-icon :size="18" :color="image.is_favorited ? '#f56c6c' : 'rgba(255,255,255,0.8)'">
+            <Star/>
+        </el-icon>
+    </div>
+</div>
+
+<!--                        <div class="overlay"-->
+<!--                             @mouseenter="loadExifOnHover(image.id)"-->
+<!--                             @mouseleave="clearExifTimer(image.id)">-->
+
+<!--                            <div class="caption">-->
+<!--                                &lt;!&ndash; EXIF信息（无黑框） &ndash;&gt;-->
+<!--                                <div class="exif-content" v-if="hasExifInfo(image.id)">-->
+
+
+<!--                                    &lt;!&ndash; 第二行：相机信息 &ndash;&gt;-->
+<!--                                    <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">-->
+<!--                                        <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>-->
+<!--                                    </div>-->
+
+
+<!--                                    &lt;!&ndash; 第一行：曝光三要素 &ndash;&gt;-->
+<!--                                    <div class="exposure-line">-->
+<!--                <span class="exposure-item">-->
+<!--                    <span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span>-->
+<!--                </span>-->
+<!--                                        <span class="exposure-sep">｜</span>-->
+<!--                                        <span class="exposure-item">-->
+<!--                    <span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span>-->
+<!--                </span>-->
+<!--                                        <span class="exposure-sep">｜</span>-->
+<!--                                        <span class="exposure-item">-->
+<!--                    <span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span>-->
+<!--                </span>-->
+<!--                                        <span class="exposure-sep">｜</span>-->
+<!--                                        <span class="exposure-item">-->
+<!--                    <span class="exposure-value">{{getExifValue(image.id, '焦距') }}</span>-->
+<!--                </span>-->
+<!--                                    </div>-->
+<!--                                </div>-->
+
+<!--                                &lt;!&ndash; 加载状态 &ndash;&gt;-->
+<!--                                <div class="exif-loading" v-else-if="exifLoading[image.id]">-->
+<!--                                    <div class="loading-spinner"></div>-->
+<!--                                </div>-->
+
+<!--                                &lt;!&ndash; 无EXIF时显示文件名 &ndash;&gt;-->
+<!--                                <div class="file-info" v-else>-->
+<!--                                    {{ image.original_filename }}-->
+<!--                                </div>-->
+<!--                            </div>-->
+
+<!--                            &lt;!&ndash; 收藏按钮 &ndash;&gt;-->
+<!--                            <div class="favorite-button" @click.stop="toggleFavorite(image.id)">-->
+<!--                                <el-icon :size="18" :color="image.is_favorited ? '#f56c6c' : 'rgba(255,255,255,0.8)'">-->
+<!--                                    <Star/>-->
+<!--                                </el-icon>-->
+<!--                            </div>-->
+<!--                        </div>-->
+
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图片详情页面 -->
+        <div v-if="currentView === 'image-detail'">
+            <div class="back-button">
+                <el-button @click="backToAlbum">{{ currentImage.source_type === 'library-share' ? '返回分享' : (currentImage.source_type === 'library' ? '返回目录' : '返回相册') }}</el-button>
+            </div>
+
+            <div class="image-detail-layout">
+                <div class="image-section">
+                    <div class="nav-button prev-button" :class="{ disabled: !hasPrev }" @click="prevImage">←</div>
+                    <div class="image-container">
+                        <img :src="detailImageUrl(currentImage, 'compressed')"
+                             :alt="currentImage.original_filename" class="detail-image" @click="openImageOverlay"
+                             style="cursor: zoom-in;"/>
+                    </div>
+                    <div class="nav-button next-button" :class="{ disabled: !hasNext }" @click="nextImage">→</div>
+
+                    <!-- 悬浮工具窗 -->
+                    <div class="floating-toolbar">
+                        <el-button
+                                v-if="currentImage.source_type !== 'library-share' || libraryShare.allow_select"
+                                circle
+                                :type="currentImage.is_favorited ? 'primary' : 'default'"
+                                @click="toggleCurrentFavorite"
+                                :title="currentImage.is_favorited ? '取消收藏' : '收藏'"
+                        >
+                            <el-icon>
+                                <Star/>
+                            </el-icon>
+                        </el-button>
+                        <el-button v-if="isAdmin && currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share'"
+                                   circle
+                                   type="danger"
+                                   @click="deleteImage(currentImage.id, true)"
+                                   title="删除图片"
+                        >
+                            <el-icon>
+                                <Delete/>
+                            </el-icon>
+                        </el-button>
+
+                        <el-button
+                                circle
+                                @click="downloadImage(currentImage.id)"
+                                title="下载"
+                        >
+                            <el-icon>
+                                <Download/>
+                            </el-icon>
+                        </el-button>
+                    </div>
+
+                </div>
+
+                <div class="info-section">
+                    <div class="info-panel">
+                        <h3>图片信息</h3>
+                        <div class="info-content" style="margin-top:30px">
+
+
+                            <div class="info-item" @dblclick="isAdmin && currentImage.source_type !== 'library-share' ? editImageFilename(currentImage) : null"
+                                 style="cursor: pointer;">
+                                <strong>文件名: </strong>
+
+                                <span v-if="currentImage.original_filename">{{ currentImage.original_filename }}</span>
+
+                            </div>
+
+
+                            <div class="info-item"><strong>文件大小:</strong> {{ formatFileSize(currentImage.file_size)}}
+                            </div>
+                            <div class="info-item"><strong>尺寸:</strong> {{ currentImage.width }} ×
+                                {{ currentImage.height }}
+                            </div>
+                            <div class="info-item"><strong>{{ currentImage.source_type === 'library' || currentImage.source_type === 'library-share' ? '修改时间:' : '上传时间:' }}</strong> {{ formatDate(currentImage.uploaded_at) }}
+                            </div>
+                            <div class="info-item"><strong>当前位置:</strong> {{ currentImageIndex + 1 }} /
+                                {{ detailImageList.length }}
+                                <span v-if="currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share' && currentFilter !== 'all'" style="color: #409eff; margin-left: 10px;">
+                        (筛选: {{ getCurrentFilterLabel }})
+                    </span>
+                            </div>
+
+                            <!-- 图片描述 -->
+                            <div class="info-item" @dblclick="isAdmin && currentImage.source_type !== 'library-share' ? editImageDescription(currentImage) : null"
+                                 style="cursor: pointer;">
+                                <strong>描述: </strong>
+                                <span v-if="currentImage.description"
+                                      style="white-space: pre-wrap;">{{ currentImage.description }}</span>
+                                <span v-else>暂无描述</span>
+
+                            </div>
+                        </div>
+
+
+                        <div class="action-buttons">
+                            <el-button type="primary" @click="downloadImage(currentImage.id)">下载原图</el-button>
+                            <el-button v-if="isAdmin && currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share'" type="primary" @click="setAsCover(currentImage.id)">设为封面
+                            </el-button>
+                            <el-button v-if="isAdmin" type="primary" @click="showImageExif(currentImage.id)">
+                                查看EXIF信息
+                            </el-button>
+
+                            <el-button v-if="currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share'" @click="showShareDialog('image')">
+                                分享图片
+                            </el-button>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- 全屏图片悬浮层 -->
+        <div v-if="showImageOverlay" class="image-overlay" @click="closeImageOverlay">
+            <div class="overlay-content" @click.stop>
+                <button class="overlay-close" @click="closeImageOverlay">
+                    <el-icon>
+                        <Close/>
+                    </el-icon>
+                </button>
+                <img
+                        :src="detailImageUrl(currentImage, 'compressed')"
+                        :alt="currentImage.original_filename"
+                        class="overlay-image"
+                        @click.stop
+                />
+            </div>
+
+            <button class="nav-btn prev-btn" :class="{ disabled: !hasPrev }" @click.stop="prevImage">‹
+            </button>
+            <button class="nav-btn next-btn" :class="{ disabled: !hasNext }" @click.stop="nextImage">›
+            </button>
+
+
+        </div>
+
+        <!-- 全屏图片悬浮层 -->
+        <div v-if="showImageOverlay" class="image-overlay">
+            <div class="overlay-mask" @click="closeImageOverlay"></div>
+            <button class="overlay-close" @click="closeImageOverlay">
+                ×
+            </button>
+            <div class="overlay-content" @click.stop>
+                <img
+                        :src="detailImageUrl(currentImage, 'compressed')"
+                        :alt="currentImage.original_filename"
+                        class="overlay-image"
+                        @click.stop
+                />
+            </div>
+            <button class="nav-btn prev-btn" :class="{ disabled: !hasPrev }" @click.stop="prevImage">
+                ‹
+            </button>
+            <button class="nav-btn next-btn" :class="{ disabled: !hasNext }" @click.stop="nextImage">
+                ›
+            </button>
+        </div>
+
+
+        <!-- 管理员登录对话框 -->
+        <el-dialog v-model="showAdminLogin" title="管理员登录" width="400px">
+            <el-form :model="{password: adminPassword}" @submit.prevent="verifyAdminPassword">
+                <el-form-item label="管理员密码">
+                    <el-input
+                            v-model="adminPassword"
+                            type="password"
+                            placeholder="请输入管理员密码"
+                            @keydown.enter.prevent="verifyAdminPassword"
+                            show-password
+                    ></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showAdminLogin = false">取消</el-button>
+                <el-button
+                        type="primary"
+                        @click="verifyAdminPassword"
+                        :loading="adminLoginLoading"
+                >
+                    登录
+                </el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 配置管理对话框 -->
+        <el-dialog v-model="showConfigDialog" title="站点配置" width="600px">
+            <div v-loading="configLoading">
+                <el-form :model="siteConfig">
+                    <!-- 站点标题 -->
+                    <el-form-item label="站点标题">
+                        <el-input v-model="siteConfig.site_title" placeholder="请输入站点标题"></el-input>
+                    </el-form-item>
+
+                    <!-- 上传权限控制 -->
+                    <el-form-item label="上传权限">
+                        <el-radio-group v-model="siteConfig.allow_guest_upload">
+                            <el-radio :label="'1'">允许游客上传</el-radio>
+                            <el-radio :label="'0'">仅管理员可上传</el-radio>
+                        </el-radio-group>
+                    </el-form-item>
+
+                    <!-- EXIF显示控制 -->
+            <el-form-item label="EXIF信息显示">
+                <el-radio-group v-model="siteConfig.show_exif_on_hover">
+                    <el-radio :label="'1'">悬停时显示</el-radio>
+                    <el-radio :label="'0'">不显示</el-radio>
+                </el-radio-group>
+            </el-form-item>
+
+                    <!-- 管理员密码修改 -->
+                    <el-form-item label="管理员密码">
+                        <el-input
+                                type="password"
+                                v-model="siteConfig.new_password"
+                                placeholder="请输入新密码（留空不修改）"
+                                show-password
+                        ></el-input>
+                    </el-form-item>
+                </el-form>
+            </div>
+
+            <template #footer>
+                <el-button @click="showConfigDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveSiteConfig" :loading="configLoading">保存</el-button>
+            </template>
+        </el-dialog>
+
+
+        <!-- 相册详情页面悬浮工具窗 -->
+        <div class="album-detail-floating-toolbar"
+             v-if="(currentView === 'album-detail' && images.length > 0) || (currentView === 'library' && libraryImages.length > 0) || (currentView === 'library-share' && !shareNeedsPassword && shareImages.length > 0)">
+            <div class="toolbar-content">
+
+                <el-button
+                        v-if="isAdmin && currentView === 'album-detail'"
+                        class="toolbar-btn"
+                        size="small"
+                        :type="selectionMode ? 'primary' : 'default'"
+                        @click="toggleSelectionMode"
+                        title="多选模式"
+                >
+                    {{ selectionMode ? '取消多选' : '多选' }}
+                </el-button>
+
+                <el-button
+                        v-if="isAdmin && currentView === 'album-detail'"
+                        class="toolbar-btn"
+                        size="small"
+                        @click="selectAllImages"
+                        :disabled="!selectionMode || filteredImages.length === 0"
+                        :title="isAllSelected ? '取消全选' : '全选'"
+                >
+                    {{ isAllSelected ? '取消全选' : '全选' }}
+                </el-button>
+
+                <el-button
+                        v-if="isAdmin && currentView === 'album-detail'"
+                        class="toolbar-btn"
+                        size="small"
+                        type="danger"
+                        @click="batchDeleteImages"
+                        :disabled="!selectionMode || selectedImages.length === 0"
+                >
+                    删除{{ selectedImages.length > 0 ? `(${selectedImages.length})` : '' }}
+                </el-button>
+
+                <el-button
+                        v-if="isAdmin && currentView === 'album-detail'"
+                        class="toolbar-btn"
+                        size="small"
+                        type="success"
+                        @click="showMoveDialog"
+                        :disabled="!selectionMode || selectedImages.length === 0"
+                >
+                    移动{{ selectedImages.length > 0 ? `(${selectedImages.length})` : '' }}
+                </el-button>
+
+
+                <!-- 排序按钮 -->
+                <el-dropdown @command="changeSort" trigger="click">
+                    <el-button class="toolbar-btn" size="small">
+                        排序
+                    </el-button>
+                    <template #dropdown>
+                        <el-dropdown-menu>
+                            <el-dropdown-item
+                                    v-for="option in sortOptions"
+                                    :key="option.label"
+                                    :command="option"
+                                    :class="{ 'is-active': currentSort.field === option.value.field && currentSort.order === option.value.order }"
+                            >
+                                {{ option.label }}
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </template>
+                </el-dropdown>
+
+
+                <!-- 筛选按钮 -->
+                <el-dropdown @command="changeFilter" trigger="click">
+                    <el-button class="toolbar-btn" size="small" :type="currentFilter !== 'all' ? 'primary' : 'default'">
+                        筛选
+                    </el-button>
+                    <template #dropdown>
+                        <el-dropdown-menu>
+                            <el-dropdown-item
+                                    v-for="option in filterOptions"
+                                    :key="option.value"
+                                    :command="option.value"
+                                    :class="{ 'is-active': currentFilter === option.value }"
+                            >
+                                {{ option.label }}
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </template>
+                </el-dropdown>
+
+
+            </div>
+        </div>
+
+
+        <!-- 创建相册对话框 -->
+        <el-dialog v-model="showCreateAlbumDialog" title="新建相册">
+            <el-form :model="newAlbum">
+                <el-form-item label="相册名称">
+                    <el-input v-model="newAlbum.name" placeholder="请输入相册名称"></el-input>
+                </el-form-item>
+                <el-form-item label="所属分组">
+                    <el-select v-model="newAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
+                        <el-option
+                                v-for="group in allGroups"
+                                :key="group.id"
+                                :label="group.name"
+                                :value="group.id"
+                        >
+                        </el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="拍摄日期">
+                    <el-date-picker v-model="newAlbum.shoot_date" type="date"
+                                    placeholder="选择拍摄日期"></el-date-picker>
+                </el-form-item>
+
+                <el-form-item label="模特">
+                    <el-input v-model="newAlbum.model_name" placeholder="请输入模特名字"></el-input>
+                </el-form-item>
+                <el-form-item label="地点">
+                    <el-input v-model="newAlbum.location" placeholder="请输入拍摄地点"></el-input>
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input v-model="newAlbum.description" type="textarea" placeholder="请输入相册描述"></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showCreateAlbumDialog = false">取消</el-button>
+                <el-button type="primary" @click="createAlbum">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 编辑相册对话框 -->
+        <el-dialog v-model="showEditAlbumDialog" title="编辑相册">
+            <el-form :model="currentAlbum">
+                <el-form-item label="相册名称">
+                    <el-input v-model="currentAlbum.name" placeholder="请输入相册名称"></el-input>
+                </el-form-item>
+                <el-form-item label="所属分组">
+                    <el-select v-model="currentAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
+                        <el-option
+                                v-for="group in allGroups"
+                                :key="group.id"
+                                :label="group.name"
+                                :value="group.id"
+                        >
+                        </el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="拍摄日期">
+                    <el-date-picker v-model="currentAlbum.shoot_date" type="date"
+                                    placeholder="选择拍摄日期"></el-date-picker>
+                </el-form-item>
+                <el-form-item label="模特">
+                    <el-input v-model="currentAlbum.model_name" placeholder="请输入模特名字"></el-input>
+                </el-form-item>
+                <el-form-item label="地点">
+                    <el-input v-model="currentAlbum.location" placeholder="请输入拍摄地点"></el-input>
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input v-model="currentAlbum.description" type="textarea"
+                              placeholder="请输入相册描述"></el-input>
+                </el-form-item>
+
+
+                <!-- 密码管理 -->
+                <el-form-item label="密码保护">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <el-switch
+                                v-model="passwordEnabled"
+                                @change="handlePasswordToggle"
+                        />
+                        <span>{{ passwordEnabled ? '已启用' : '未启用' }}</span>
+                    </div>
+                </el-form-item>
+                <el-form-item v-if="passwordEnabled" label="设置密码">
+                    <el-input
+                            v-model="newPassword"
+                            type="password"
+                            placeholder="输入新密码"
+                            style="width: 200px;"
+                    />
+                </el-form-item>
+
+
+            </el-form>
+            <template #footer>
+                <el-button @click="showEditAlbumDialog = false">取消</el-button>
+                <el-button type="primary" @click="updateAlbum">保存</el-button>
+            </template>
+        </el-dialog>
+
+
+        <!--上传图片对话框-->
+        <el-dialog v-model="showUploadDialog" title="上传图片">
+            <el-upload drag multiple :action="`/api/albums/${currentAlbum.id}/images`" :on-success="handleUploadSuccess"
+                       :on-error="handleUploadError" :before-upload="beforeUpload">
+                <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+                <template #tip>
+                    <div class="el-upload__tip">只能上传jpg/png文件</div>
+                </template>
+            </el-upload>
+            <template #footer>
+                <el-button @click="showUploadDialog = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- EXIF信息对话框 -->
+        <el-dialog v-model="showExifDialog" title="图片EXIF信息" width="700px">
+            <div v-if="exifData" class="exif-container">
+                <el-table :data="exifTableData" stripe style="width: 100%">
+                    <el-table-column prop="key" label="属性" width="200">
+                        <template #default="scope">
+                            {{ scope.row.key }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="value" label="值">
+                        <template #default="scope">
+                            <span class="exif-value">{{ scope.row.value }}</span>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+            <div v-else class="exif-loading">
+                <el-skeleton :rows="5" animated/>
+            </div>
+            <template #footer>
+                <el-button @click="showExifDialog = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 移动对话框 -->
+        <el-dialog v-model="showMoveToAlbumDialog" title="移动图片到其他相册" width="500px">
+            <div v-if="selectedImages.length > 0">
+                <p style="margin-bottom: 15px;">
+                    已将选择 <strong>{{ selectedImages.length }}</strong> 张图片：
+                </p>
+
+                <el-select
+                        v-model="targetAlbumId"
+                        placeholder="请选择目标相册"
+                        style="width: 100%;"
+                        filterable
+                        clearable
+                >
+                    <el-option
+                            v-for="album in otherAlbums"
+                            :key="album.id"
+                            :label="album.name"
+                            :value="album.id"
+                            :disabled="album.id === currentAlbum.id"
+                    >
+                        <span style="float: left">{{ album.name }}</span>
+                        <span style="float: right; color: #8492a6; font-size: 13px">
+                    {{ album.image_count }} 张图片
+                </span>
+                    </el-option>
+                </el-select>
+
+                <div style="margin-top: 20px; color: #909399; font-size: 13px;">
+                    <p>提示：</p>
+                    <ul style="padding-left: 20px; margin: 10px 0;">
+                        <li>目标相册不能是当前相册</li>
+                        <li>移动后图片将从当前相册移除</li>
+                    </ul>
+                </div>
+            </div>
+
+            <template #footer>
+                <el-button @click="showMoveToAlbumDialog = false">取消</el-button>
+                <el-button
+                        type="primary"
+                        @click="moveSelectedImages"
+                        :disabled="!targetAlbumId || targetAlbumId === currentAlbum.id"
+                >
+                    确认移动
+                </el-button>
+            </template>
+        </el-dialog>
+
+
+
+        <!-- 本地目录 Source 管理 -->
+        <el-dialog v-model="showLibrarySourcesDialog" title="本地目录 Source" width="720px">
+            <div class="source-add-form">
+                <el-input v-model="newLibrarySource.name" placeholder="名称，例如 Completed" style="width: 180px;"></el-input>
+                <el-input v-model="newLibrarySource.root_path" placeholder="绝对路径，例如 /mnt/photos/Completed" style="flex:1;"></el-input>
+                <el-button type="primary" @click="addLibrarySource">添加</el-button>
+            </div>
+            <div class="source-list">
+                <div v-for="source in librarySources" :key="source.id" class="source-row">
+                    <div>
+                        <div><strong>{{ source.name }}</strong> <el-tag size="small" :type="source.available ? 'success' : 'danger'">{{ source.available ? '可用' : '不可用' }}</el-tag></div>
+                        <div class="source-path">{{ source.root_path }}</div>
+                    </div>
+                    <el-button type="danger" plain size="small" @click="deleteLibrarySource(source)">移除映射</el-button>
+                </div>
+            </div>
+            <template #footer><el-button @click="showLibrarySourcesDialog = false">关闭</el-button></template>
+        </el-dialog>
+
+        <!-- manifest 第一版直接编辑 JSON，保存会先生成 .bak 再原子替换 -->
+        <el-dialog v-model="showManifestDialog" title="manifest.json" width="760px">
+            <el-input v-model="manifestJsonText" type="textarea" :rows="24" resize="vertical"
+                      input-style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.5;"></el-input>
+            <template #footer>
+                <el-button @click="showManifestDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveManifest">保存</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 当前目录分享 -->
+        <el-dialog v-model="showLibraryShareDialog" title="分享当前目录" width="500px">
+            <el-form label-width="90px">
+                <el-form-item label="标题"><el-input v-model="libraryShareForm.title"></el-input></el-form-item>
+                <el-form-item label="分享密码">
+                    <el-input v-model="libraryShareForm.password" type="password" show-password placeholder="可留空；随机 token 本身即可访问"></el-input>
+                </el-form-item>
+                <el-form-item label="允许选图"><el-switch v-model="libraryShareForm.allow_select"></el-switch></el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showLibraryShareDialog = false">取消</el-button>
+                <el-button type="primary" @click="createLibraryShare">创建分享链接</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 分组管理对话框 -->
+        <el-dialog v-model="showManageGroupsDialog" title="管理分组" width="600px">
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <el-input v-model="newGroupName" placeholder="输入新分组名称" style="flex: 1;"></el-input>
+                    <el-button type="primary" @click="createGroup" :disabled="!newGroupName.trim()">添加分组</el-button>
+                </div>
+
+                <div v-if="allGroups.length > 0" class="groups-list">
+                    <div v-for="group in allGroups" :key="group.id" class="group-item">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border: 1px solid #ebeef5; border-radius: 4px; margin-bottom: 10px;">
+                            <div>
+                                <span style="margin-right: 10px;">{{ group.name }}</span>
+                                <span style="color: #909399; font-size: 12px;">({{ getGroupAlbumCount(group.id)
+                                    }}个相册)</span>
+                            </div>
+                            <div>
+                                <el-button type="primary" size="small" @click="editGroup(group)">编辑</el-button>
+                                <el-button type="danger" size="small" @click="deleteGroup(group)"
+                                           :disabled="getGroupAlbumCount(group.id) > 0">删除
+                                </el-button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-else style="text-align: center; color: #909399; padding: 20px;">
+                    暂无分组
+                </div>
+            </div>
+            <template #footer>
+                <el-button @click="showManageGroupsDialog = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 添加/编辑分组对话框 -->
+        <el-dialog v-model="showEditGroupDialog" :title="editingGroup ? '编辑分组' : '新建分组'" width="400px">
+            <el-form :model="groupForm">
+                <el-form-item label="分组名称">
+                    <el-input v-model="groupForm.name" placeholder="请输入分组名称"></el-input>
+                </el-form-item>
+                <el-form-item label="排序序号">
+                    <el-input-number v-model="groupForm.sort_order" :min="0" :step="1"></el-input-number>
+                    <span style="margin-left: 10px; color: #909399; font-size: 12px;">数字越小越靠前</span>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showEditGroupDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveGroup">保存</el-button>
+            </template>
+        </el-dialog>
+
+    </div>
+</div>
+
+<script type="module" src="app.js?v=20260919-32"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"1c1c7799c54e46349cc23295b5e08299","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>

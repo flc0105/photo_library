@@ -1,0 +1,2954 @@
+const {createApp, ref, onMounted, onUnmounted, nextTick, computed, watch} = Vue;
+const {ElMessage, ElMessageBox} = ElementPlus;
+
+const app = createApp({
+    setup() {
+        const currentView = ref('albums');
+        const albums = ref([]);
+        const images = ref([]);
+        const currentAlbum = ref({});
+        const currentImage = ref({});
+
+        const showCreateAlbumDialog = ref(false);
+        const showEditAlbumDialog = ref(false);
+        const showUploadDialog = ref(false);
+
+        const newAlbum = ref({
+            name: '',
+            description: '',
+            shoot_date: '',
+            model_name: '',
+            location: '',
+            group_ids: [] // 所属分组ID列表
+        });
+
+
+        const detailImageList = computed(() => filteredImages.value);
+
+        const currentImageIndex = computed(() => {
+            return detailImageList.value.findIndex(img => img.id === currentImage.value.id);
+        });
+
+
+        const hasPrev = computed(() => currentImageIndex.value > 0);
+        const hasNext = computed(() => currentImageIndex.value < detailImageList.value.length - 1);
+
+        const prevImage = async () => {
+            if (!hasPrev.value) {
+                ElMessage.info('已经是第一张图片了');
+                return;
+            }
+            const image = detailImageList.value[currentImageIndex.value - 1];
+            if (image && image.source_type === 'library') {
+                await viewLibraryImage(image, false);
+            } else if (image && image.source_type === 'library-share') {
+                await viewSharedImage(image, false);
+            } else {
+                currentImage.value = image;
+            }
+        };
+
+        const nextImage = async () => {
+            if (!hasNext.value) {
+                ElMessage.info('已经是最后一张图片了');
+                return;
+            }
+            const image = detailImageList.value[currentImageIndex.value + 1];
+            if (image && image.source_type === 'library') {
+                await viewLibraryImage(image, false);
+            } else if (image && image.source_type === 'library-share') {
+                await viewSharedImage(image, false);
+            } else {
+                currentImage.value = image;
+            }
+        };
+
+        const getAlbumImageCount = (albumId) => {
+            const album = albums.value.find(a => a.id === albumId);
+            return album ? album.image_count : 0;
+        };
+
+
+        const loadAlbums = async () => {
+            try {
+                const response = await fetch('/api/album-groups');
+                const allData = await response.json();
+
+                // 1. 所有分组（包含未分组）给 albumGroups
+                albumGroups.value = allData;
+
+                // 2. 过滤掉"未分组"的分组给 allGroups（用于下拉选择）
+                allGroups.value = allData.filter(group => {
+                    // 排除名为"未分组"或者有 is_ungrouped 标记的分组
+                    return group.name !== '未分组' && !group.is_ungrouped;
+                });
+
+                console.log('所有分组:', allData.length);
+                console.log('过滤后的分组（用于下拉）:', allGroups.value.length);
+
+            } catch (error) {
+                ElMessage.error('加载相册失败');
+            }
+        };
+
+
+        const openAlbum = async (albumId) => {
+            // 从所有分组中查找相册
+            let foundAlbum = null;
+
+            // 遍历所有分组查找相册
+            for (const group of albumGroups.value) {
+                if (group.albums && group.albums.length > 0) {
+                    const album = group.albums.find(a => a.id === albumId);
+                    if (album) {
+                        foundAlbum = album;
+                        break;
+                    }
+                }
+            }
+
+            if (!foundAlbum) {
+                ElMessage.error('相册不存在');
+                return;
+            }
+
+            // 如果有密码保护
+            // 如果有密码保护且不是管理员
+            if (foundAlbum && foundAlbum.has_password && !isAdmin.value) {
+                const hasToken = !!checkAlbumAccess(albumId);
+                if (!hasToken) {
+                    const success = await showPasswordDialog(foundAlbum);
+                    if (success) {
+                        currentAlbum.value = {...foundAlbum};
+                        const loaded = await loadAlbumImages(albumId);
+                        if (loaded) {
+                            currentView.value = 'album-detail';
+                        }
+                    }
+                    return;
+                }
+            }
+
+            // 如果没有密码或已有访问权限，直接打开
+            // 如果没有密码、或者有密码但有访问token、或者是管理员，直接打开
+            if (foundAlbum) {
+                currentAlbum.value = {...foundAlbum};
+                const success = await loadAlbumImages(albumId);
+                if (success) {
+                    currentView.value = 'album-detail';
+                }
+            }
+        };
+
+        const openAlbumDirect = async (albumId, targetImageId = null) => {
+            // 从所有分组中查找相册
+            let foundAlbum = null;
+
+            // 遍历所有分组查找相册
+            for (const group of albumGroups.value) {
+                if (group.albums && group.albums.length > 0) {
+                    const album = group.albums.find(a => a.id === albumId);
+                    if (album) {
+                        foundAlbum = album;
+                        break;
+                    }
+                }
+            }
+
+            if (!foundAlbum) {
+                ElMessage.error('相册不存在');
+                return;
+            }
+
+            // 如果有密码保护
+            // 如果有密码保护且不是管理员
+            if (foundAlbum && foundAlbum.has_password && !isAdmin.value) {
+                const hasToken = !!checkAlbumAccess(albumId);
+                if (!hasToken) {
+                    const success = await showPasswordDialog(foundAlbum);
+                    if (success) {
+                        currentAlbum.value = {...foundAlbum};
+                        const loaded = await loadAlbumImages(albumId);
+                        if (loaded) {
+                            currentView.value = 'album-detail';
+
+                            // 如果有指定的图片ID，直接打开该图片
+                            if (targetImageId) {
+                                // 在筛选后的图片中查找
+                                const targetImage = filteredImages.value.find(img => img.id === targetImageId);
+                                if (targetImage) {
+                                    // 短暂延迟确保页面渲染完成
+                                    setTimeout(() => {
+                                        viewImage(targetImageId);
+                                    }, 300);
+                                } else {
+                                    ElMessage.warning('指定的图片不存在');
+                                }
+                            }
+
+
+                            // 去掉URL参数
+                            updateUrlWithoutParams();
+                        }
+                    }
+                    return;
+                }
+            }
+
+            // 如果没有密码或已有访问权限，直接打开
+            // 如果没有密码、或者有密码但有访问token、或者是管理员，直接打开
+            if (foundAlbum) {
+                currentAlbum.value = {...foundAlbum};
+                const success = await loadAlbumImages(albumId);
+                if (success) {
+                    currentView.value = 'album-detail';
+
+                    // 如果有指定的图片ID，直接打开该图片
+                    if (targetImageId) {
+                        // 在筛选后的图片中查找
+                        const targetImage = filteredImages.value.find(img => img.id === targetImageId);
+                        if (targetImage) {
+                            // 短暂延迟确保页面渲染完成
+                            setTimeout(() => {
+                                viewImage(targetImageId);
+                            }, 300);
+                        } else {
+                            ElMessage.warning('指定的图片不存在');
+                        }
+                    }
+
+
+                    // 去掉URL参数
+                    updateUrlWithoutParams();
+                }
+            }
+        };
+
+
+        const loadAlbumImages = async (albumId) => {
+            try {
+                const headers = {};
+
+                // // 如果是加密相册且有访问token，添加到请求头
+                // const token = albumAccessTokens.value[albumId];
+                // if (token) {
+                //     headers['X-Album-Auth'] = token;
+                // }
+
+                // 如果是管理员，添加管理员token到请求头
+                if (isAdmin.value && adminToken.value) {
+                    headers['X-Admin-Token'] = adminToken.value;
+                } else {
+                    // 普通用户才检查相册访问token
+                    const token = albumAccessTokens.value[albumId];
+                    if (token) {
+                        headers['X-Album-Auth'] = token;
+                    }
+                }
+
+
+                const response = await fetch(`/api/albums/${albumId}/images`, {
+                    headers: headers
+                });
+
+                if (response.status === 403) {
+                    // 无权限访问，清除token
+                    delete albumAccessTokens.value[albumId];
+                    localStorage.removeItem(`album_${albumId}_token`);
+
+                    // 获取相册信息并弹出密码框
+                    const album = albums.value.find(a => a.id === albumId);
+                    if (album) {
+                        // 等待密码验证结果
+                        const success = await showPasswordDialog(album);
+                        // 如果用户取消，返回false，不进入相册
+                        if (!success) {
+                            return false;
+                        }
+                        // 如果验证成功，重新调用自己（因为现在有token了）
+                        return await loadAlbumImages(albumId);
+                    }
+                    return false;
+                }
+
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+
+                images.value = await response.json();
+                sortImages();
+
+                return true;
+            } catch (error) {
+                ElMessage.error('加载图片失败');
+                return false;
+            }
+        };
+
+
+        const createAlbum = async () => {
+            if (!newAlbum.value.name) {
+                ElMessage.warning('请输入相册名称');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/albums', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // 'X-Admin-Token': adminToken.value
+                    },
+                    body: JSON.stringify(newAlbum.value)
+                });
+
+                if (response.ok) {
+                    ElMessage.success('相册创建成功');
+                    showCreateAlbumDialog.value = false;
+                    newAlbum.value = {
+                        name: '',
+                        description: '',
+                        shoot_date: '',
+                        model_name: '',
+                        location: '',
+                        group_ids: [],
+                    };
+                    loadAlbums();
+                } else {
+                    // 获取后端返回的错误信息
+                    const data = await response.json();
+                    ElMessage.error('创建相册失败: ' + (data.error || '未知错误'));
+                }
+            } catch (error) {
+                ElMessage.error('创建相册失败');
+            }
+        };
+
+
+        const updateAlbum = async () => {
+            try {
+                const updateData = {
+                    name: currentAlbum.value.name,
+                    description: currentAlbum.value.description,
+                    shoot_date: currentAlbum.value.shoot_date,
+                    model_name: currentAlbum.value.model_name,
+                    location: currentAlbum.value.location,
+                    cover_image_id: currentAlbum.value.cover_image_id,
+                    group_ids: currentAlbum.value.group_ids || []
+                };
+
+                const response = await fetch(`/api/albums/${currentAlbum.value.id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(updateData)
+                });
+
+                if (response.ok) {
+                    // 密码验证
+                    if (passwordEnabled.value && newPassword.value.trim()) {
+                        await setAlbumPassword();
+                    }
+
+                    ElMessage.success('相册更新成功');
+                    showEditAlbumDialog.value = false;
+
+                    // 重新加载相册列表
+                    loadAlbums();
+
+                    // 重新加载当前相册的分组信息
+                    await loadAlbumGroupsInfo(currentAlbum.value.id);
+                } else {
+                    const errorData = await response.json();
+                    ElMessage.error(errorData.error || '更新相册失败');
+                }
+            } catch (error) {
+                console.error('更新相册失败:', error);
+                ElMessage.error('更新相册失败');
+            }
+        };
+
+        const deleteAlbum = async (albumId) => {
+            try {
+                await ElMessageBox.confirm('确定要删除这个相册吗？相册中的所有图片也将被删除。', '警告', {
+                    confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning'
+                });
+                const response = await fetch(`/api/albums/${albumId}`, {method: 'DELETE'});
+                if (response.ok) {
+                    ElMessage.success('相册删除成功');
+                    backToAlbums();
+                    loadAlbums();
+                } else {
+                    const data = await response.json();
+                    ElMessage.error('删除相册失败: ' + (data.error || '未知错误'));
+                }
+            } catch (error) {
+                if (error !== 'cancel') ElMessage.error('删除相册失败');
+            }
+        };
+
+
+        const backToAlbums = () => {
+            currentView.value = 'albums';
+            currentAlbum.value = {};
+            images.value = [];
+            selectionMode.value = false;
+            selectedImages.value = [];
+
+            // 重置筛选和排序状态
+            currentFilter.value = 'all';
+
+            loadAlbums();
+        };
+
+        const backToAlbum = () => {
+            if (currentImage.value && currentImage.value.source_type === 'library-share') {
+                currentView.value = 'library-share';
+                currentImage.value = {};
+                return;
+            }
+            if (currentImage.value && currentImage.value.source_type === 'library') {
+                currentView.value = 'library';
+                currentImage.value = {};
+                return;
+            }
+            currentView.value = 'album-detail';
+            currentImage.value = {};
+
+            selectionMode.value = false;
+            selectedImages.value = [];
+        };
+
+        const viewImage = async (imageId) => {
+            const image = filteredImages.value.find(img => img.id === imageId);
+            if (!image) return;
+            if (image.source_type === 'library') {
+                await viewLibraryImage(image);
+                return;
+            }
+            if (image.source_type === 'library-share') {
+                await viewSharedImage(image);
+                return;
+            }
+            currentImage.value = image;
+            currentView.value = 'image-detail';
+        };
+
+
+        const handleUploadSuccess = (response, file, fileList) => {
+            if (response.immediate_response) {
+                // 如果是队列处理，显示队列信息
+                ElMessage.info(`图片已加入处理队列`);
+
+                // 可以添加一个定时器来检查处理状态
+                const checkStatus = async (filename) => {
+                    try {
+                        const statusResponse = await fetch(`/api/upload/status/${filename}`);
+                        const statusData = await statusResponse.json();
+
+                        if (statusData.status === 'completed') {
+                            ElMessage.success(`图片处理完成: ${file.name}`);
+
+                            // 重新加载当前相册的图片
+                            await loadAlbumImages(currentAlbum.value.id);
+                            // 更新相册列表（更新图片数量）
+                            await loadAlbums();
+
+                        } else if (statusData.status === 'queued') {
+                            // 继续轮询
+                            setTimeout(() => checkStatus(filename), 2000);
+                        } else if (statusData.status === 'processing') {
+                            // 处理中，继续轮询
+                            setTimeout(() => checkStatus(filename), 2000);
+                        }
+                    } catch (error) {
+                        console.error('检查上传状态失败:', error);
+                    }
+                };
+
+                // 开始检查状态
+                setTimeout(() => checkStatus(response.filename), 2000);
+            } else {
+                // 原来的直接处理成功逻辑
+                ElMessage.success('图片上传成功');
+                loadAlbumImages(currentAlbum.value.id);
+                // 更新相册列表（更新图片数量）
+                loadAlbums();
+            }
+        };
+
+        const handleUploadError = (error) => {
+            try {
+                // 尝试解析错误响应
+                const errorData = JSON.parse(error.message || '{}');
+                ElMessage.error(errorData.error || '图片上传失败');
+            } catch (e) {
+                ElMessage.error('图片上传失败');
+            }
+        };
+
+        const beforeUpload = (file) => {
+            const isLt100M = file.size / 1024 / 1024 < 100;
+            if (!isLt100M) ElMessage.error('图片大小不能超过100MB!');
+            return isLt100M;
+        };
+
+        const deleteImage = async (imageId, fromDetail = false) => {
+            try {
+                await ElMessageBox.confirm('确定要删除这张图片吗？', '警告', {
+                    confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning'
+                });
+
+                // 保存当前图片索引，用于详情页删除后的导航
+                const currentFilteredIndex = filteredImages.value.findIndex(img => img.id === imageId);
+
+                const response = await fetch(`/api/images/${imageId}`, {method: 'DELETE'});
+                if (response.ok) {
+                    ElMessage.success('图片删除成功');
+
+                    // 重新加载图片列表
+                    await loadAlbumImages(currentAlbum.value.id);
+
+                    // 重新加载相册列表（更新图片数量）
+                    await loadAlbums();
+
+                    if (fromDetail) {
+                        // 在详情页删除的处理
+                        // if (images.value.length === 0) {
+                        if (filteredImages.value.length === 0) {
+                            // 如果没有图片了，返回相册详情页
+                            backToAlbum();
+                        } else {
+
+                            // 智能导航到合适的图片
+                            let targetImage = null;
+
+                            // 优先尝试显示下一张
+                            if (currentFilteredIndex < filteredImages.value.length) {
+                                targetImage = filteredImages.value[currentFilteredIndex];
+                            }
+                            // 如果没有下一张，显示上一张
+                            else if (currentFilteredIndex > 0) {
+                                targetImage = filteredImages.value[currentFilteredIndex - 1];
+                            }
+                            // 如果都不行，显示第一张
+                            else if (filteredImages.value.length > 0) {
+                                targetImage = filteredImages.value[0];
+                            }
+
+                            if (targetImage) {
+                                currentImage.value = targetImage;
+                            } else {
+                                backToAlbum();
+                            }
+                        }
+                    } else {
+                        // 在列表页删除，保持原有逻辑
+                    }
+
+                    if (currentAlbum.value.cover_image_id === imageId) {
+                        loadAlbums();
+                    }
+                } else {
+                    const data = await response.json();
+                    ElMessage.error('删除图片失败: ' + (data.error || '未知错误'));
+                }
+            } catch (error) {
+                if (error !== 'cancel') ElMessage.error('删除图片失败');
+            }
+        };
+
+        const setAsCover = async (imageId) => {
+            try {
+                const response = await fetch(`/api/albums/${currentAlbum.value.id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({cover_image_id: imageId})
+                });
+                if (response.ok) {
+                    ElMessage.success('封面设置成功');
+                    currentAlbum.value.cover_image_id = imageId;
+                    loadAlbums();
+                }
+            } catch (error) {
+                ElMessage.error('设置封面失败');
+            }
+        };
+
+        const downloadImage = async (imageId) => {
+            try {
+                const urlToFetch = currentImage.value && (currentImage.value.source_type === 'library' || currentImage.value.source_type === 'library-share')
+                    ? detailImageUrl(currentImage.value, 'original')
+                    : `/api/images/${imageId}/file?type=original`;
+                const response = await fetch(urlToFetch);
+                if (!response.ok) throw new Error('download failed');
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = currentImage.value.original_filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                ElMessage.error('下载图片失败');
+            }
+        };
+
+        const formatDate = (dateString) => {
+            if (!dateString) return '';
+            return new Date(dateString).toLocaleDateString('zh-CN');
+        };
+
+        const formatFileSize = (bytes) => {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+
+        // ==================== 本地目录映射 / Library ====================
+        const librarySources = ref([]);
+        const currentLibrarySource = ref(null);
+        const libraryListing = ref({items: [], manifest: {exists: false}});
+        const libraryLoading = ref(false);
+        const showLibrarySourcesDialog = ref(false);
+        const newLibrarySource = ref({name: 'Completed', root_path: ''});
+
+        const showManifestDialog = ref(false);
+        const manifestJsonText = ref('');
+        const manifestEditPath = ref('');
+
+        const showLibraryShareDialog = ref(false);
+        const libraryShareForm = ref({title: '', password: '', allow_select: true});
+
+        const currentShareToken = ref('');
+        const libraryShare = ref({images: []});
+        const shareNeedsPassword = ref(false);
+        const sharePassword = ref('');
+        const shareLoading = ref(false);
+
+        const libraryDirectories = computed(() => (libraryListing.value.items || []).filter(item => item.type === 'directory'));
+        const libraryImages = computed(() => (libraryListing.value.items || [])
+            .filter(item => item.type === 'image')
+            .map(item => ({
+                ...item,
+                source_type: 'library',
+                source_id: currentLibrarySource.value ? currentLibrarySource.value.id : null,
+                id: `library:${currentLibrarySource.value ? currentLibrarySource.value.id : ''}:${item.relative_path}`,
+                original_filename: item.name,
+                file_size: item.size,
+                uploaded_at: item.modified_at,
+                description: item.description || '',
+                is_favorited: !!item.is_favorited
+            })));
+        const shareImages = computed(() => (libraryShare.value.images || []).map(item => ({
+            ...item,
+            source_type: 'library-share',
+            share_token: currentShareToken.value,
+            id: `share:${currentShareToken.value}:${item.relative_path}`,
+            original_filename: item.name,
+            file_size: item.size,
+            uploaded_at: item.modified_at,
+            description: item.description || '',
+            is_favorited: !!(item.is_favorited ?? item.selected)
+        })));
+        const libraryStats = computed(() => libraryListing.value.stats || {
+            directory_count: libraryDirectories.value.length,
+            image_count: libraryImages.value.length,
+            unsupported_file_count: 0,
+            total_file_count: libraryImages.value.length
+        });
+        const libraryFavoriteCount = computed(() => libraryImages.value.filter(item => item.is_favorited).length);
+        const libraryEmptyMessage = computed(() => {
+            const stats = libraryStats.value;
+            if (libraryImages.value.length > 0) return '';
+            if (libraryDirectories.value.length > 0) {
+                if (stats.unsupported_file_count > 0) {
+                    return `当前层没有可显示图片，请进入子文件夹；另有 ${stats.unsupported_file_count} 个不支持显示的文件。`;
+                }
+                return '当前层没有图片，请进入子文件夹查看。';
+            }
+            if (stats.unsupported_file_count > 0) {
+                return `这个目录有 ${stats.unsupported_file_count} 个文件，但没有支持显示的图片。`;
+            }
+            return '这个目录是空的。';
+        });
+        const shareSelectedImages = computed(() => shareImages.value.filter(item => item.is_favorited));
+
+        const loadLibrarySources = async () => {
+            if (!isAdmin.value) {
+                librarySources.value = [];
+                return;
+            }
+            try {
+                const response = await fetch('/api/library/sources');
+                if (response.ok) {
+                    librarySources.value = await response.json();
+                }
+            } catch (error) {
+                console.error('加载本地目录失败:', error);
+            }
+        };
+
+        const addLibrarySource = async () => {
+            if (!newLibrarySource.value.name.trim() || !newLibrarySource.value.root_path.trim()) {
+                ElMessage.warning('请输入名称和本地绝对路径');
+                return;
+            }
+            try {
+                const response = await fetch('/api/library/sources', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(newLibrarySource.value)
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '添加 Source 失败');
+                    return;
+                }
+                ElMessage.success('本地目录已添加');
+                newLibrarySource.value = {name: 'Completed', root_path: ''};
+                await loadLibrarySources();
+            } catch (error) {
+                ElMessage.error('添加 Source 失败');
+            }
+        };
+
+        const deleteLibrarySource = async (source) => {
+            try {
+                await ElMessageBox.confirm(`只删除映射，不会删除硬盘文件。确定移除 “${source.name}” 吗？`, '移除 Source', {
+                    confirmButtonText: '移除', cancelButtonText: '取消', type: 'warning'
+                });
+                const response = await fetch(`/api/library/sources/${source.id}`, {method: 'DELETE'});
+                if (!response.ok) {
+                    const data = await response.json();
+                    ElMessage.error(data.error || '移除失败');
+                    return;
+                }
+                await loadLibrarySources();
+                ElMessage.success('映射已移除，硬盘文件未修改');
+            } catch (error) {
+                if (error !== 'cancel') ElMessage.error('移除失败');
+            }
+        };
+
+        const loadLibraryDirectory = async (path = '') => {
+            if (!currentLibrarySource.value) return;
+            libraryLoading.value = true;
+            try {
+                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/browse?path=${encodeURIComponent(path || '')}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '目录读取失败');
+                    return;
+                }
+                libraryListing.value = data;
+                currentView.value = 'library';
+                const params = new URLSearchParams();
+                params.set('source', currentLibrarySource.value.id);
+                if (data.path) params.set('path', data.path);
+                window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+            } catch (error) {
+                ElMessage.error('目录读取失败');
+            } finally {
+                libraryLoading.value = false;
+            }
+        };
+
+        const openLibrarySource = async (source, path = '') => {
+            if (!source.available) {
+                ElMessage.error(`本地目录不可用: ${source.root_path}`);
+                return;
+            }
+            currentLibrarySource.value = source;
+            await loadLibraryDirectory(path);
+        };
+
+        const openLibraryDirectory = async (item) => {
+            await loadLibraryDirectory(item.relative_path);
+        };
+
+        const libraryBack = async () => {
+            if (libraryListing.value.parent_path !== null && libraryListing.value.parent_path !== undefined) {
+                await loadLibraryDirectory(libraryListing.value.parent_path || '');
+            } else {
+                currentView.value = 'albums';
+                currentLibrarySource.value = null;
+                libraryListing.value = {items: [], manifest: {exists: false}};
+                updateUrlWithoutParams();
+            }
+        };
+
+        const libraryPathAssetUrl = (relativePath, variant = 'thumbnail') => {
+            if (!currentLibrarySource.value || !relativePath) return '';
+            return `/api/library/sources/${currentLibrarySource.value.id}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(relativePath)}`;
+        };
+
+        const libraryAssetUrl = (item, variant = 'thumbnail') => {
+            if (!item) return '';
+            return libraryPathAssetUrl(item.relative_path, variant);
+        };
+
+        const detailImageUrl = (image, variant = 'compressed') => {
+            if (!image) return '';
+            if (image.source_type === 'library') {
+                return `/api/library/sources/${image.source_id}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(image.relative_path)}`;
+            }
+            if (image.source_type === 'library-share') {
+                return `/api/library/shares/${encodeURIComponent(image.share_token || currentShareToken.value)}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(image.relative_path)}`;
+            }
+            return `/api/images/${image.id}/file?type=${encodeURIComponent(variant)}`;
+        };
+
+        const viewLibraryImage = async (item, changeView = true) => {
+            if (!currentLibrarySource.value || !item) return;
+            try {
+                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/image-info?path=${encodeURIComponent(item.relative_path)}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '读取图片信息失败');
+                    return;
+                }
+                const index = (libraryListing.value.items || []).findIndex(i => i.relative_path === data.relative_path);
+                if (index !== -1) {
+                    libraryListing.value.items[index] = {
+                        ...libraryListing.value.items[index],
+                        is_favorited: data.is_favorited,
+                        description: data.description
+                    };
+                }
+                currentImage.value = data;
+                if (changeView) currentView.value = 'image-detail';
+            } catch (error) {
+                ElMessage.error('读取图片信息失败');
+            }
+        };
+
+        const viewSharedImage = async (item, changeView = true) => {
+            if (!currentShareToken.value || !item) return;
+            try {
+                const response = await fetch(`/api/library/shares/${encodeURIComponent(currentShareToken.value)}/image-info?path=${encodeURIComponent(item.relative_path)}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '读取图片信息失败');
+                    return;
+                }
+                currentImage.value = data;
+                if (changeView) currentView.value = 'image-detail';
+            } catch (error) {
+                ElMessage.error('读取图片信息失败');
+            }
+        };
+
+        const toggleLibraryFavorite = async (image) => {
+            try {
+                const response = await fetch(`/api/library/sources/${image.source_id}/favorite`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({relative_path: image.relative_path})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '操作失败');
+                    return;
+                }
+                image.is_favorited = data.is_favorited;
+                const sourceItem = (libraryListing.value.items || []).find(i => i.relative_path === image.relative_path);
+                if (sourceItem) sourceItem.is_favorited = data.is_favorited;
+                ElMessage.success(data.is_favorited ? '收藏成功' : '取消收藏');
+            } catch (error) {
+                ElMessage.error('操作失败');
+            }
+        };
+
+        const toggleCurrentFavorite = async () => {
+            if (currentImage.value && currentImage.value.source_type === 'library-share') {
+                if (libraryShare.value.allow_select) await toggleShareSelection(currentImage.value);
+            } else if (currentImage.value && currentImage.value.source_type === 'library') {
+                await toggleLibraryFavorite(currentImage.value);
+            } else if (currentImage.value && currentImage.value.id) {
+                await toggleFavorite(currentImage.value.id);
+            }
+        };
+
+        const toggleImageFavorite = async (image) => {
+            if (!image) return;
+            if (image.source_type === 'library-share') {
+                if (libraryShare.value.allow_select) await toggleShareSelection(image);
+            } else if (image.source_type === 'library') {
+                await toggleLibraryFavorite(image);
+            } else {
+                await toggleFavorite(image.id);
+            }
+        };
+
+        const exportLibraryFavorites = async () => {
+            const names = libraryImages.value.filter(item => item.is_favorited).map(item => item.original_filename);
+            if (!names.length) {
+                ElMessage.warning('当前目录没有收藏的图片');
+                return;
+            }
+            const text = names.map((name, index) => `${index + 1}. ${name}`).join('\n');
+            try {
+                await navigator.clipboard.writeText(text);
+                ElMessage.success(`已复制 ${names.length} 个文件名`);
+            } catch (error) {
+                ElMessageBox.alert(text, '收藏图片列表', {confirmButtonText: '关闭'});
+            }
+        };
+
+        const renameLibraryImageFile = async (image, newFilename) => {
+            try {
+                const response = await fetch(`/api/library/sources/${image.source_id}/rename`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({relative_path: image.relative_path, new_filename: newFilename})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '重命名失败');
+                    return false;
+                }
+                currentImage.value = data;
+                await loadLibraryDirectory(libraryListing.value.path || '');
+                currentView.value = 'image-detail';
+                ElMessage.success('文件名修改成功');
+                return true;
+            } catch (error) {
+                ElMessage.error('重命名失败');
+                return false;
+            }
+        };
+
+        const updateLibraryDescription = async (image, description) => {
+            try {
+                const response = await fetch(`/api/library/sources/${image.source_id}/description`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({relative_path: image.relative_path, description})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '保存失败');
+                    return false;
+                }
+                currentImage.value.description = data.description || '';
+                const sourceItem = (libraryListing.value.items || []).find(i => i.relative_path === image.relative_path);
+                if (sourceItem) sourceItem.description = data.description || '';
+                ElMessage.success('描述保存成功');
+                return true;
+            } catch (error) {
+                ElMessage.error('保存失败');
+                return false;
+            }
+        };
+
+        const openManifestEditor = () => {
+            const manifest = libraryListing.value.manifest || {};
+            const data = manifest.valid ? manifest.data : (libraryListing.value.suggested_manifest || {});
+            manifestEditPath.value = manifest.exists && manifest.relative_path !== null
+                ? manifest.relative_path
+                : (libraryListing.value.path || '');
+            manifestJsonText.value = JSON.stringify(data, null, 2);
+            showManifestDialog.value = true;
+        };
+
+        const saveManifest = async () => {
+            let payload;
+            try {
+                payload = JSON.parse(manifestJsonText.value);
+            } catch (error) {
+                ElMessage.error('JSON 格式不正确');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '保存失败');
+                    return;
+                }
+                showManifestDialog.value = false;
+                ElMessage.success('manifest.json 已保存');
+                await loadLibraryDirectory(libraryListing.value.path || '');
+            } catch (error) {
+                ElMessage.error('保存 manifest 失败');
+            }
+        };
+
+        const openLibraryShareDialog = () => {
+            if (libraryImages.value.length === 0) {
+                ElMessage.warning('当前目录没有可分享的图片，请进入包含图片的目录后再分享');
+                return;
+            }
+            libraryShareForm.value = {
+                title: libraryListing.value.name || '选片',
+                password: '',
+                allow_select: true
+            };
+            showLibraryShareDialog.value = true;
+        };
+
+        const createLibraryShare = async () => {
+            try {
+                const response = await fetch('/api/library/shares', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        source_id: currentLibrarySource.value.id,
+                        relative_path: libraryListing.value.path || '',
+                        title: libraryShareForm.value.title,
+                        password: libraryShareForm.value.password,
+                        allow_select: libraryShareForm.value.allow_select
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '创建分享失败');
+                    return;
+                }
+                showLibraryShareDialog.value = false;
+                const shareUrl = `${window.location.origin}${window.location.pathname}?share=${data.token}`;
+                await ElMessageBox.confirm(shareUrl, '分享链接已创建', {
+                    confirmButtonText: '复制链接', cancelButtonText: '关闭', type: 'success'
+                }).then(async () => {
+                    await navigator.clipboard.writeText(shareUrl);
+                    ElMessage.success('链接已复制');
+                }).catch(() => {});
+            } catch (error) {
+                ElMessage.error('创建分享失败');
+            }
+        };
+
+        const loadLibraryShare = async (token) => {
+            currentShareToken.value = token;
+            shareLoading.value = true;
+            currentView.value = 'library-share';
+            try {
+                const response = await fetch(`/api/library/shares/${encodeURIComponent(token)}`);
+                const data = await response.json();
+                if (response.status === 401 && data.needs_password) {
+                    shareNeedsPassword.value = true;
+                    libraryShare.value = {title: data.title || '分享相册', images: []};
+                    return;
+                }
+                if (!response.ok) {
+                    ElMessage.error(data.error || '分享链接不可用');
+                    libraryShare.value = {title: '分享不可用', images: []};
+                    return;
+                }
+                shareNeedsPassword.value = false;
+                libraryShare.value = data;
+            } catch (error) {
+                ElMessage.error('加载分享失败');
+            } finally {
+                shareLoading.value = false;
+            }
+        };
+
+        const unlockLibraryShare = async () => {
+            try {
+                const response = await fetch(`/api/library/shares/${encodeURIComponent(currentShareToken.value)}/unlock`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password: sharePassword.value})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '密码错误');
+                    return;
+                }
+                sharePassword.value = '';
+                await loadLibraryShare(currentShareToken.value);
+            } catch (error) {
+                ElMessage.error('验证失败');
+            }
+        };
+
+        const shareAssetUrl = (item, variant = 'thumbnail') => {
+            if (!item) return '';
+            return `/api/library/shares/${encodeURIComponent(currentShareToken.value)}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(item.relative_path)}`;
+        };
+
+        const toggleShareSelection = async (item) => {
+            if (!libraryShare.value.allow_select) return;
+            try {
+                const response = await fetch(`/api/library/shares/${encodeURIComponent(currentShareToken.value)}/selection`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({relative_path: item.relative_path})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '选片失败');
+                    return;
+                }
+                const raw = (libraryShare.value.images || []).find(img => img.relative_path === item.relative_path);
+                if (raw) {
+                    raw.selected = data.selected;
+                    raw.is_favorited = data.selected;
+                }
+                if (currentImage.value && currentImage.value.source_type === 'library-share' && currentImage.value.relative_path === item.relative_path) {
+                    currentImage.value.is_favorited = data.selected;
+                }
+                libraryShare.value.selected_count = data.selected_count;
+                ElMessage.success(data.selected ? '收藏成功' : '取消收藏');
+            } catch (error) {
+                ElMessage.error('选片失败');
+            }
+        };
+
+        const exportShareSelection = async () => {
+            const names = shareSelectedImages.value.map(item => item.original_filename);
+            if (!names.length) {
+                ElMessage.warning('还没有选择图片');
+                return;
+            }
+            const text = names.map((name, index) => `${index + 1}. ${name}`).join('\n');
+            try {
+                await navigator.clipboard.writeText(text);
+                ElMessage.success(`已复制 ${names.length} 个文件名`);
+            } catch (error) {
+                ElMessageBox.alert(text, '已选文件名', {confirmButtonText: '关闭'});
+            }
+        };
+
+        const manifestSummary = computed(() => {
+            const manifest = libraryListing.value.manifest || {};
+            if (!manifest.valid || !manifest.data) return null;
+            const data = manifest.data;
+            const subjects = (data.subjects || []).map(s => s.name).filter(Boolean).join(' / ');
+            return {
+                title: data.title || data.theme?.name || '',
+                date: data.shoot?.date || '',
+                model: subjects,
+                location: data.shoot?.location || '',
+                theme: data.theme?.name || '',
+                style: data.theme?.style || ''
+            };
+        });
+
+
+        // 添加URL工具函数
+        const updateUrlWithoutParams = () => {
+            // 去掉所有查询参数，只保留路径
+            const newUrl = window.location.pathname;
+            if (window.location.search) {
+                window.history.replaceState({}, '', newUrl);
+            }
+        };
+
+        onMounted(async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const shareToken = urlParams.get('share');
+            const sourceId = urlParams.get('source');
+            const sourcePath = urlParams.get('path') || '';
+            const albumId = urlParams.get('album');
+            const imageId = urlParams.get('image');
+
+            loadSiteTitle();
+            document.addEventListener('keydown', handleKeyDown);
+
+            // 公共分享页不需要管理员状态，也不加载传统相册列表。
+            if (shareToken) {
+                await loadLibraryShare(shareToken);
+                return;
+            }
+
+            await loadAlbums();
+            await loadSiteConfig();
+            await restoreAlbumAccessTokens();
+            await restoreAdminStatus();
+            loadCollapsedGroups();
+
+            if (isAdmin.value) {
+                await loadLibrarySources();
+            }
+
+            if (sourceId && isAdmin.value) {
+                const source = librarySources.value.find(s => String(s.id) === String(sourceId));
+                if (source) {
+                    await openLibrarySource(source, sourcePath);
+                    return;
+                }
+            }
+
+            if (albumId) {
+                if (imageId) {
+                    setTimeout(async () => {
+                        await openAlbumDirect(parseInt(albumId), parseInt(imageId));
+                    }, 100);
+                    return;
+                }
+                setTimeout(async () => {
+                    await openAlbumDirect(parseInt(albumId));
+                }, 100);
+            }
+        });
+
+
+        // 重命名图片文件
+        const renameImageFile = async (imageId, newFilename) => {
+            try {
+                const response = await fetch(`/api/images/${imageId}/rename`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        new_filename: newFilename
+                    })
+                });
+
+                if (response.ok) {
+                    // 更新本地数据
+                    const imageIndex = images.value.findIndex(img => img.id === imageId);
+                    if (imageIndex !== -1) {
+                        images.value[imageIndex].original_filename = newFilename;
+                    }
+
+                    // 如果当前正在查看的图片被重命名，也更新当前图片状态
+                    if (currentImage.value && currentImage.value.id === imageId) {
+                        currentImage.value.original_filename = newFilename;
+                    }
+
+                    ElMessage.success('文件名修改成功');
+                } else {
+                    const data = await response.json();
+                    ElMessage.error(data.error || '重命名失败');
+                }
+            } catch (error) {
+                ElMessage.error('重命名失败');
+            }
+        };
+
+        // 批量删除图片
+        const batchDeleteImages = async () => {
+            if (selectedImages.value.length === 0) return;
+
+            try {
+                await ElMessageBox.confirm(
+                    `确定要删除选中的 ${selectedImages.value.length} 张图片吗？`,
+                    '警告',
+                    {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning',
+                    }
+                );
+
+                // 逐个删除选中的图片
+                const deletePromises = selectedImages.value.map(imageId =>
+                    fetch(`/api/images/${imageId}`, {method: 'DELETE'})
+                );
+
+                await Promise.all(deletePromises);
+
+                ElMessage.success(`成功删除 ${selectedImages.value.length} 张图片`);
+
+                // 清除选择状态并重新加载图片
+                selectedImages.value = [];
+                selectionMode.value = false; // 退出选择模式
+                await loadAlbumImages(currentAlbum.value.id);
+
+                // 重新加载相册列表（更新图片数量）
+                await loadAlbums();
+
+
+                // // 如果删除了封面图片，重新加载相册列表
+                // if (selectedImages.value.includes(currentAlbum.value.cover_image_id)) {
+                //     loadAlbums();
+                // }
+
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElMessage.error('批量删除失败');
+                }
+            }
+        };
+
+        // fav start
+        const toggleFavorite = async (imageId) => {
+            try {
+                const response = await fetch(`/api/images/${imageId}/favorite`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    // 更新本地状态
+                    const imageIndex = images.value.findIndex(img => img.id === imageId);
+                    if (imageIndex !== -1) {
+                        images.value[imageIndex].is_favorited = data.is_favorited;
+                    }
+                    // 如果当前正在查看的图片被收藏/取消收藏，也更新当前图片状态
+                    if (currentImage.value && currentImage.value.id === imageId) {
+                        currentImage.value.is_favorited = data.is_favorited;
+                    }
+
+                    ElMessage.success(data.is_favorited ? '收藏成功' : '取消收藏');
+                }
+            } catch (error) {
+                ElMessage.error('操作失败');
+            }
+        };
+        // fav end
+
+
+        // select start
+
+        // 添加多选状态
+        const selectionMode = ref(false);
+        const selectedImages = ref([]);
+
+
+        // 切换选择模式
+        const toggleSelectionMode = () => {
+            selectionMode.value = !selectionMode.value;
+            if (!selectionMode.value) {
+                // 退出选择模式时清空选择
+                selectedImages.value = [];
+            }
+        };
+
+
+        const handleImageClick = (imageId) => {
+            if (selectionMode.value) {
+                // 选择模式下切换选择状态
+                const index = selectedImages.value.indexOf(imageId);
+                if (index > -1) {
+                    selectedImages.value.splice(index, 1);
+                } else {
+                    selectedImages.value.push(imageId);
+                }
+            } else {
+                // 正常模式下查看图片
+                viewImage(imageId);
+            }
+        };
+
+
+        const isAllSelected = computed(() => {
+            return selectionMode.value &&
+                filteredImages.value.length > 0 &&
+                selectedImages.value.length === filteredImages.value.length;
+        });
+
+
+        const selectAllImages = () => {
+            if (selectedImages.value.length === filteredImages.value.length) {
+                // 如果已经全选，则清空选择
+                selectedImages.value = [];
+            } else {
+                // 否则选择所有筛选后的图片
+                selectedImages.value = filteredImages.value.map(img => img.id);
+            }
+        };
+
+        // select end
+
+        // password start
+
+        // 添加密码管理状态
+        const passwordEnabled = ref(false);
+        const newPassword = ref('');
+        const albumAccessTokens = ref({});
+
+        // 处理密码开关
+        const handlePasswordToggle = (enabled) => {
+            if (!enabled) {
+                // 关闭密码保护
+                removeAlbumPassword();
+            }
+        };
+
+        // 设置相册密码
+        const setAlbumPassword = async () => {
+            if (!newPassword.value.trim()) {
+                ElMessage.warning('请输入密码');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/albums/${currentAlbum.value.id}/password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        password: newPassword.value
+                    })
+                });
+
+                if (response.ok) {
+                    ElMessage.success('密码设置成功');
+                    newPassword.value = '';
+                } else {
+                    ElMessage.error('密码设置失败');
+                }
+            } catch (error) {
+                ElMessage.error('密码设置失败');
+            }
+        };
+
+        // 移除相册密码
+        const removeAlbumPassword = async () => {
+            try {
+                const response = await fetch(`/api/albums/${currentAlbum.value.id}/password`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    ElMessage.success('密码已移除');
+                    passwordEnabled.value = false;
+                } else {
+                    ElMessage.error('移除密码失败');
+                }
+            } catch (error) {
+                ElMessage.error('移除密码失败');
+            }
+        };
+
+
+        watch(showEditAlbumDialog, (newVal) => {
+            if (newVal && currentAlbum.value) {
+                // 检查相册是否有密码
+                checkAlbumPasswordStatus();
+            }
+        });
+
+        const checkAlbumPasswordStatus = async () => {
+            try {
+                const response = await fetch(`/api/albums/${currentAlbum.value.id}/has-password`);
+                const data = await response.json();
+                passwordEnabled.value = data.has_password;
+                newPassword.value = '';
+            } catch (error) {
+                console.error('检查密码状态失败:', error);
+            }
+        };
+
+
+        // 显示密码输入对话框
+        const showPasswordDialog = (album) => {
+            return new Promise((resolve) => {
+                ElMessageBox.prompt('此相册已加密，请输入访问密码', '密码验证', {
+                    confirmButtonText: '确定',
+                    cancelButtonText: '取消',
+                    inputType: 'password',
+
+                    inputPlaceholder: '请输入密码',
+                    beforeClose: async (action, instance, done) => {
+                        if (action === 'confirm') {
+                            const password = instance.inputValue;
+                            try {
+                                const response = await fetch(`/api/albums/${album.id}/verify-password`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({password})
+                                });
+
+                                if (response.ok) {
+                                    const data = await response.json();
+
+                                    // 存储token到内存和localStorage
+                                    albumAccessTokens.value[album.id] = data.token;
+
+                                    // 存储token到localStorage以便刷新后恢复
+                                    localStorage.setItem(`album_${album.id}_token`, data.token);
+
+                                    ElMessage.success('密码验证成功');
+                                    done();
+                                    resolve(true);
+                                } else {
+                                    const data = await response.json();
+                                    ElMessage.error(data.error || '密码错误');
+                                    instance.inputValue = '';
+                                }
+                            } catch (error) {
+                                ElMessage.error('验证失败');
+                            }
+                        } else {
+                            done();
+                            resolve(false);
+                        }
+                    }
+                });
+            });
+        };
+
+
+        // 检查相册访问权限
+        const checkAlbumAccess = (albumId) => {
+            // 只要有token就认为可以访问，具体验证交给后端
+            return !!albumAccessTokens.value[albumId];
+        };
+
+        const restoreAlbumAccessTokens = async () => {
+            const verifiedTokens = {};
+
+            // 先收集所有需要验证的键
+            const tokenKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('album_') && key.endsWith('_token')) {
+                    tokenKeys.push(key);
+                }
+            }
+
+            // 然后验证每个token
+            for (const key of tokenKeys) {
+                const albumId = key.replace('album_', '').replace('_token', '');
+                const token = localStorage.getItem(key);
+
+                if (token) {
+                    try {
+                        const response = await fetch(`/api/albums/${albumId}/verify-token`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({token})
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.valid) {
+                                verifiedTokens[albumId] = token;
+                            } else {
+                                // token无效，清除
+                                localStorage.removeItem(`album_${albumId}_token`);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('验证token失败:', error);
+                    }
+                }
+            }
+
+            // 恢复有效的token
+            for (const [albumId, token] of Object.entries(verifiedTokens)) {
+                albumAccessTokens.value[albumId] = token;
+            }
+        };
+
+
+        // password end
+
+        // desc start
+
+        const editImageFilename = async (image) => {
+            const fullFilename = image.original_filename || '';
+            const lastDotIndex = fullFilename.lastIndexOf('.');
+
+            // 使用 Element Plus 的 Form 对话框
+            try {
+                const result = await ElMessageBox({
+                    title: '重命名文件',
+                    message: `
+                <div id="rename-form" style="padding: 10px 0;">
+                    <p style="margin-bottom: 15px; color: #666;">当前: <strong>${fullFilename}</strong></p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 5px; color: #666;">文件名:</label>
+                            <input id="name-input" type="text" class="rename-input" 
+                                   value="${lastDotIndex > 0 ? fullFilename.substring(0, lastDotIndex) : fullFilename}">
+                        </div>
+                        <div style="width: 80px;">
+                            <label style="display: block; margin-bottom: 5px; color: #666;">扩展名:</label>
+                            <input id="ext-input" type="text" class="rename-input" 
+                                   value="${lastDotIndex > 0 ? fullFilename.substring(lastDotIndex + 1) : ''}">
+                        </div>
+                    </div>
+                </div>
+                <style>
+                    .rename-input {
+                        width: 100%;
+                        padding: 8px 12px;
+                        border: 1px solid #dcdfe6;
+                        border-radius: 4px;
+                        font-size: 14px;
+                    }
+                    .rename-input:focus {
+                        border-color: #409eff;
+                        outline: none;
+                    }
+                </style>
+            `,
+                    showConfirmButton: true,
+                    showCancelButton: true,
+                    confirmButtonText: '保存',
+                    cancelButtonText: '取消',
+                    dangerouslyUseHTMLString: true,
+                    beforeClose: async (action, instance, done) => {
+                        if (action === 'confirm') {
+                            const nameInput = document.getElementById('name-input');
+                            const extInput = document.getElementById('ext-input');
+
+                            const name = nameInput ? nameInput.value.trim() : '';
+                            const ext = extInput ? extInput.value.trim() : '';
+
+                            if (!name) {
+                                ElMessage.warning('文件名不能为空');
+                                return;
+                            }
+
+                            const newFilename = ext ? `${name}.${ext}` : name;
+
+                            if (newFilename === fullFilename) {
+                                done();
+                                return;
+                            }
+
+                            if (image.source_type === 'library') {
+                                await renameLibraryImageFile(image, newFilename);
+                            } else {
+                                await renameImageFile(image.id, newFilename);
+                            }
+                            done();
+                        } else {
+                            done();
+                        }
+                    }
+                });
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElMessage.error('操作失败');
+                }
+            }
+        };
+
+        const editImageDescription = async (image) => {
+            try {
+                const {value} = await ElMessageBox.prompt('请输入图片描述', '编辑描述', {
+                    confirmButtonText: '保存',
+                    cancelButtonText: '取消',
+                    inputValue: image.description || '',
+                    inputPlaceholder: '请输入图片描述...',
+                    inputType: 'textarea',
+                });
+
+                if (value !== null) {
+                    if (image.source_type === 'library') {
+                        await updateLibraryDescription(image, value);
+                        return;
+                    }
+                    const response = await fetch(`/api/images/${image.id}/description`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            description: value
+                        })
+                    });
+
+                    if (response.ok) {
+                        // 更新本地数据
+                        const imageIndex = images.value.findIndex(img => img.id === image.id);
+                        if (imageIndex !== -1) {
+                            images.value[imageIndex].description = value;
+                        }
+
+                        // 如果当前正在查看的图片被编辑，也更新当前图片状态
+                        if (currentImage.value && currentImage.value.id === image.id) {
+                            currentImage.value.description = value;
+                        }
+
+                        ElMessage.success('描述保存成功');
+                    } else {
+                        ElMessage.error('保存失败');
+                    }
+                }
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElMessage.error('操作失败');
+                }
+            }
+        };
+        // desc end
+
+
+        // exif start
+        const showExifDialog = ref(false);
+        const exifData = ref(null);
+        const currentExifImageId = ref(null);
+
+        // EXIF表格数据
+        const exifTableData = computed(() => {
+            if (!exifData.value) return [];
+
+            const tableData = [];
+            const flattenObject = (obj, prefix = '') => {
+                for (const key in obj) {
+                    if (obj.hasOwnProperty(key)) {
+                        const fullKey = prefix ? `${prefix}.${key}` : key;
+                        const value = obj[key];
+
+                        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                            flattenObject(value, fullKey);
+                        } else {
+                            tableData.push({
+                                key: fullKey,
+                                value: Array.isArray(value) ? JSON.stringify(value) : String(value)
+                            });
+                        }
+                    }
+                }
+            };
+
+            flattenObject(exifData.value);
+            return tableData.sort((a, b) => a.key.localeCompare(b.key));
+        });
+
+        // 显示图片EXIF信息
+        const showImageExif = async (imageId) => {
+            showExifDialog.value = true;
+            currentExifImageId.value = imageId;
+            exifData.value = null;
+
+            try {
+                let response;
+                if (currentImage.value && currentImage.value.source_type === 'library') {
+                    response = await fetch(`/api/library/sources/${currentImage.value.source_id}/exif?path=${encodeURIComponent(currentImage.value.relative_path)}`);
+                } else if (currentImage.value && currentImage.value.source_type === 'library-share') {
+                    response = await fetch(`/api/library/shares/${encodeURIComponent(currentImage.value.share_token || currentShareToken.value)}/exif?path=${encodeURIComponent(currentImage.value.relative_path)}`);
+                } else {
+                    response = await fetch(`/api/images/${imageId}/exif`);
+                }
+                if (response.ok) {
+                    const data = await response.json();
+                    exifData.value = data.exif || {};
+                } else {
+                    ElMessage.error('获取EXIF信息失败');
+                }
+            } catch (error) {
+                ElMessage.error('获取EXIF信息失败');
+            }
+        };
+        // exif end
+
+
+        // title start
+        const siteTitle = ref('我的相册');
+
+        // 加载站点标题
+        const loadSiteTitle = async () => {
+            try {
+                const response = await fetch('/api/albums/title');
+                const data = await response.json();
+                siteTitle.value = data.title || '我的相册';
+                // 更新网页标题
+                document.title = siteTitle.value;
+            } catch (error) {
+                console.error('加载标题失败:', error);
+            }
+        };
+
+        // 编辑站点标题
+        const editSiteTitle = async () => {
+            try {
+                const {value} = await ElMessageBox.prompt('请输入新的标题', '修改标题', {
+                    confirmButtonText: '保存',
+                    cancelButtonText: '取消',
+                    inputValue: siteTitle.value,
+                    inputPlaceholder: '请输入标题...',
+                    inputValidator: (value) => {
+                        if (!value || value.trim() === '') {
+                            return '标题不能为空';
+                        }
+                        if (value.length > 50) {
+                            return '标题不能超过50个字符';
+                        }
+                        return true;
+                    }
+                });
+
+                if (value !== null && value.trim() !== '' && value !== siteTitle.value) {
+                    await saveSiteTitle(value.trim());
+                }
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElMessage.error('操作失败');
+                }
+            }
+        };
+
+        // 保存站点标题
+        const saveSiteTitle = async (newTitle) => {
+            try {
+                const response = await fetch('/api/albums/title', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        title: newTitle
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    siteTitle.value = data.title;
+                    // 更新网页标题
+                    document.title = siteTitle.value;
+                    ElMessage.success('标题更新成功');
+                } else {
+                    const errorData = await response.json();
+                    ElMessage.error(errorData.error || '更新失败');
+                }
+            } catch (error) {
+                ElMessage.error('更新标题失败');
+            }
+        };
+        //title end
+
+        // move start
+        const showMoveToAlbumDialog = ref(false);
+        const targetAlbumId = ref(null);
+        const otherAlbums = ref([]);
+
+        // 显示移动对话框
+        const showMoveDialog = async () => {
+            if (selectedImages.value.length === 0) return;
+
+            try {
+                // 获取其他相册列表（排除当前相册）
+                const response = await fetch('/api/albums');
+                const allAlbums = await response.json();
+
+                otherAlbums.value = allAlbums.filter(album => album.id !== currentAlbum.value.id);
+
+                if (otherAlbums.value.length === 0) {
+                    ElMessage.warning('没有其他相册可以移动');
+                    return;
+                }
+
+                targetAlbumId.value = null;
+                showMoveToAlbumDialog.value = true;
+            } catch (error) {
+                ElMessage.error('加载相册列表失败');
+            }
+        };
+
+        // 移动选中的图片
+        const moveSelectedImages = async () => {
+            if (!targetAlbumId.value || selectedImages.value.length === 0) return;
+
+            if (targetAlbumId.value === currentAlbum.value.id) {
+                ElMessage.warning('不能移动到当前相册');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/images/move', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image_ids: selectedImages.value,
+                        target_album_id: targetAlbumId.value
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // 清空选择并重新加载图片
+                    selectedImages.value = [];
+                    selectionMode.value = false;
+
+                    await loadAlbumImages(currentAlbum.value.id);
+
+                    // 重新加载相册列表（更新两个相册的图片数量）
+                    await loadAlbums();
+
+                    ElMessage.success(data.message);
+                    showMoveToAlbumDialog.value = false;
+
+                    // 重新加载相册列表以更新图片数量
+                    loadAlbums();
+                } else {
+                    const errorData = await response.json();
+                    ElMessage.error(errorData.error || '移动失败');
+                }
+            } catch (error) {
+                ElMessage.error('移动图片失败');
+            }
+        };
+        // move end
+
+        //sort start
+
+        // 前端排序函数
+        const sortImages = () => {
+            if (!images.value.length) return;
+
+            images.value.sort((a, b) => {
+                let valueA, valueB;
+
+                switch (currentSort.value.field) {
+                    case 'original_filename':
+                        valueA = a.original_filename.toLowerCase();
+                        valueB = b.original_filename.toLowerCase();
+                        break;
+                    case 'file_size':
+                        valueA = a.file_size || 0;
+                        valueB = b.file_size || 0;
+                        break;
+                    case 'uploaded_at':
+                    default:
+                        valueA = new Date(a.uploaded_at).getTime();
+                        valueB = new Date(b.uploaded_at).getTime();
+                        break;
+                }
+
+                // 处理null或undefined值
+                if (valueA == null) valueA = '';
+                if (valueB == null) valueB = '';
+
+                let result = 0;
+                if (valueA < valueB) result = -1;
+                if (valueA > valueB) result = 1;
+
+                // 根据排序顺序调整
+                return currentSort.value.order === 'desc' ? -result : result;
+            });
+        };
+
+
+        const currentSort = ref({field: 'original_filename', order: 'asc'});
+
+
+        // 排序选项
+        const sortOptions = [
+            {label: '文件名 (A-Z)', value: {field: 'original_filename', order: 'asc'}},
+            {label: '文件名 (Z-A)', value: {field: 'original_filename', order: 'desc'}},
+            {label: '上传时间 (最新)', value: {field: 'uploaded_at', order: 'desc'}},
+            {label: '上传时间 (最旧)', value: {field: 'uploaded_at', order: 'asc'}},
+
+        ];
+
+        // 改变排序方式
+        const changeSort = (option) => {
+            currentSort.value = {...option.value};
+            sortImages();
+        };
+
+        // 获取当前排序标签
+        const getCurrentSortLabel = computed(() => {
+            const option = sortOptions.find(opt =>
+                opt.value.field === currentSort.value.field &&
+                opt.value.order === currentSort.value.order
+            );
+            return option ? option.label : '排序方式';
+        });
+
+        // sort end
+
+
+        //export fav start
+
+        // 计算收藏图片数量
+        const getFavoriteCount = computed(() => {
+            return images.value.filter(img => img.is_favorited).length;
+        });
+
+
+        const exportFavoriteList = () => {
+            // 获取收藏的图片
+            const favoriteImages = images.value.filter(img => img.is_favorited);
+
+            if (favoriteImages.length === 0) {
+                ElMessage.warning('当前相册没有收藏的图片');
+                return;
+            }
+
+            // 构建文件名列表
+            const fileNames = favoriteImages.map(img => img.original_filename);
+            const fileListText = fileNames.map((name, index) => `${index + 1}. ${name}`).join('\n');
+
+            // 使用 ElMessageBox 显示对话框，带自定义按钮
+            ElMessageBox({
+                title: `相册: ${currentAlbum.value.name}`,
+                message: `收藏图片列表 (${favoriteImages.length}张):\n\n${fileListText}`,
+                showConfirmButton: true,
+                showCancelButton: true,
+                confirmButtonText: '复制到剪贴板',
+                cancelButtonText: '关闭',
+                customClass: 'favorite-list-box',
+                beforeClose: async (action, instance, done) => {
+                    if (action === 'confirm') {
+                        // 点击复制按钮
+                        try {
+                            await navigator.clipboard.writeText(fileListText);
+                            ElMessage.success('已复制到剪贴板');
+                            done();
+                        } catch (err) {
+                            // 降级方案：使用老式复制方法
+                            const textArea = document.createElement('textarea');
+                            textArea.value = fileListText;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            ElMessage.success('已复制到剪贴板');
+                            done();
+                        }
+                    } else {
+                        // 点击关闭按钮
+                        done();
+                    }
+                }
+            });
+        };
+
+        //export fav end
+
+        //group start
+        const albumGroups = ref([]);
+        const ungroupedAlbums = ref([]);
+        const allGroups = ref([]);
+        const showManageGroupsDialog = ref(false);
+        const showEditGroupDialog = ref(false);
+        const newGroupName = ref('');
+        const groupForm = ref({
+            id: null,
+            name: '',
+            sort_order: 0
+        });
+        const editingGroup = ref(null);
+
+        const createGroup = async () => {
+            if (!newGroupName.value.trim()) {
+                ElMessage.warning('请输入分组名称');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/album-groups', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: newGroupName.value.trim(),
+                        sort_order: 0
+                    })
+                });
+
+                if (response.ok) {
+                    ElMessage.success('分组创建成功');
+                    newGroupName.value = '';
+                    loadAlbums();
+                } else {
+                    const data = await response.json();
+                    ElMessage.error(data.error || '创建分组失败');
+                }
+            } catch (error) {
+                ElMessage.error('创建分组失败');
+            }
+        };
+
+        const editGroup = (group) => {
+            editingGroup.value = group;
+            groupForm.value = {
+                id: group.id,
+                name: group.name,
+                sort_order: group.sort_order || 0
+            };
+            showEditGroupDialog.value = true;
+        };
+
+        const saveGroup = async () => {
+            if (!groupForm.value.name.trim()) {
+                ElMessage.warning('请输入分组名称');
+                return;
+            }
+
+            try {
+                const url = editingGroup.value
+                    ? `/api/album-groups/${editingGroup.value.id}`
+                    : '/api/album-groups';
+
+                const response = await fetch(url, {
+                    method: editingGroup.value ? 'PUT' : 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(groupForm.value)
+                });
+
+                if (response.ok) {
+                    ElMessage.success(editingGroup.value ? '分组更新成功' : '分组创建成功');
+                    showEditGroupDialog.value = false;
+                    editingGroup.value = null;
+                    groupForm.value = {id: null, name: '', sort_order: 0};
+                    loadAlbums();
+                } else {
+                    const data = await response.json();
+                    ElMessage.error(data.error || '操作失败');
+                }
+            } catch (error) {
+                ElMessage.error('操作失败');
+            }
+        };
+
+        const deleteGroup = async (group) => {
+            try {
+                // 询问用户如何处理分组中的相册
+                const confirmResult = await ElMessageBox.confirm(
+                    `确定要删除分组 "${group.name}" 吗？\n分组中的 ${group.album_count} 个相册将变为未分组状态。`,
+                    '删除分组',
+                    {
+                        confirmButtonText: '删除并移到未分组',
+                        cancelButtonText: '取消',
+                        type: 'warning',
+                        distinguishCancelAndClose: true
+                    }
+                );
+
+                const response = await fetch(`/api/album-groups/${group.id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        move_to_ungrouped: true
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    ElMessage.success(data.message);
+
+                    // 重新加载相册列表
+                    await loadAlbums();
+
+                    // 如果有受影响的相册，显示提示
+                    if (data.affected_albums && data.affected_albums.length > 0) {
+                        setTimeout(() => {
+                            ElMessage.info(`${data.album_count}个相册已移到未分组`);
+                        }, 500);
+                    }
+                }
+            } catch (error) {
+                if (error === 'cancel') {
+                    // 用户取消
+                    return;
+                }
+                ElMessage.error('删除分组失败');
+            }
+        };
+
+
+        const handleGroupCommand = (command) => {
+            if (command.action === 'edit') {
+                editGroup(command.group);
+            } else if (command.action === 'delete') {
+                deleteGroup(command.group);
+            } else if (command.action === 'collapse') {
+                toggleGroupCollapse(command.group.id);
+            }
+        };
+
+        const getGroupAlbumCount = (groupId) => {
+            const group = albumGroups.value.find(g => g.id === groupId);
+            return group ? group.album_count : 0;
+        };
+
+
+        // 修改加载相册分组信息的函数（编辑相册时调用）
+        const loadAlbumGroupsInfo = async (albumId) => {
+            try {
+                const response = await fetch(`/api/albums/${albumId}/groups`);
+                if (response.ok) {
+                    const groups = await response.json();
+                    // 设置当前相册的分组ID
+                    if (currentAlbum.value) {
+                        currentAlbum.value.group_ids = groups.map(g => g.id);
+                    }
+                }
+            } catch (error) {
+                console.error('加载相册分组失败:', error);
+            }
+        };
+
+        // 在打开编辑相册对话框时加载分组信息
+        watch(showEditAlbumDialog, (newVal) => {
+            if (newVal && currentAlbum.value && currentAlbum.value.id) {
+                loadAlbumGroupsInfo(currentAlbum.value.id);
+            }
+        });
+
+
+        // filter start 20250115
+
+
+        const currentFilter = ref('all'); // 'all', 'favorited', 'not_favorited'
+
+        // 筛选选项
+        const filterOptions = [
+            {label: '全部图片', value: 'all'},
+            {label: '已收藏', value: 'favorited'},
+            {label: '未收藏', value: 'not_favorited'}
+        ];
+
+        // 改变筛选条件
+        const changeFilter = (filterValue) => {
+            currentFilter.value = filterValue;
+            // 清空选择状态
+            selectedImages.value = [];
+        };
+
+        // 修改 filteredImages 计算属性，同时考虑筛选和排序
+        const filteredImages = computed(() => {
+            let result;
+            if (currentView.value === 'library-share' || (currentImage.value && currentImage.value.source_type === 'library-share')) {
+                result = shareImages.value;
+            } else if (currentView.value === 'library' || (currentImage.value && currentImage.value.source_type === 'library')) {
+                result = libraryImages.value;
+            } else {
+                result = images.value;
+            }
+
+            // 应用筛选
+            if (currentFilter.value === 'favorited') {
+                result = result.filter(img => img.is_favorited);
+            } else if (currentFilter.value === 'not_favorited') {
+                result = result.filter(img => !img.is_favorited);
+            }
+
+            // 应用排序（复制数组避免修改原数组）
+            result = [...result].sort((a, b) => {
+                let valueA, valueB;
+
+                switch (currentSort.value.field) {
+                    case 'original_filename':
+                        valueA = a.original_filename.toLowerCase();
+                        valueB = b.original_filename.toLowerCase();
+                        break;
+                    case 'file_size':
+                        valueA = a.file_size || 0;
+                        valueB = b.file_size || 0;
+                        break;
+                    case 'uploaded_at':
+                    default:
+                        valueA = new Date(a.uploaded_at).getTime();
+                        valueB = new Date(b.uploaded_at).getTime();
+                        break;
+                }
+
+                // 处理null或undefined值
+                if (valueA == null) valueA = '';
+                if (valueB == null) valueB = '';
+
+                let compareResult = 0;
+                if (valueA < valueB) compareResult = -1;
+                if (valueA > valueB) compareResult = 1;
+
+                // 根据排序顺序调整
+                return currentSort.value.order === 'desc' ? -compareResult : compareResult;
+            });
+
+            return result;
+        });
+
+        // 获取当前筛选标签
+        const getCurrentFilterLabel = computed(() => {
+            const option = filterOptions.find(opt => opt.value === currentFilter.value);
+            return option ? option.label : '筛选方式';
+        });
+
+        // filter end
+
+        //overlay start
+        const showImageOverlay = ref(false);
+        const overlayImageSrc = ref('');
+        const overlayImageAlt = ref('');
+
+// 添加单击图片事件处理函数
+        const openImageOverlay = () => {
+            if (currentImage.value && currentImage.value.id) {
+                overlayImageSrc.value = detailImageUrl(currentImage.value, 'compressed');
+                overlayImageAlt.value = currentImage.value.original_filename;
+                showImageOverlay.value = true;
+            }
+        };
+
+// 关闭悬浮层
+        const closeImageOverlay = () => {
+            showImageOverlay.value = false;
+            overlayImageSrc.value = '';
+            overlayImageAlt.value = '';
+        };
+
+// 添加键盘事件监听
+        const handleKeyDown = (event) => {
+            if (showImageOverlay.value) {
+                if (event.key === 'Escape') {
+                    closeImageOverlay();
+                } else if (event.key === 'ArrowLeft') {
+                    prevImage();
+                } else if (event.key === 'ArrowRight') {
+                    nextImage();
+                }
+            }
+        };
+
+        //overlay end
+
+        //admin start
+
+
+// 在 setup() 中添加
+
+
+        // ... 您的现有代码 ...
+
+        // 覆盖fetch函数
+        const originalFetch = window.fetch;
+
+        window.fetch = async function (url, options = {}) {
+            const newOptions = {...options};
+            newOptions.headers = newOptions.headers || {};
+
+            // 如果是管理员且有token
+            if (isAdmin.value && adminToken.value) {
+
+                // 处理不同的headers类型
+                if (newOptions.headers instanceof Headers) {
+                    newOptions.headers.set('X-Admin-Token', adminToken.value);
+                } else if (newOptions.headers && typeof newOptions.headers === 'object') {
+                    newOptions.headers['X-Admin-Token'] = adminToken.value;
+                } else {
+                    newOptions.headers = {
+                        'X-Admin-Token': adminToken.value
+                    };
+                }
+            }
+
+            return originalFetch.call(this, url, newOptions);
+        };
+
+
+        const isAdmin = ref(false);
+        const adminToken = ref('');  // 添加这行
+        const showAdminLogin = ref(false);
+        const adminPassword = ref('');
+        const adminLoginLoading = ref(false);
+
+// 管理员登录验证
+        const verifyAdminPassword = async () => {
+            if (!adminPassword.value.trim()) {
+                ElMessage.warning('请输入管理员密码');
+                return;
+            }
+
+            adminLoginLoading.value = true;
+            try {
+                const response = await fetch('/api/admin/verify-password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password: adminPassword.value})
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    isAdmin.value = true;
+                    adminToken.value = data.token;
+                    localStorage.setItem('admin_token', data.token);
+                    // localStorage.setItem('admin_token_expires', Date.now() + (data.expires_in * 1000));
+                    // localStorage.setItem('is_admin', 'true');
+                    showAdminLogin.value = false;
+                    adminPassword.value = '';
+                    await loadLibrarySources();
+                    ElMessage.success('管理员登录成功');
+                } else {
+                    const errorData = await response.json();
+                    ElMessage.error(errorData.error || '密码错误');
+                }
+            } catch (error) {
+                ElMessage.error('验证失败');
+            } finally {
+                adminLoginLoading.value = false;
+            }
+        };
+
+
+// 管理员登出
+        const adminLogout = async () => {
+            try { await fetch('/api/admin/logout', {method: 'POST'}); } catch (e) {}
+            isAdmin.value = false;
+            adminToken.value = '';
+            librarySources.value = [];
+            currentLibrarySource.value = null;
+            localStorage.removeItem('admin_token');
+            ElMessage.success('已退出管理员模式');
+        };
+
+// 恢复管理员状态
+        const restoreAdminStatus = async () => {
+            const token = localStorage.getItem('admin_token');
+            // const expires = localStorage.getItem('admin_token_expires');
+
+            if (!token) {
+                isAdmin.value = false; //false
+                return;
+            }
+
+
+            // 验证token有效性（向后端验证）
+            try {
+                const response = await fetch('/api/admin/verify-token', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({token: token})
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.valid) {
+                        adminToken.value = token;
+                        isAdmin.value = true;
+                    } else {
+                        // token无效，清除存储
+                        localStorage.removeItem('admin_token');
+                        // localStorage.removeItem('admin_token_expires');
+                        isAdmin.value = false;
+                    }
+                } else {
+                    // 验证失败，清除存储
+                    localStorage.removeItem('admin_token');
+                    // localStorage.removeItem('admin_token_expires');
+                    isAdmin.value = false;
+                }
+            } catch (error) {
+                console.error('恢复管理员状态失败:', error);
+                isAdmin.value = false;
+            }
+        };
+
+
+        //admin end
+
+        // config start
+
+        const showConfigDialog = ref(false);
+        const siteConfig = ref({});
+        const configLoading = ref(false);
+
+        // 加载站点配置
+        const loadSiteConfig = async () => {
+            configLoading.value = true;
+            try {
+                const response = await fetch('/api/site-config');
+
+                if (response.ok) {
+                    siteConfig.value = await response.json();
+                    showExifOnHover.value = siteConfig.value.show_exif_on_hover === '1';
+                }
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            } finally {
+                configLoading.value = false;
+            }
+        };
+
+        // 保存配置
+        const saveSiteConfig = async () => {
+            configLoading.value = true;
+            try {
+                const response = await fetch('/api/site-config', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(siteConfig.value)
+                });
+
+                if (response.ok) {
+                    ElMessage.success('配置保存成功');
+                    showConfigDialog.value = false;
+                    // 重新加载站点标题
+                    await loadSiteTitle();
+                    if (siteConfig.value.new_password) {
+                        adminLogout() // 如果修改了密码登出
+                    }
+
+                    showExifOnHover.value = siteConfig.value.show_exif_on_hover === '1';
+
+                } else {
+                    const data = await response.json();
+                    ElMessage.error(data.error || '保存失败');
+                }
+            } catch (error) {
+                ElMessage.error('保存配置失败');
+            } finally {
+                configLoading.value = false;
+            }
+        };
+
+        // 检查是否可以上传（用于控制上传按钮显示）
+        const canUpload = computed(() => {
+            // 管理员总是可以上传
+            if (isAdmin.value) return true;
+
+            // 游客检查配置
+            return siteConfig.value.allow_guest_upload === '1';
+        });
+
+        // 修改 showConfigDialog 的监听
+        watch(showConfigDialog, async (newVal) => {
+            if (newVal && isAdmin.value) {
+                // 打开对话框时加载配置
+                await loadSiteConfig();
+            }
+        });
+
+
+        //config end
+
+        //share
+        // 生成图片分享链接（可选）
+
+        // 生成相册分享链接
+        const generateAlbumShareUrl = (albumId) => {
+            return `${window.location.origin}${window.location.pathname}?album=${albumId}`;
+        };
+
+        // 生成图片分享链接
+        const generateImageShareUrl = (albumId, imageId) => {
+            return `${window.location.origin}${window.location.pathname}?album=${albumId}&image=${imageId}`;
+        };
+
+        // 显示分享对话框
+        const showShareDialog = (type = 'album', imageId = null) => {
+            let shareUrl = '';
+            let title = '';
+
+            if (type === 'album' && currentAlbum.value.id) {
+                shareUrl = generateAlbumShareUrl(currentAlbum.value.id);
+                title = `分享相册`;
+            } else if (type === 'image' && currentImage.value.id && currentAlbum.value.id) {
+                shareUrl = generateImageShareUrl(currentAlbum.value.id, currentImage.value.id);
+                title = `分享图片`;
+            } else {
+                ElMessage.warning('无法生成分享链接');
+                return;
+            }
+
+            ElMessageBox.confirm(
+                `${shareUrl}`,
+                {
+                    title: title,
+                    confirmButtonText: '复制链接',
+                    cancelButtonText: '关闭',
+                    beforeClose: async (action, instance, done) => {
+                        if (action === 'confirm') {
+                            try {
+                                await navigator.clipboard.writeText(shareUrl);
+                                ElMessage.success('链接已复制到剪贴板');
+                                done();
+                            } catch (error) {
+                                // 降级方案
+                                const textArea = document.createElement('textarea');
+                                textArea.value = shareUrl;
+                                document.body.appendChild(textArea);
+                                textArea.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(textArea);
+                                ElMessage.success('链接已复制到剪贴板');
+                                done();
+                            }
+                        } else {
+                            done();
+                        }
+                    }
+                }
+            ).catch(() => {
+                // 用户点击取消
+            });
+        };
+
+        // 添加浏览模式状态
+        const viewMode = ref('grid'); // 'grid' 或 'waterfall'
+
+
+        //exif waterfall
+        // 在setup()中添加
+        const exifCache = ref({});
+
+
+        const exifLoading = ref({}); // 加载状态
+        const exifTimers = ref({}); // 定时器，防止频繁请求
+
+        // 在setup()中添加
+        const showExifOnHover = ref(true); // 默认显示
+
+
+        // 悬停时加载EXIF
+        const loadExifOnHover = async (imageOrId) => {
+
+            if (!showExifOnHover.value) return;
+
+            const image = (typeof imageOrId === 'object' && imageOrId !== null)
+                ? imageOrId
+                : filteredImages.value.find(img => img.id === imageOrId) || images.value.find(img => img.id === imageOrId);
+            if (!image) return;
+
+            const cacheKey = image.id;
+            if (exifCache.value[cacheKey] !== undefined) return;
+
+            exifLoading.value[cacheKey] = true;
+            exifTimers.value[cacheKey] = setTimeout(async () => {
+                try {
+                    let url;
+                    if (image.source_type === 'library') {
+                        url = `/api/library/sources/${image.source_id}/exif?path=${encodeURIComponent(image.relative_path)}`;
+                    } else if (image.source_type === 'library-share') {
+                        url = `/api/library/shares/${encodeURIComponent(image.share_token || currentShareToken.value)}/exif?path=${encodeURIComponent(image.relative_path)}`;
+                    } else {
+                        url = `/api/images/${image.id}/exif`;
+                    }
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        const data = await response.json();
+                        exifCache.value[cacheKey] = data.exif || null;
+                    } else {
+                        exifCache.value[cacheKey] = null;
+                    }
+                } catch (error) {
+                    console.error('加载EXIF信息失败:', error);
+                    exifCache.value[cacheKey] = null;
+                } finally {
+                    exifLoading.value[cacheKey] = false;
+                    delete exifTimers.value[cacheKey];
+                }
+            }, 300);
+        };
+
+        // 清除定时器
+        const clearExifTimer = (imageId) => {
+            if (exifTimers.value[imageId]) {
+                clearTimeout(exifTimers.value[imageId]);
+                delete exifTimers.value[imageId];
+            }
+
+            // 如果还在加载中，清除加载状态
+            if (exifLoading.value[imageId]) {
+                setTimeout(() => {
+                    exifLoading.value[imageId] = false;
+                }, 100);
+            }
+        };
+
+        // 预加载并缓存EXIF信息
+        const cacheImageExif = async (imageId) => {
+            // 避免重复请求
+            if (exifCache.value[imageId]) return;
+
+            try {
+                const response = await fetch(`/api/images/${imageId}/exif`);
+                if (response.ok) {
+                    const data = await response.json();
+                    exifCache.value[imageId] = data.exif || {};
+                }
+            } catch (error) {
+                console.error('加载EXIF信息失败:', error);
+                exifCache.value[imageId] = {};
+            }
+        };
+
+        // 检查是否有需要的EXIF信息
+        const hasExifInfo = (imageId) => {
+            const exif = exifCache.value[imageId];
+            if (!exif) return false;
+
+            return exif.ISO;
+        };
+
+        // 获取格式化后的EXIF值
+        // 获取EXIF值
+        const getExifValue = (imageId, key) => {
+            const exif = exifCache.value[imageId];
+            if (!exif) return '';
+
+            const value = exif[key];
+            if (value === undefined || value === null) return '';
+
+            return String(value);
+        };
+
+
+        //collasp
+// 在setup()中添加
+        const collapsedGroups = ref(new Set());
+
+// 切换分组折叠状态
+        const toggleGroupCollapse = (groupId) => {
+            if (collapsedGroups.value.has(groupId)) {
+                collapsedGroups.value.delete(groupId);
+            } else {
+                collapsedGroups.value.add(groupId);
+            }
+
+            // 保存到localStorage
+            saveCollapsedGroups();
+        };
+
+// 检查分组是否折叠
+        const isGroupCollapsed = (groupId) => {
+            return collapsedGroups.value.has(groupId);
+        };
+
+// 保存折叠状态到localStorage
+        const saveCollapsedGroups = () => {
+            const collapsedArray = Array.from(collapsedGroups.value);
+            localStorage.setItem('collapsed_groups', JSON.stringify(collapsedArray));
+        };
+
+// 从localStorage恢复折叠状态
+        const loadCollapsedGroups = () => {
+            try {
+                const saved = localStorage.getItem('collapsed_groups');
+                if (saved) {
+                    const collapsedArray = JSON.parse(saved);
+                    collapsedGroups.value = new Set(collapsedArray);
+                }
+            } catch (error) {
+                console.error('加载折叠状态失败:', error);
+            }
+        };
+
+// 显示在特定分组中创建相册
+        const showCreateAlbumInGroup = (group) => {
+            // 排除未分组
+            if (group.is_ungrouped) {
+                newAlbum.value.group_ids = [];
+            } else {
+                newAlbum.value.group_ids = [group.id];
+            }
+
+            // 清空其他字段
+            newAlbum.value.name = '';
+            newAlbum.value.description = '';
+            newAlbum.value.shoot_date = '';
+            newAlbum.value.model_name = '';
+            newAlbum.value.location = '';
+
+            showCreateAlbumDialog.value = true;
+        };
+
+
+        const resetAlbumDialog = () => {
+            // 重置表单数据
+            newAlbum.value = {
+                name: '',
+                description: '',
+                shoot_date: '',
+                model_name: '',
+                location: '',
+                group_ids: []
+            };
+
+            // 显示对话框
+            showCreateAlbumDialog.value = true;
+        };
+
+
+        return {
+            currentView,
+            librarySources,
+            currentLibrarySource,
+            libraryListing,
+            libraryLoading,
+            libraryDirectories,
+            libraryImages,
+            libraryStats,
+            libraryFavoriteCount,
+            libraryEmptyMessage,
+            showLibrarySourcesDialog,
+            newLibrarySource,
+            loadLibrarySources,
+            addLibrarySource,
+            deleteLibrarySource,
+            openLibrarySource,
+            openLibraryDirectory,
+            libraryBack,
+            libraryAssetUrl,
+            libraryPathAssetUrl,
+            detailImageUrl,
+            viewLibraryImage,
+            toggleCurrentFavorite,
+            toggleImageFavorite,
+            exportLibraryFavorites,
+            manifestSummary,
+            showManifestDialog,
+            manifestJsonText,
+            openManifestEditor,
+            saveManifest,
+            showLibraryShareDialog,
+            libraryShareForm,
+            openLibraryShareDialog,
+            createLibraryShare,
+            currentShareToken,
+            libraryShare,
+            shareNeedsPassword,
+            sharePassword,
+            shareLoading,
+            shareImages,
+            shareSelectedImages,
+            unlockLibraryShare,
+            shareAssetUrl,
+            toggleShareSelection,
+            exportShareSelection,
+            albums,
+            images,
+            currentAlbum,
+            currentImage,
+            showCreateAlbumDialog,
+            showEditAlbumDialog,
+            showUploadDialog,
+            newAlbum,
+            currentImageIndex,
+            detailImageList,
+            hasPrev,
+            hasNext,
+            getAlbumImageCount,
+            loadAlbums,
+            loadAlbumImages,
+            createAlbum,
+            updateAlbum,
+            deleteAlbum,
+            openAlbum,
+            backToAlbums,
+            backToAlbum,
+            viewImage,
+            prevImage,
+            nextImage,
+            handleUploadSuccess,
+            handleUploadError,
+            beforeUpload,
+            deleteImage,
+            setAsCover,
+            downloadImage,
+            formatDate,
+            formatFileSize,
+            editImageFilename,
+            renameImageFile,
+            toggleFavorite,
+            selectionMode,
+            selectedImages,
+            toggleSelectionMode,
+            handleImageClick,
+            batchDeleteImages,
+            selectAllImages,
+            isAllSelected,
+            filteredImages,
+            passwordEnabled,
+            newPassword,
+            handlePasswordToggle,
+            showPasswordDialog,
+            checkAlbumPasswordStatus,
+            setAlbumPassword,
+            removeAlbumPassword,
+            checkAlbumAccess,
+            editImageDescription,
+            showExifDialog,
+            exifData,
+            exifTableData,
+            showImageExif,
+            siteTitle,
+            loadSiteTitle,
+            editSiteTitle,
+            saveSiteTitle,
+            showMoveToAlbumDialog,
+            targetAlbumId,
+            otherAlbums,
+            showMoveDialog,
+            moveSelectedImages,
+            getFavoriteCount,
+            exportFavoriteList,
+            albumGroups,
+            ungroupedAlbums,
+            allGroups,
+            showManageGroupsDialog,
+            showEditGroupDialog,
+            newGroupName,
+            groupForm,
+            editingGroup,
+            createGroup,
+            editGroup,
+            saveGroup,
+            deleteGroup,
+            handleGroupCommand,
+            getGroupAlbumCount,
+            currentSort,
+            changeSort,
+            sortOptions,
+            getCurrentSortLabel,
+            restoreAlbumAccessTokens,
+            currentFilter,
+            filterOptions,
+            changeFilter,
+            getCurrentFilterLabel,
+            showImageOverlay,
+            overlayImageSrc,
+            overlayImageAlt,
+            openImageOverlay,
+            closeImageOverlay,
+            verifyAdminPassword,
+            isAdmin,
+            restoreAdminStatus,
+            adminLogout,
+            showAdminLogin,
+            adminPassword,
+            adminLoginLoading,
+
+            // 新增的配置管理导出
+            showConfigDialog,
+            siteConfig,
+            configLoading,
+            loadSiteConfig,
+            saveSiteConfig,
+            canUpload,
+
+            showShareDialog,
+            generateAlbumShareUrl,
+            generateImageShareUrl, viewMode,
+
+
+            cacheImageExif,
+            hasExifInfo,
+            getExifValue,
+            exifCache,
+
+            // EXIF相关
+            loadExifOnHover,
+            clearExifTimer,
+            exifLoading,
+            // EXIF显示配置
+            showExifOnHover,
+
+            toggleGroupCollapse,
+            isGroupCollapsed,
+            showCreateAlbumInGroup,
+            resetAlbumDialog
+
+
+        };
+    }
+})
+
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, component)
+}
+app.use(ElementPlus).mount('#app');
