@@ -14,8 +14,45 @@
         const validationLoading = ref(false);
         const validationData = ref(null);
         const validationError = ref('');
+        const validationSortMode = ref('severity');
 
         let detailRequestToken = 0;
+
+        const validationStatusRank = {issue: 3, warning: 2, info: 1, ok: 0};
+
+        const validationStatusLabel = (status) => ({
+            issue: 'Issue',
+            warning: 'Warning',
+            info: 'Normal',
+            ok: 'OK',
+        }[status] || String(status || '—'));
+
+        const validationStatusType = (status) => ({
+            issue: 'danger',
+            warning: 'warning',
+            info: 'info',
+            ok: 'success',
+        }[status] || 'info');
+
+        const sortedValidationSets = computed(() => {
+            const items = Array.isArray(validationData.value?.sets)
+                ? [...validationData.value.sets]
+                : [];
+            if (validationSortMode.value === 'date') {
+                return items.sort((a, b) => {
+                    const dateCompare = String(b.date_key || b.name || '').localeCompare(String(a.date_key || a.name || ''));
+                    if (dateCompare) return dateCompare;
+                    return String(b.name || '').localeCompare(String(a.name || ''));
+                });
+            }
+            return items.sort((a, b) => {
+                const rankCompare = (validationStatusRank[b.status] ?? -1) - (validationStatusRank[a.status] ?? -1);
+                if (rankCompare) return rankCompare;
+                const dateCompare = String(b.date_key || b.name || '').localeCompare(String(a.date_key || a.name || ''));
+                if (dateCompare) return dateCompare;
+                return String(a.name || '').localeCompare(String(b.name || ''));
+            });
+        });
 
         const fetchJson = async (url, init = undefined) => {
             const response = await fetch(url, init);
@@ -170,6 +207,10 @@
             validationLoading,
             validationData,
             validationError,
+            validationSortMode,
+            sortedValidationSets,
+            validationStatusLabel,
+            validationStatusType,
             loadDetail,
             rescanEquipment,
             openValidation,

@@ -951,7 +951,7 @@ const app = createApp({
                 rainy: '🌧️',
                 snowy: '🌨️'
             };
-            return icons[key] ? `${icons[key]}${formatEnumValue(value)}` : formatEnumValue(value);
+            return icons[key] ? `${icons[key]} ${formatEnumValue(value)}` : formatEnumValue(value);
         };
 
         const formatLibraryFolderCounts = (item) => {
@@ -3242,6 +3242,10 @@ const app = createApp({
             validationLoading: setInsights.validationLoading,
             validationData: setInsights.validationData,
             validationError: setInsights.validationError,
+            validationSortMode: setInsights.validationSortMode,
+            validationSortedSets: setInsights.sortedValidationSets,
+            validationStatusLabel: setInsights.validationStatusLabel,
+            validationStatusType: setInsights.validationStatusType,
             openLibraryValidation: setInsights.openValidation,
             validationVersionText: setInsights.versionText,
             workflowPreviewVisible: workflowTools.previewVisible,

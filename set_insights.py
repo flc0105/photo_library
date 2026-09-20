@@ -330,29 +330,30 @@ def _extract_version_tags(paths):
 
 def _validate_one_set(set_dir: Path):
     issues = []
-    notes = []
+    warnings = []
+    info = []
 
     top_dirs = _top_level_subdirs(set_dir)
     missing = sorted(_REQUIRED_SET_DIRS - top_dirs)
     unexpected_top = sorted(top_dirs - _ALLOWED_TOP_LEVEL_DIRS)
     if missing:
-        issues.append('Missing: ' + ', '.join(missing))
+        issues.append('Missing required directories: ' + ', '.join(missing))
     if unexpected_top:
-        issues.append('Unexpected top-level: ' + ', '.join(unexpected_top))
+        issues.append('Unexpected top-level directories: ' + ', '.join(unexpected_top))
 
     original_dir = set_dir / '01_Original'
     original_subdirs = _top_level_subdirs(original_dir)
     missing_original = sorted({'JPG', 'RAW'} - original_subdirs)
     unexpected_original = sorted(original_subdirs - _ALLOWED_ORIGINAL_DIRS)
     if missing_original:
-        issues.append('01_Original missing: ' + ', '.join(missing_original))
+        issues.append('01_Original missing directories: ' + ', '.join(missing_original))
     if unexpected_original:
-        issues.append('01_Original unexpected: ' + ', '.join(unexpected_original))
+        issues.append('01_Original unexpected directories: ' + ', '.join(unexpected_original))
 
     base_subdirs = _top_level_subdirs(set_dir / '02_Base_Edit')
     unexpected_base = sorted(base_subdirs - _ALLOWED_BASE_SUBDIRS)
     if unexpected_base:
-        issues.append('02_Base_Edit unexpected: ' + ', '.join(unexpected_base))
+        issues.append('02_Base_Edit unexpected directories: ' + ', '.join(unexpected_base))
 
     jpg_dir = set_dir / '01_Original' / 'JPG'
     raw_dir = set_dir / '01_Original' / 'RAW'
@@ -364,47 +365,78 @@ def _validate_one_set(set_dir: Path):
         issues.append(f'Original/JPG has {len(invalid_jpg)} non-JPG file(s)')
     if invalid_raw:
         issues.append(f'Original/RAW has {len(invalid_raw)} non-CR3 file(s)')
-    if len(jpg_files) != len(raw_files):
-        issues.append(f'Original count mismatch: {len(jpg_files)} JPG / {len(raw_files)} RAW')
+
+    jpg_count = len(jpg_files)
+    raw_count = len(raw_files)
+    if jpg_count == 0 and raw_count == 0:
+        issues.append('Original JPG and RAW are both empty')
+    elif raw_count == 0 and jpg_count > 0:
+        issues.append(f'Original RAW is empty ({jpg_count} JPG)')
+    elif jpg_count == 0 and raw_count > 0:
+        warnings.append(f'Original JPG is empty ({raw_count} RAW)')
+    elif jpg_count != raw_count:
+        warnings.append(f'Original count mismatch: {jpg_count} JPG / {raw_count} RAW')
 
     dpp_files = [path.name for path in jpg_files if path.stem.lower().endswith('-dpp')]
-    if dpp_files:
-        notes.append(f'{len(dpp_files)} DPP regenerated JPG')
 
     base_all = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
     ready_files = _iter_files(set_dir / '02_Base_Edit' / 'Ready', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
     ready_set = {str(path.resolve()) for path in ready_files}
     base_comparable = [path for path in base_all if str(path.resolve()) not in ready_set]
     model_files = _iter_files(set_dir / '03_Model_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
-    if len(base_comparable) != len(model_files):
-        suffix = f' (+{len(ready_files)} Ready excluded)' if ready_files else ''
-        issues.append(f'Base/Model mismatch: {len(base_comparable)} / {len(model_files)}{suffix}')
-    elif ready_files:
-        notes.append(f'{len(ready_files)} Ready file(s) excluded from Base/Model comparison')
+    revision_files = _iter_files(set_dir / '04_Revision', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
+
+    base_count = len(base_comparable)
+    model_count = len(model_files)
+    ready_count = len(ready_files)
+
+    # Base and Model are allowed to be absent independently in the archive.  A
+    # mismatch is only suspicious when both stages contain files; one-sided
+    # stages are a normal workflow variant and are surfaced as informational.
+    if base_count > 0 and model_count > 0 and base_count != model_count:
+        warnings.append(f'Base/Model count mismatch: {base_count} / {model_count}')
+    elif base_count > 0 and model_count == 0:
+        info.append(f'Base Edit has {base_count} file(s), Model Edit is empty')
+    elif base_count == 0 and model_count > 0:
+        info.append(f'Model Edit has {model_count} file(s), Base Edit is empty')
+    elif base_count == 0 and model_count == 0:
+        info.append('Base Edit and Model Edit are both empty')
+
+    if ready_count:
+        info.append(f'{ready_count} Ready file(s) excluded from Base/Model comparison')
 
     version_files = []
     for stage in ('02_Base_Edit', '03_Model_Edit', '04_Revision'):
         version_files.extend(_iter_files(set_dir / stage, _STAGE_IMAGE_EXTENSIONS, {'Deleted'}))
     versions = _extract_version_tags(version_files)
 
+    if issues:
+        status = 'issue'
+    elif warnings:
+        status = 'warning'
+    elif info:
+        status = 'info'
+    else:
+        status = 'ok'
+
     return {
         'name': set_dir.name,
-        'status': 'ok' if not issues else 'issue',
-        'structure_ok': not (missing or unexpected_top or missing_original or unexpected_original or unexpected_base),
-        'missing_directories': missing + [f'01_Original/{name}' for name in missing_original],
-        'unexpected_directories': unexpected_top + [f'01_Original/{name}' for name in unexpected_original] + [f'02_Base_Edit/{name}' for name in unexpected_base],
-        'jpg_count': len(jpg_files),
-        'raw_count': len(raw_files),
-        'original_count_match': len(jpg_files) == len(raw_files),
-        'base_count': len(base_comparable),
+        'date_key': set_dir.name[:8],
+        'status': status,
+        'jpg_count': jpg_count,
+        'raw_count': raw_count,
+        'original_count_match': jpg_count == raw_count,
+        'base_count': base_count,
         'base_total_count': len(base_all),
-        'ready_count': len(ready_files),
-        'model_count': len(model_files),
-        'base_model_match': len(base_comparable) == len(model_files),
+        'ready_count': ready_count,
+        'model_count': model_count,
+        'revision_count': len(revision_files),
+        'base_model_match': base_count == model_count,
         'dpp_files': dpp_files,
         'versions': versions,
         'issues': issues,
-        'notes': notes,
+        'warnings': warnings,
+        'info': info,
     }
 
 
@@ -421,26 +453,18 @@ def _validate_root(root: Path):
     for set_dir in children:
         sets.append(_validate_one_set(set_dir))
 
-    ok_count = sum(1 for item in sets if item['status'] == 'ok')
-    dpp_count = sum(1 for item in sets if item['dpp_files'])
-    version_counter = Counter()
-    for item in sets:
-        for version in item['versions']:
-            version_counter[version['name']] += int(version['count'])
+    status_counts = Counter(item['status'] for item in sets)
 
     return {
         'root': str(root),
         'generated_at': datetime.now().isoformat(timespec='seconds'),
         'summary': {
             'set_count': len(sets),
-            'ok_count': ok_count,
-            'issue_count': len(sets) - ok_count,
-            'dpp_set_count': dpp_count,
+            'issue_count': status_counts.get('issue', 0),
+            'warning_count': status_counts.get('warning', 0),
+            'info_count': status_counts.get('info', 0),
+            'ok_count': status_counts.get('ok', 0),
         },
-        'versions': [
-            {'name': name, 'count': count}
-            for name, count in sorted(version_counter.items(), key=lambda item: (-item[1], item[0].casefold()))
-        ],
         'sets': sets,
     }
 

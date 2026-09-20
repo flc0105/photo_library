@@ -2424,3 +2424,40 @@ body {
         padding-left: 18px;
     }
 }
+
+/* ==================== Validation hierarchy / sorting v15 ==================== */
+.validation-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.validation-toolbar .validation-summary-strip {
+    flex: 1 1 auto;
+    margin-bottom: 0;
+}
+
+.validation-sort-switch {
+    flex: 0 0 auto;
+}
+
+.validation-detail-issue > strong {
+    color: #f56c6c;
+}
+
+.validation-detail-warning > strong {
+    color: #e6a23c;
+}
+
+@media (max-width: 760px) {
+    .validation-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .validation-sort-switch {
+        align-self: flex-end;
+    }
+}
