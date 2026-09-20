@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260920-13">
+    <link rel="stylesheet" href="style.css?v=20260920-14">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -184,6 +184,7 @@
                     </el-dropdown>
 
                     <template v-if="isAdmin">
+                        <el-button v-if="isLibraryRoot" @click="openLibraryValidation">Validation</el-button>
                         <el-button v-if="isSetDirectory" @click="openManifestEditor">
                             {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
                         </el-button>
@@ -1371,6 +1372,78 @@
             </template>
         </el-dialog>
 
+        <!-- Completed/Library root validation. Runs only on demand. -->
+        <el-dialog v-model="validationVisible" title="Completed Validation" width="1100px" class="library-validation-dialog">
+            <div v-loading="validationLoading" class="library-validation-body">
+                <template v-if="validationData">
+                    <div class="validation-summary-strip">
+                        <span>Sets <strong>{{ validationData.summary.set_count }}</strong></span>
+                        <span>OK <strong>{{ validationData.summary.ok_count }}</strong></span>
+                        <span>Issues <strong>{{ validationData.summary.issue_count }}</strong></span>
+                        <span>DPP <strong>{{ validationData.summary.dpp_set_count }}</strong></span>
+                    </div>
+                    <div v-if="validationData.versions && validationData.versions.length" class="validation-root-versions">
+                        <span class="validation-muted-label">Version tags</span>
+                        <el-tag v-for="item in validationData.versions" :key="item.name" size="small" effect="plain">{{ item.name }} ×{{ item.count }}</el-tag>
+                    </div>
+
+                    <el-table :data="validationData.sets" stripe class="validation-table">
+                        <el-table-column type="expand" width="42">
+                            <template #default="scope">
+                                <div class="validation-expand">
+                                    <div v-if="scope.row.issues.length" class="validation-detail-block">
+                                        <strong>Issues</strong>
+                                        <div v-for="issue in scope.row.issues" :key="issue">{{ issue }}</div>
+                                    </div>
+                                    <div v-if="scope.row.notes.length" class="validation-detail-block">
+                                        <strong>Notes</strong>
+                                        <div v-for="note in scope.row.notes" :key="note">{{ note }}</div>
+                                    </div>
+                                    <div v-if="scope.row.dpp_files.length" class="validation-detail-block">
+                                        <strong>DPP JPG</strong>
+                                        <div class="validation-code-list"><code v-for="name in scope.row.dpp_files" :key="name">{{ name }}</code></div>
+                                    </div>
+                                    <div v-if="scope.row.versions.length" class="validation-detail-block">
+                                        <strong>Version tags</strong>
+                                        <div>{{ validationVersionText(scope.row.versions) }}</div>
+                                    </div>
+                                    <div v-if="!scope.row.issues.length && !scope.row.notes.length && !scope.row.dpp_files.length && !scope.row.versions.length" class="validation-empty-detail">No additional notes.</div>
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="name" label="Set" min-width="255"></el-table-column>
+                        <el-table-column label="Structure" width="105">
+                            <template #default="scope"><el-tag size="small" :type="scope.row.structure_ok ? 'success' : 'danger'">{{ scope.row.structure_ok ? 'OK' : 'Issue' }}</el-tag></template>
+                        </el-table-column>
+                        <el-table-column label="Originals" width="165">
+                            <template #default="scope">
+                                <span>{{ scope.row.jpg_count }} JPG / {{ scope.row.raw_count }} RAW</span>
+                                <el-tag v-if="!scope.row.original_count_match" size="small" type="danger" class="validation-inline-tag">Mismatch</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Base ↔ Model" width="145">
+                            <template #default="scope">
+                                <span>{{ scope.row.base_count }} / {{ scope.row.model_count }}</span>
+                                <span v-if="scope.row.ready_count" class="validation-ready-note"> +{{ scope.row.ready_count }} Ready</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="DPP" width="70">
+                            <template #default="scope">{{ scope.row.dpp_files.length || '—' }}</template>
+                        </el-table-column>
+                        <el-table-column label="Versions" min-width="180" show-overflow-tooltip>
+                            <template #default="scope"><span class="validation-version-text">{{ validationVersionText(scope.row.versions) }}</span></template>
+                        </el-table-column>
+                        <el-table-column label="Status" width="90">
+                            <template #default="scope"><el-tag size="small" :type="scope.row.status === 'ok' ? 'success' : 'danger'">{{ scope.row.status === 'ok' ? 'OK' : 'Issue' }}</el-tag></template>
+                        </el-table-column>
+                    </el-table>
+                </template>
+                <div v-else-if="validationError" class="validation-error">{{ validationError }}</div>
+                <div v-else-if="!validationLoading" class="validation-empty-detail">No validation result.</div>
+            </div>
+            <template #footer><el-button @click="validationVisible = false">Close</el-button></template>
+        </el-dialog>
+
         <!-- Set metadata detail -->
         <el-dialog v-model="showManifestDetailDialog" title="Set Details" width="900px" class="manifest-detail-dialog">
             <div v-if="currentManifestData" class="manifest-detail-content">
@@ -1391,6 +1464,46 @@
                         <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
                         <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
                     </div>
+                </section>
+
+                <section class="manifest-detail-section manifest-derived-section">
+                    <div class="manifest-section-heading">
+                        <h3>Files</h3>
+                        <span class="manifest-derived-badge">calc</span>
+                    </div>
+                    <div v-if="setStatsLoading" class="manifest-scan-state">Calculating…</div>
+                    <div v-else-if="setStats" class="manifest-detail-grid">
+                        <div class="manifest-detail-item manifest-computed-item"><span>Original</span><strong>{{ setStats.original_jpg }} JPG <template v-if="setStats.original_raw || setStats.original_jpg">({{ setStats.original_raw }} RAW)</template></strong></div>
+                        <div class="manifest-detail-item manifest-computed-item"><span>Base Edit</span><strong>{{ setStats.base_edit }}</strong></div>
+                        <div class="manifest-detail-item manifest-computed-item"><span>Model Edit</span><strong>{{ setStats.model_edit }}</strong></div>
+                        <div class="manifest-detail-item manifest-computed-item"><span>Revision</span><strong>{{ setStats.revision }}</strong></div>
+                        <div class="manifest-detail-item manifest-computed-item"><span>Final</span><strong>{{ setStats.final }}</strong></div>
+                    </div>
+                    <div v-else-if="setStatsError" class="manifest-inline-error">{{ setStatsError }}</div>
+                </section>
+
+                <section class="manifest-detail-section manifest-derived-section">
+                    <div class="manifest-section-heading">
+                        <div>
+                            <h3>Equipment</h3>
+                            <div class="manifest-section-subtitle">Scanned from 02_Base_Edit · derived cache</div>
+                        </div>
+                        <el-button v-if="equipmentState === 'ready' || equipmentState === 'error'" text size="small" @click="rescanEquipment">Rescan</el-button>
+                    </div>
+                    <div v-if="equipmentState === 'scanning'" class="manifest-scan-state">
+                        <span class="manifest-scan-dot"></span> Scanning Base Edit metadata…
+                    </div>
+                    <div v-else-if="equipmentState === 'ready' && equipmentInfo" class="manifest-detail-grid">
+                        <template v-if="equipmentInfo.file_count > 0">
+                            <div class="manifest-detail-item manifest-detail-wide manifest-computed-item"><span>Camera</span><strong>{{ equipmentCameraText }}</strong></div>
+                            <div class="manifest-detail-item manifest-detail-wide manifest-computed-item"><span>Lens</span><strong>{{ equipmentLensText }}</strong></div>
+                            <div class="manifest-detail-item manifest-detail-wide manifest-computed-item"><span>Focal Lengths</span><strong>{{ equipmentFocalText }}</strong></div>
+                            <div class="manifest-equipment-coverage">Metadata {{ equipmentInfo.metadata_file_count }} / {{ equipmentInfo.file_count }} files<span v-if="equipmentInfo.cached"> · cache hit</span></div>
+                        </template>
+                        <div v-else class="manifest-empty-value">No Base Edit images.</div>
+                    </div>
+                    <div v-else-if="equipmentState === 'error'" class="manifest-inline-error">{{ equipmentError }}</div>
+                    <div v-else class="manifest-scan-state">Waiting…</div>
                 </section>
 
                 <section class="manifest-detail-section">
@@ -1789,6 +1902,7 @@
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260920-02"></script>
 <script src="workflow-tools.js?v=20260920-01"></script>
-<script type="module" src="app.js?v=20260920-12"></script>
+<script src="set-insights.js?v=20260920-01"></script>
+<script type="module" src="app.js?v=20260920-14"></script>
 </body>
 </html>

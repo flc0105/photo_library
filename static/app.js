@@ -646,6 +646,11 @@ const app = createApp({
             }
         });
 
+        const setInsights = window.SetInsights.createController({
+            getSource: () => currentLibrarySource.value,
+            getSetPath: () => libraryListing.value && libraryListing.value.path
+        });
+
         // Controlled vocabularies. The first six lists are migrated from the
         // legacy photo-metadata system and normalized to lowercase machine values.
         const manifestOptions = {
@@ -720,6 +725,7 @@ const app = createApp({
 
 
         const isSetDirectory = computed(() => !!libraryListing.value.is_set);
+        const isLibraryRoot = computed(() => !!currentLibrarySource.value && (libraryListing.value.path || '') === '');
 
         const newLightingRow = () => ({
             key: false,
@@ -945,7 +951,7 @@ const app = createApp({
                 rainy: '🌧️',
                 snowy: '🌨️'
             };
-            return icons[key] ? `${icons[key]}${key}` : formatEnumValue(value);
+            return icons[key] ? `${icons[key]}${formatEnumValue(value)}` : formatEnumValue(value);
         };
 
         const formatLibraryFolderCounts = (item) => {
@@ -1333,6 +1339,10 @@ const app = createApp({
         const openManifestDetails = () => {
             if (!isSetDirectory.value || !currentManifestData.value) return;
             showManifestDetailDialog.value = true;
+            // Render the manifest immediately. Derived counts and equipment are
+            // loaded only after the dialog is visible so a metadata scan never
+            // blocks opening Detail.
+            window.setTimeout(() => void setInsights.loadDetail(), 0);
         };
 
         const openManifestEditor = async () => {
@@ -3217,6 +3227,23 @@ const app = createApp({
             exportLibraryFavorites,
             manifestSummary,
             isSetDirectory,
+            isLibraryRoot,
+            setStats: setInsights.setStats,
+            setStatsLoading: setInsights.statsLoading,
+            setStatsError: setInsights.statsError,
+            equipmentInfo: setInsights.equipment,
+            equipmentState: setInsights.equipmentState,
+            equipmentError: setInsights.equipmentError,
+            equipmentCameraText: setInsights.cameraText,
+            equipmentLensText: setInsights.lensText,
+            equipmentFocalText: setInsights.focalText,
+            rescanEquipment: setInsights.rescanEquipment,
+            validationVisible: setInsights.validationVisible,
+            validationLoading: setInsights.validationLoading,
+            validationData: setInsights.validationData,
+            validationError: setInsights.validationError,
+            openLibraryValidation: setInsights.openValidation,
+            validationVersionText: setInsights.versionText,
             workflowPreviewVisible: workflowTools.previewVisible,
             workflowPreviewLoading: workflowTools.previewLoading,
             workflowPreviewKind: workflowTools.previewKind,

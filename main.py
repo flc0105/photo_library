@@ -21,6 +21,7 @@ from image_utils import generate_thumbnail, generate_compressed, get_image_exif_
 from gps_utils import extract_gps_from_image
 from manifest_autofill import build_manifest_reference_index, get_original_jpg_time_range
 from workflow_tools import create_workflow_blueprint
+from set_insights import create_set_insights_blueprint
 
 app = Flask(__name__)
 
@@ -2340,6 +2341,15 @@ def toggle_library_share_selection(token):
 # Advanced per-Set workflow tools live in a separate module so the gallery core
 # remains focused on browsing/state management.
 app.register_blueprint(create_workflow_blueprint(
+    _library_admin_guard,
+    _get_library_source,
+    _resolve_library_path,
+    get_db_connection,
+))
+
+# Detail-only derived statistics/equipment scan and Source-root validation live
+# outside the manifest so they can be recalculated or discarded safely.
+app.register_blueprint(create_set_insights_blueprint(
     _library_admin_guard,
     _get_library_source,
     _resolve_library_path,
