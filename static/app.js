@@ -618,8 +618,9 @@ const app = createApp({
         const newLibrarySource = ref({name: 'Completed', root_path: ''});
 
         const showManifestDialog = ref(false);
-        const manifestJsonText = ref('');
+        const showManifestDetailDialog = ref(false);
         const manifestEditPath = ref('');
+        const manifestForm = ref({});
 
         const showLibraryShareDialog = ref(false);
         const libraryShareForm = ref({title: '', password: '', allow_select: true});
@@ -677,6 +678,138 @@ const app = createApp({
             return '这个目录是空的。';
         });
         const shareSelectedImages = computed(() => shareImages.value.filter(item => item.is_favorited));
+
+
+        const isSetDirectory = computed(() => !!libraryListing.value.is_set);
+
+        const newLightingRow = () => ({
+            key: false,
+            role: '',
+            light_type: '',
+            fixture: '',
+            modifier: '',
+            count: 1,
+            position: '',
+            note: ''
+        });
+
+        const normalizeManifest = (raw = {}) => {
+            const data = raw && typeof raw === 'object' ? raw : {};
+            const legacyModel = Array.isArray(data.subjects)
+                ? (data.subjects.find(item => item && item.role === 'model')?.name || data.subjects[0]?.name || '')
+                : '';
+            const shoot = data.shoot && typeof data.shoot === 'object' ? data.shoot : {};
+            const location = data.location && typeof data.location === 'object' ? data.location : {};
+            const theme = data.theme && typeof data.theme === 'object' ? data.theme : {};
+            const production = data.production && typeof data.production === 'object' ? data.production : {};
+            const props = data.props && typeof data.props === 'object' && !Array.isArray(data.props) ? data.props : {};
+            const lights = Array.isArray(data.lighting) ? data.lighting : [];
+
+            return {
+                model: data.model ?? legacyModel ?? '',
+                shoot: {
+                    date: shoot.date ?? '',
+                    start_time: shoot.start_time ?? '',
+                    end_time: shoot.end_time ?? '',
+                    environment: shoot.environment ?? shoot.type ?? '',
+                    weather: shoot.weather ?? ''
+                },
+                location: {
+                    name: location.name ?? shoot.location ?? '',
+                    address: location.address ?? '',
+                    lat: location.lat ?? null,
+                    lng: location.lng ?? null
+                },
+                theme: {
+                    name: theme.name ?? data.title ?? '',
+                    genre: theme.genre ?? theme.style ?? '',
+                    source_title: theme.source_title ?? theme.source_ip ?? '',
+                    source_type: theme.source_type ?? theme.source_category ?? '',
+                    character: theme.character ?? ''
+                },
+                production: {
+                    collaboration_type: production.collaboration_type ?? '',
+                    lead_photographer: production.lead_photographer ?? production.is_lead_photographer ?? true,
+                    model_fee: production.model_fee ?? 0,
+                    venue_fee: production.venue_fee !== undefined ? production.venue_fee : null,
+                    venue_fee_payer: production.venue_fee_payer ?? production.fee_payer ?? ''
+                },
+                props: {
+                    subject: Array.isArray(props.subject) ? [...props.subject] : [],
+                    set: Array.isArray(props.set) ? [...props.set] : []
+                },
+                lighting: lights.map(light => ({
+                    key: light?.key === true,
+                    role: light?.role ?? '',
+                    light_type: light?.light_type ?? '',
+                    fixture: light?.fixture ?? '',
+                    modifier: light?.modifier ?? '',
+                    count: light?.count ?? 1,
+                    position: light?.position ?? '',
+                    note: light?.note ?? ''
+                }))
+            };
+        };
+
+        const serializeManifestForm = () => {
+            const form = normalizeManifest(manifestForm.value);
+            return {
+                model: form.model,
+                shoot: {...form.shoot},
+                location: {...form.location},
+                theme: {...form.theme},
+                production: {...form.production},
+                props: {
+                    subject: [...form.props.subject],
+                    set: [...form.props.set]
+                },
+                lighting: form.lighting.map(light => {
+                    const item = {
+                        role: light.role,
+                        light_type: light.light_type,
+                        fixture: light.fixture,
+                        modifier: light.modifier,
+                        count: light.count,
+                        position: light.position,
+                        note: light.note
+                    };
+                    if (light.key === true) item.key = true;
+                    return item;
+                })
+            };
+        };
+
+        const currentManifestData = computed(() => {
+            const manifest = libraryListing.value.manifest || {};
+            return manifest.valid && manifest.data ? normalizeManifest(manifest.data) : null;
+        });
+
+        const formatEnumValue = (value) => {
+            if (value === null || value === undefined || value === '') return '—';
+            if (value === 'tf') return 'TF';
+            return String(value)
+                .split('_')
+                .filter(Boolean)
+                .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+                .join(' ');
+        };
+
+        const formatManifestValue = (value) => {
+            if (value === null || value === undefined || value === '') return '—';
+            if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+            if (Array.isArray(value)) return value.length ? value.join(' · ') : '—';
+            return String(value);
+        };
+
+        const addLightingRow = () => {
+            if (!Array.isArray(manifestForm.value.lighting)) manifestForm.value.lighting = [];
+            manifestForm.value.lighting.push(newLightingRow());
+        };
+
+        const removeLightingRow = (index) => {
+            if (!Array.isArray(manifestForm.value.lighting)) return;
+            manifestForm.value.lighting.splice(index, 1);
+        };
 
         const loadLibrarySources = async () => {
             if (!isAdmin.value) {
@@ -946,24 +1079,34 @@ const app = createApp({
             }
         };
 
+        const openManifestDetails = () => {
+            if (!isSetDirectory.value || !currentManifestData.value) return;
+            showManifestDetailDialog.value = true;
+        };
+
         const openManifestEditor = () => {
+            if (!isSetDirectory.value) {
+                ElMessage.warning('只有 Set 目录可以创建或编辑 manifest');
+                return;
+            }
             const manifest = libraryListing.value.manifest || {};
+            if (manifest.exists && !manifest.valid) {
+                ElMessage.error('manifest.json 当前无法解析，请先修复 JSON 格式');
+                return;
+            }
             const data = manifest.valid ? manifest.data : (libraryListing.value.suggested_manifest || {});
-            manifestEditPath.value = manifest.exists && manifest.relative_path !== null
-                ? manifest.relative_path
-                : (libraryListing.value.path || '');
-            manifestJsonText.value = JSON.stringify(data, null, 2);
+            manifestEditPath.value = libraryListing.value.path || '';
+            manifestForm.value = normalizeManifest(data);
             showManifestDialog.value = true;
         };
 
+        const editManifestFromDetail = () => {
+            showManifestDetailDialog.value = false;
+            openManifestEditor();
+        };
+
         const saveManifest = async () => {
-            let payload;
-            try {
-                payload = JSON.parse(manifestJsonText.value);
-            } catch (error) {
-                ElMessage.error('JSON 格式不正确');
-                return;
-            }
+            const payload = serializeManifestForm();
             try {
                 const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {
                     method: 'PUT',
@@ -1121,17 +1264,14 @@ const app = createApp({
         };
 
         const manifestSummary = computed(() => {
-            const manifest = libraryListing.value.manifest || {};
-            if (!manifest.valid || !manifest.data) return null;
-            const data = manifest.data;
-            const subjects = (data.subjects || []).map(s => s.name).filter(Boolean).join(' / ');
+            if (!isSetDirectory.value || !currentManifestData.value) return null;
+            const data = currentManifestData.value;
             return {
-                title: data.title || data.theme?.name || '',
-                date: data.shoot?.date || '',
-                model: subjects,
-                location: data.shoot?.location || '',
-                theme: data.theme?.name || '',
-                style: data.theme?.style || ''
+                title: data.theme.name || libraryListing.value.name || '',
+                date: data.shoot.date || '',
+                model: data.model || '',
+                location: data.location.name || '',
+                theme: data.theme.name || ''
             };
         });
 
@@ -2791,9 +2931,18 @@ const app = createApp({
             toggleImageFavorite,
             exportLibraryFavorites,
             manifestSummary,
+            isSetDirectory,
+            currentManifestData,
+            formatEnumValue,
+            formatManifestValue,
             showManifestDialog,
-            manifestJsonText,
+            showManifestDetailDialog,
+            manifestForm,
+            openManifestDetails,
             openManifestEditor,
+            editManifestFromDetail,
+            addLightingRow,
+            removeLightingRow,
             saveManifest,
             showLibraryShareDialog,
             libraryShareForm,

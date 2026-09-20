@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260919-32">
+    <link rel="stylesheet" href="style.css?v=20260920-01">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -18,7 +18,7 @@
     </noscript>
 
     <!-- 引入auth.js -->
-    <script src="/auth.js?v=20260919-32"></script>
+    <script src="/auth.js?v=20260920-01"></script>
 </head>
 <body>
 <div id="app">
@@ -184,7 +184,7 @@
                     </el-dropdown>
 
                     <template v-if="isAdmin">
-                        <el-button @click="openManifestEditor">
+                        <el-button v-if="isSetDirectory" @click="openManifestEditor">
                             {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
                         </el-button>
                         <el-button :disabled="libraryFavoriteCount === 0" @click="exportLibraryFavorites">
@@ -198,20 +198,21 @@
                 </div>
             </div>
 
-            <div v-if="libraryListing.manifest && libraryListing.manifest.exists && !libraryListing.manifest.valid"
+            <div v-if="isSetDirectory && libraryListing.manifest && libraryListing.manifest.exists && !libraryListing.manifest.valid"
                  class="library-manifest-error">
                 manifest.json 读取失败：{{ libraryListing.manifest.error }}
             </div>
 
-            <div v-if="manifestSummary" class="library-manifest-card">
-                <div class="library-manifest-title">{{ manifestSummary.title || '未命名 Set' }}</div>
-                <div class="library-manifest-meta">
-                    <span v-if="manifestSummary.date">{{ manifestSummary.date }}</span>
-                    <span v-if="manifestSummary.model">模特：{{ manifestSummary.model }}</span>
-                    <span v-if="manifestSummary.location">地点：{{ manifestSummary.location }}</span>
-                    <span v-if="manifestSummary.theme">主题：{{ manifestSummary.theme }}</span>
-                    <span v-if="manifestSummary.style">风格：{{ manifestSummary.style }}</span>
+            <div v-if="manifestSummary" class="library-manifest-card library-manifest-summary">
+                <div class="library-manifest-summary-main">
+                    <div class="library-manifest-title">{{ manifestSummary.title || '未命名 Set' }}</div>
+                    <div class="library-manifest-meta">
+                        <span v-if="manifestSummary.date">{{ manifestSummary.date }}</span>
+                        <span v-if="manifestSummary.model">Model: {{ manifestSummary.model }}</span>
+                        <span v-if="manifestSummary.location">Location: {{ manifestSummary.location }}</span>
+                    </div>
                 </div>
+                <el-button plain @click="openManifestDetails">Detail</el-button>
             </div>
 
             <!-- 文件夹：严格复用原相册 album-grid / album-card / album-cover。 -->
@@ -233,8 +234,9 @@
                         <div class="album-info">
                             <div class="album-name">{{ item.name }}</div>
                             <div class="album-meta">
-                                <div v-if="item.has_manifest && item.manifest_valid">SET · manifest</div>
-                                <div v-else-if="item.has_manifest" class="manifest-error-text">manifest error</div>
+                                <div v-if="item.is_set && item.has_manifest && item.manifest_valid">SET · manifest</div>
+                                <div v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</div>
+                                <div v-else-if="item.is_set">SET</div>
                                 <div v-else>文件夹</div>
                             </div>
                         </div>
@@ -333,9 +335,8 @@
                         <h1>{{ libraryShare.title || '分享相册' }}</h1>
                         <div v-if="libraryShare.manifest" class="library-path">
                             <span v-if="libraryShare.manifest.shoot && libraryShare.manifest.shoot.date">{{ libraryShare.manifest.shoot.date }}</span>
-                            <span v-if="libraryShare.manifest.subjects && libraryShare.manifest.subjects.length">
-                                <span v-if="libraryShare.manifest.shoot && libraryShare.manifest.shoot.date"> · </span>{{ libraryShare.manifest.subjects.map(s => s.name).filter(Boolean).join(' / ') }}
-                            </span>
+                            <span v-if="libraryShare.manifest.model"> · {{ libraryShare.manifest.model }}</span>
+                            <span v-if="libraryShare.manifest.location && libraryShare.manifest.location.name"> · {{ libraryShare.manifest.location.name }}</span>
                         </div>
                     </div>
                     <div class="album-actions">
@@ -1212,13 +1213,192 @@
             <template #footer><el-button @click="showLibrarySourcesDialog = false">关闭</el-button></template>
         </el-dialog>
 
-        <!-- manifest 第一版直接编辑 JSON，保存会先生成 .bak 再原子替换 -->
-        <el-dialog v-model="showManifestDialog" title="manifest.json" width="760px">
-            <el-input v-model="manifestJsonText" type="textarea" :rows="24" resize="vertical"
-                      input-style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.5;"></el-input>
+        <!-- Set metadata detail -->
+        <el-dialog v-model="showManifestDetailDialog" title="Set Details" width="900px" class="manifest-detail-dialog">
+            <div v-if="currentManifestData" class="manifest-detail-content">
+                <section class="manifest-detail-section">
+                    <h3>Basic</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item"><span>Model</span><strong>{{ formatManifestValue(currentManifestData.model) }}</strong></div>
+                    </div>
+                </section>
+
+                <section class="manifest-detail-section">
+                    <h3>Shoot</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item"><span>Date</span><strong>{{ formatManifestValue(currentManifestData.shoot.date) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Start Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.start_time) }}</strong></div>
+                        <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.end_time) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatEnumValue(currentManifestData.shoot.weather) }}</strong></div>
+                    </div>
+                </section>
+
+                <section class="manifest-detail-section">
+                    <h3>Location</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item"><span>Name</span><strong>{{ formatManifestValue(currentManifestData.location.name) }}</strong></div>
+                        <div class="manifest-detail-item manifest-detail-wide"><span>Address</span><strong>{{ formatManifestValue(currentManifestData.location.address) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Latitude</span><strong>{{ formatManifestValue(currentManifestData.location.lat) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Longitude</span><strong>{{ formatManifestValue(currentManifestData.location.lng) }}</strong></div>
+                    </div>
+                </section>
+
+                <section class="manifest-detail-section">
+                    <h3>Theme</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item"><span>Name</span><strong>{{ formatManifestValue(currentManifestData.theme.name) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Genre</span><strong>{{ formatEnumValue(currentManifestData.theme.genre) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Source Title</span><strong>{{ formatManifestValue(currentManifestData.theme.source_title) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Source Type</span><strong>{{ formatEnumValue(currentManifestData.theme.source_type) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Character</span><strong>{{ formatManifestValue(currentManifestData.theme.character) }}</strong></div>
+                    </div>
+                </section>
+
+                <section class="manifest-detail-section">
+                    <h3>Production</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item"><span>Collaboration</span><strong>{{ formatEnumValue(currentManifestData.production.collaboration_type) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Lead Photographer</span><strong>{{ formatManifestValue(currentManifestData.production.lead_photographer) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Model Fee</span><strong>{{ formatManifestValue(currentManifestData.production.model_fee) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Venue Fee</span><strong>{{ formatManifestValue(currentManifestData.production.venue_fee) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Venue Fee Payer</span><strong>{{ formatEnumValue(currentManifestData.production.venue_fee_payer) }}</strong></div>
+                    </div>
+                </section>
+
+                <section class="manifest-detail-section">
+                    <h3>Props</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item manifest-detail-wide"><span>Subject</span><strong>{{ formatManifestValue(currentManifestData.props.subject) }}</strong></div>
+                        <div class="manifest-detail-item manifest-detail-wide"><span>Set</span><strong>{{ formatManifestValue(currentManifestData.props.set) }}</strong></div>
+                    </div>
+                </section>
+
+                <section class="manifest-detail-section">
+                    <div class="manifest-section-heading">
+                        <h3>Lighting</h3>
+                        <span class="manifest-light-count">{{ currentManifestData.lighting.length }} light{{ currentManifestData.lighting.length === 1 ? '' : 's' }}</span>
+                    </div>
+                    <div v-if="currentManifestData.lighting.length" class="manifest-light-list">
+                        <div v-for="(light, index) in currentManifestData.lighting" :key="index" class="manifest-light-card">
+                            <div class="manifest-light-header">
+                                <strong>Light {{ index + 1 }}</strong>
+                                <el-tag v-if="light.key" size="small" type="warning">KEY</el-tag>
+                            </div>
+                            <div class="manifest-detail-grid">
+                                <div class="manifest-detail-item"><span>Role</span><strong>{{ formatEnumValue(light.role) }}</strong></div>
+                                <div class="manifest-detail-item"><span>Light Type</span><strong>{{ formatEnumValue(light.light_type) }}</strong></div>
+                                <div class="manifest-detail-item"><span>Fixture</span><strong>{{ formatManifestValue(light.fixture) }}</strong></div>
+                                <div class="manifest-detail-item"><span>Modifier</span><strong>{{ formatEnumValue(light.modifier) }}</strong></div>
+                                <div class="manifest-detail-item"><span>Count</span><strong>{{ formatManifestValue(light.count) }}</strong></div>
+                                <div class="manifest-detail-item"><span>Position</span><strong>{{ formatEnumValue(light.position) }}</strong></div>
+                                <div class="manifest-detail-item manifest-detail-wide"><span>Note</span><strong>{{ formatManifestValue(light.note) }}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="manifest-empty-value">—</div>
+                </section>
+            </div>
             <template #footer>
-                <el-button @click="showManifestDialog = false">取消</el-button>
-                <el-button type="primary" @click="saveManifest">保存</el-button>
+                <el-button @click="showManifestDetailDialog = false">Close</el-button>
+                <el-button v-if="isAdmin" type="primary" @click="editManifestFromDetail">Edit</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Current manifest form editor. Empty fields are intentionally retained when saved. -->
+        <el-dialog v-model="showManifestDialog" title="Edit manifest.json" width="920px" class="manifest-edit-dialog">
+            <el-form v-if="manifestForm && manifestForm.shoot" :model="manifestForm" label-position="top" class="manifest-form">
+                <section class="manifest-form-section">
+                    <h3>Basic</h3>
+                    <el-row :gutter="16">
+                        <el-col :xs="24" :sm="12"><el-form-item label="Model"><el-input v-model="manifestForm.model" placeholder="model name"></el-input></el-form-item></el-col>
+                    </el-row>
+                </section>
+
+                <section class="manifest-form-section">
+                    <h3>Shoot</h3>
+                    <el-row :gutter="16">
+                        <el-col :xs="24" :sm="8"><el-form-item label="Date"><el-input v-model="manifestForm.shoot.date" placeholder="yyyy-MM-dd"></el-input></el-form-item></el-col>
+                        <el-col :xs="12" :sm="8"><el-form-item label="Start Time"><el-input v-model="manifestForm.shoot.start_time" placeholder="HH:mm"></el-input></el-form-item></el-col>
+                        <el-col :xs="12" :sm="8"><el-form-item label="End Time"><el-input v-model="manifestForm.shoot.end_time" placeholder="HH:mm"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Environment"><el-input v-model="manifestForm.shoot.environment" placeholder="studio|indoor|outdoor"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Weather"><el-input v-model="manifestForm.shoot.weather" placeholder="sunny|overcast|rainy"></el-input></el-form-item></el-col>
+                    </el-row>
+                </section>
+
+                <section class="manifest-form-section">
+                    <h3>Location</h3>
+                    <el-row :gutter="16">
+                        <el-col :xs="24" :sm="12"><el-form-item label="Name"><el-input v-model="manifestForm.location.name" placeholder="location name"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Address"><el-input v-model="manifestForm.location.address" placeholder="address"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Latitude"><el-input-number v-model="manifestForm.location.lat" :controls="false" :precision="5" :step="0.00001" placeholder="35.90738" style="width:100%"></el-input-number></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Longitude"><el-input-number v-model="manifestForm.location.lng" :controls="false" :precision="5" :step="0.00001" placeholder="119.92868" style="width:100%"></el-input-number></el-form-item></el-col>
+                    </el-row>
+                </section>
+
+                <section class="manifest-form-section">
+                    <h3>Theme</h3>
+                    <el-row :gutter="16">
+                        <el-col :xs="24" :sm="12"><el-form-item label="Name"><el-input v-model="manifestForm.theme.name" placeholder="theme name"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Genre"><el-input v-model="manifestForm.theme.genre" placeholder="cosplay|jk|lolita"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Source Title"><el-input v-model="manifestForm.theme.source_title" placeholder="source title"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Source Type"><el-input v-model="manifestForm.theme.source_type" placeholder="mobile_game|anime|galgame|other"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Character"><el-input v-model="manifestForm.theme.character" placeholder="character"></el-input></el-form-item></el-col>
+                    </el-row>
+                </section>
+
+                <section class="manifest-form-section">
+                    <h3>Production</h3>
+                    <el-row :gutter="16">
+                        <el-col :xs="24" :sm="12"><el-form-item label="Collaboration Type"><el-input v-model="manifestForm.production.collaboration_type" placeholder="tf|group_shoot"></el-input></el-form-item></el-col>
+                        <el-col :xs="24" :sm="12"><el-form-item label="Venue Fee Payer"><el-input v-model="manifestForm.production.venue_fee_payer" placeholder="photographer|model|split"></el-input></el-form-item></el-col>
+                        <el-col :xs="12" :sm="8"><el-form-item label="Model Fee"><el-input-number v-model="manifestForm.production.model_fee" :controls="false" :min="0" style="width:100%"></el-input-number></el-form-item></el-col>
+                        <el-col :xs="12" :sm="8"><el-form-item label="Venue Fee"><el-input-number v-model="manifestForm.production.venue_fee" :controls="false" :min="0" style="width:100%"></el-input-number></el-form-item></el-col>
+                        <el-col :xs="24" :sm="8"><el-form-item label="Lead Photographer"><el-switch v-model="manifestForm.production.lead_photographer"></el-switch></el-form-item></el-col>
+                    </el-row>
+                </section>
+
+                <section class="manifest-form-section">
+                    <h3>Props</h3>
+                    <el-form-item label="Subject">
+                        <el-select v-model="manifestForm.props.subject" multiple filterable allow-create default-first-option placeholder="type and press Enter" style="width:100%"></el-select>
+                    </el-form-item>
+                    <el-form-item label="Set">
+                        <el-select v-model="manifestForm.props.set" multiple filterable allow-create default-first-option placeholder="type and press Enter" style="width:100%"></el-select>
+                    </el-form-item>
+                </section>
+
+                <section class="manifest-form-section">
+                    <div class="manifest-section-heading">
+                        <h3>Lighting</h3>
+                        <el-button size="small" plain @click="addLightingRow">Add Light</el-button>
+                    </div>
+                    <div v-if="manifestForm.lighting.length" class="manifest-light-list">
+                        <div v-for="(light, index) in manifestForm.lighting" :key="index" class="manifest-light-card manifest-light-editor">
+                            <div class="manifest-light-header">
+                                <strong>Light {{ index + 1 }}</strong>
+                                <div class="manifest-light-actions">
+                                    <el-checkbox v-model="light.key">Key</el-checkbox>
+                                    <el-button text type="danger" @click="removeLightingRow(index)">Remove</el-button>
+                                </div>
+                            </div>
+                            <el-row :gutter="16">
+                                <el-col :xs="24" :sm="8"><el-form-item label="Role"><el-input v-model="light.role" placeholder="rim|fill|bounce"></el-input></el-form-item></el-col>
+                                <el-col :xs="24" :sm="8"><el-form-item label="Light Type"><el-input v-model="light.light_type" placeholder="strobe|continuous|natural"></el-input></el-form-item></el-col>
+                                <el-col :xs="24" :sm="8"><el-form-item label="Count"><el-input-number v-model="light.count" :controls="false" :min="1" style="width:100%"></el-input-number></el-form-item></el-col>
+                                <el-col :xs="24" :sm="12"><el-form-item label="Fixture"><el-input v-model="light.fixture" placeholder="Godox QT1200 II"></el-input></el-form-item></el-col>
+                                <el-col :xs="24" :sm="12"><el-form-item label="Modifier"><el-input v-model="light.modifier" placeholder="bare_bulb|deep_parabolic"></el-input></el-form-item></el-col>
+                                <el-col :xs="24" :sm="12"><el-form-item label="Position"><el-input v-model="light.position" placeholder="front|high_rear_right|ceiling"></el-input></el-form-item></el-col>
+                                <el-col :xs="24" :sm="12"><el-form-item label="Note"><el-input v-model="light.note" placeholder="note"></el-input></el-form-item></el-col>
+                            </el-row>
+                        </div>
+                    </div>
+                    <div v-else class="manifest-empty-value">No lighting entries.</div>
+                </section>
+            </el-form>
+            <template #footer>
+                <el-button @click="showManifestDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="saveManifest">Save</el-button>
             </template>
         </el-dialog>
 
@@ -1291,7 +1471,7 @@
     </div>
 </div>
 
-<script type="module" src="app.js?v=20260919-32"></script>
+<script type="module" src="app.js?v=20260920-01"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","spa":2}' crossorigin="anonymous"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"1c1c7799c54e46349cc23295b5e08299","spa":2}' crossorigin="anonymous"></script>
 </body>

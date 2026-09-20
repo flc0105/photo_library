@@ -2,8 +2,8 @@ import hashlib
 import json
 import os
 import queue
+import re
 import secrets
-import uuid
 import shutil
 import sqlite3
 import tempfile
@@ -1430,6 +1430,13 @@ def _find_nearest_manifest(root, target):
     return {'exists': False, 'valid': False, 'data': None, 'error': None, 'relative_path': None}
 
 
+SET_FOLDER_RE = re.compile(r'^\d{8}-.+-.+$')
+
+
+def _is_set_folder_name(name):
+    return bool(SET_FOLDER_RE.fullmatch(name or ''))
+
+
 def _parse_set_folder_name(name):
     parts = name.split('-', 2)
     date = ''
@@ -1445,40 +1452,46 @@ def _parse_set_folder_name(name):
 
 
 def _suggest_manifest(target):
+    """Return the current canonical per-set manifest template.
+
+    Human-readable values such as model/IP/equipment stay as entered. Controlled
+    enum-like fields are stored as lower-case machine values by convention.
+    """
     date, model, theme = _parse_set_folder_name(target.name)
     return {
-        'schema_version': 1,
-        'set_id': str(uuid.uuid4()),
-        'title': theme or target.name,
+        'model': model,
         'shoot': {
             'date': date,
             'start_time': '',
             'end_time': '',
-            'type': '',
-            'location': '',
+            'environment': '',
             'weather': ''
         },
-        'subjects': ([{'name': model, 'role': 'model'}] if model else []),
+        'location': {
+            'name': '',
+            'address': '',
+            'lat': None,
+            'lng': None
+        },
         'theme': {
             'name': theme,
-            'style': '',
-            'source_category': '',
-            'source_ip': '',
-            'character': '',
-            'clothing': ''
+            'genre': '',
+            'source_title': '',
+            'source_type': '',
+            'character': ''
         },
         'production': {
             'collaboration_type': '',
-            'is_lead_photographer': True,
+            'lead_photographer': True,
             'model_fee': 0,
-            'venue_fee': 0,
-            'fee_payer': ''
+            'venue_fee': None,
+            'venue_fee_payer': ''
         },
-        'lighting_setup': '',
-        'props': [],
-        'set_props': [],
-        'cover': None,
-        'notes': ''
+        'props': {
+            'subject': [],
+            'set': []
+        },
+        'lighting': []
     }
 
 
@@ -1651,6 +1664,7 @@ def _list_library_directory(source, relative_path=''):
             items.append({
                 'type': 'directory',
                 'name': child.name,
+                'is_set': _is_set_folder_name(child.name),
                 'relative_path': child_rel,
                 'has_manifest': direct_manifest is not None,
                 'manifest_valid': bool(direct_manifest and direct_manifest.get('valid')),
@@ -1689,16 +1703,30 @@ def _list_library_directory(source, relative_path=''):
             item['is_favorited'] = bool(state.get('is_favorited', False))
             item['description'] = state.get('description', '')
 
-    manifest = _find_nearest_manifest(root, target)
+    is_set = _is_set_folder_name(target.name)
+    direct_manifest = _read_manifest(target)
+    if direct_manifest is not None:
+        manifest = direct_manifest
+        manifest['relative_path'] = rel
+    elif is_set:
+        # A Set owns its own manifest. Do not inherit an accidental manifest from
+        # a parent Source/folder when deciding whether this Set has metadata.
+        manifest = {'exists': False, 'valid': False, 'data': None, 'error': None, 'relative_path': None}
+    else:
+        # Nested stage folders may still resolve the nearest Set manifest for
+        # image/share context, but they never expose create/edit controls.
+        manifest = _find_nearest_manifest(root, target)
+
     return {
         'source': {'id': source['id'], 'name': source['name'], 'root_path': source['root_path']},
         'path': rel,
         'parent_path': '/'.join(rel.split('/')[:-1]) if rel else None,
         'name': target.name if rel else source['name'],
+        'is_set': is_set,
         'items': items,
         'stats': stats,
         'manifest': manifest,
-        'suggested_manifest': _suggest_manifest(target) if not manifest['exists'] else None
+        'suggested_manifest': _suggest_manifest(target) if is_set and direct_manifest is None else None
     }
 
 
@@ -1877,9 +1905,6 @@ def save_library_manifest(source_id):
         root, target, rel = _resolve_library_path(source, request.args.get('path', ''))
         if not target.is_dir():
             return jsonify({'error': 'manifest 只能保存到目录'}), 400
-        payload.setdefault('schema_version', 1)
-        payload.setdefault('set_id', str(uuid.uuid4()))
-        payload['updated_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
         manifest_path = target / MANIFEST_FILENAME
         backup_path = target / (MANIFEST_FILENAME + '.bak')
         temp_path = target / (MANIFEST_FILENAME + '.tmp')

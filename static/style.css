@@ -1378,3 +1378,148 @@ body {
     padding-top: 24px;
     padding-bottom: 24px;
 }
+
+/* ==================== Set manifest v2 ==================== */
+.library-manifest-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.library-manifest-summary-main {
+    min-width: 0;
+}
+
+.manifest-detail-content,
+.manifest-form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.manifest-detail-section,
+.manifest-form-section {
+    padding: 16px 18px;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.manifest-detail-section h3,
+.manifest-form-section h3 {
+    margin: 0 0 14px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #303133;
+}
+
+.manifest-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.manifest-section-heading h3 {
+    margin: 0;
+}
+
+.manifest-light-count,
+.manifest-empty-value {
+    color: #909399;
+    font-size: 13px;
+}
+
+.manifest-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 18px;
+}
+
+.manifest-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #f2f3f5;
+}
+
+.manifest-detail-item span {
+    color: #909399;
+    font-size: 12px;
+}
+
+.manifest-detail-item strong {
+    color: #303133;
+    font-size: 14px;
+    line-height: 1.55;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.manifest-detail-wide {
+    grid-column: 1 / -1;
+}
+
+.manifest-light-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.manifest-light-card {
+    padding: 14px 16px;
+    border: 1px solid #dcdfe6;
+    border-radius: 8px;
+    background: #fafafa;
+}
+
+.manifest-light-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.manifest-light-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.manifest-light-editor .el-form-item {
+    margin-bottom: 14px;
+}
+
+.manifest-form-section .el-form-item:last-child {
+    margin-bottom: 0;
+}
+
+@media (max-width: 720px) {
+    .library-manifest-summary {
+        align-items: flex-start;
+    }
+
+    .manifest-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .manifest-detail-wide {
+        grid-column: auto;
+    }
+}
+
+.manifest-detail-dialog .el-dialog,
+.manifest-edit-dialog .el-dialog {
+    max-width: calc(100vw - 32px);
+}
+
+.manifest-detail-dialog .el-dialog__body,
+.manifest-edit-dialog .el-dialog__body {
+    max-height: 68vh;
+    overflow-y: auto;
+}
