@@ -625,6 +625,17 @@ const app = createApp({
         const manifestJsonText = ref('');
         const manifestJsonError = ref('');
 
+        const gpsPhotoImport = window.GpsPhotoImporter.createController({
+            getLocation: () => manifestForm.value && manifestForm.value.location,
+            message: ElMessage
+        });
+
+        const manifestAutofill = window.ManifestAutofill.createController({
+            getSourceId: () => currentLibrarySource.value && currentLibrarySource.value.id,
+            getManifestForm: () => manifestForm.value,
+            message: ElMessage
+        });
+
         // Controlled vocabularies. The first six lists are migrated from the
         // legacy photo-metadata system and normalized to lowercase machine values.
         const manifestOptions = {
@@ -1138,12 +1149,19 @@ const app = createApp({
             }
         };
 
+        const queryKnownLocations = (query, callback) => manifestAutofill.queryLocations(query, callback);
+        const selectKnownLocation = (item) => manifestAutofill.selectLocation(item);
+        const syncKnownLocation = (value) => manifestAutofill.syncLocation(value, true);
+        const queryKnownSources = (query, callback) => manifestAutofill.querySources(query, callback);
+        const selectKnownSource = (item) => manifestAutofill.selectSource(item);
+        const syncKnownSource = (value) => manifestAutofill.syncSource(value, true);
+
         const openManifestDetails = () => {
             if (!isSetDirectory.value || !currentManifestData.value) return;
             showManifestDetailDialog.value = true;
         };
 
-        const openManifestEditor = () => {
+        const openManifestEditor = async () => {
             if (!isSetDirectory.value) {
                 ElMessage.warning('只有 Set 目录可以创建或编辑 manifest');
                 return;
@@ -1160,6 +1178,8 @@ const app = createApp({
             manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
             manifestJsonError.value = '';
             showManifestDialog.value = true;
+            await manifestAutofill.syncCurrent();
+            manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
         };
 
         const editManifestFromDetail = () => {
@@ -1190,6 +1210,7 @@ const app = createApp({
                     return;
                 }
                 showManifestDialog.value = false;
+                manifestAutofill.invalidate();
                 ElMessage.success('manifest.json 已保存');
                 await loadLibraryDirectory(libraryListing.value.path || '');
             } catch (error) {
@@ -3013,6 +3034,14 @@ const app = createApp({
             manifestJsonText,
             manifestJsonError,
             manifestOptions,
+            queryKnownLocations,
+            selectKnownLocation,
+            syncKnownLocation,
+            queryKnownSources,
+            selectKnownSource,
+            syncKnownSource,
+            gpsImporting: gpsPhotoImport.loading,
+            importGpsFromPhoto: gpsPhotoImport.run,
             switchManifestEditorMode,
             formatManifestJson,
             openManifestDetails,

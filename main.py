@@ -18,6 +18,8 @@ from flask_cors import CORS
 from auth_utils import verify_auth_token, generate_auth_token, album_token_expire_minutes, generate_admin_token, \
     verify_admin_token, admin_required
 from image_utils import generate_thumbnail, generate_compressed, get_image_exif_simple
+from gps_utils import extract_gps_from_image
+from manifest_autofill import build_manifest_reference_index, get_original_jpg_time_range
 
 app = Flask(__name__)
 
@@ -1452,20 +1454,17 @@ def _parse_set_folder_name(name):
 
 
 def _suggest_manifest(target):
-    """Return the current canonical per-set manifest template.
-
-    Human-readable values such as model/IP/equipment stay as entered. Controlled
-    enum-like fields are stored as lower-case machine values by convention.
-    """
+    """Return a clean manifest template with only real inferred values filled."""
     date, model, theme = _parse_set_folder_name(target.name)
+    times = get_original_jpg_time_range(target)
     return {
         'model': model,
         'shoot': {
-            'date': date or 'yyyy-MM-dd',
-            'start_time': 'HH:mm',
-            'end_time': 'HH:mm',
-            'environment': 'studio|outdoor|indoor',
-            'weather': 'sunny|cloudy|overcast|rainy|snowy'
+            'date': date,
+            'start_time': times['start_time'],
+            'end_time': times['end_time'],
+            'environment': '',
+            'weather': ''
         },
         'location': {
             'name': '',
@@ -1475,17 +1474,17 @@ def _suggest_manifest(target):
         },
         'theme': {
             'name': theme,
-            'genre': 'cosplay|jk|lolita|casual|jirai',
+            'genre': '',
             'source_title': '',
-            'source_type': 'mobile_game|galgame|anime|comic|original|vtuber|other',
+            'source_type': '',
             'character': ''
         },
         'production': {
-            'collaboration_type': 'tf|photographer_paid|group_shoot|client_commissioned',
+            'collaboration_type': '',
             'lead_photographer': True,
             'model_fee': 0,
             'venue_fee': None,
-            'venue_fee_payer': 'model|photographer|split'
+            'venue_fee_payer': ''
         },
         'props': {
             'subject': [],
@@ -1888,6 +1887,70 @@ def get_library_asset(source_id):
         return send_file(file_path)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 404
+
+
+
+
+@app.route('/api/library/sources/<int:source_id>/manifest-reference', methods=['GET'])
+def get_library_manifest_reference(source_id):
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+    source = _get_library_source(source_id)
+    if not source:
+        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+    try:
+        conn = get_db_connection()
+        rows = conn.execute('SELECT root_path FROM library_sources WHERE enabled = 1').fetchall()
+        conn.close()
+        roots = []
+        for row in rows:
+            root = Path(row['root_path']).expanduser().resolve()
+            if root.is_dir():
+                roots.append(root)
+        return jsonify(build_manifest_reference_index(roots))
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        return jsonify({'error': str(exc)}), 400
+
+
+@app.route('/api/tools/extract-gps', methods=['POST'])
+def extract_gps_from_uploaded_photo():
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+
+    photo = request.files.get('photo')
+    if not photo or not photo.filename:
+        return jsonify({'error': '请选择一张照片'}), 400
+
+    # iPhone originals are commonly JPEG or HEIC. ExifTool, when installed,
+    # handles HEIC/HEIF; Pillow remains the fallback for supported formats.
+    suffix = Path(photo.filename).suffix.lower() or '.img'
+    allowed = {'.jpg', '.jpeg', '.heic', '.heif', '.tif', '.tiff', '.png'}
+    if suffix not in allowed:
+        return jsonify({'error': '仅支持 JPG/JPEG/HEIC/HEIF/TIFF/PNG 照片'}), 400
+
+    if request.content_length and request.content_length > 100 * 1024 * 1024:
+        return jsonify({'error': '照片过大，最大支持 100 MB'}), 413
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix='gallery-gps-', suffix=suffix, delete=False) as temp_file:
+            temp_path = temp_file.name
+            photo.save(temp_file)
+
+        gps = extract_gps_from_image(temp_path, precision=5)
+        return jsonify(gps)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'error': f'读取 GPS 失败: {str(exc)}'}), 500
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 @app.route('/api/library/sources/<int:source_id>/manifest', methods=['PUT'])

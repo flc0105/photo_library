@@ -1327,7 +1327,7 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Model" class="manifest-span-12">
-                                <el-input v-model="manifestForm.model" placeholder="Model name"></el-input>
+                                <el-input v-model="manifestForm.model"></el-input>
                             </el-form-item>
                         </div>
                     </section>
@@ -1338,21 +1338,21 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Date" class="manifest-span-4">
-                                <el-input v-model="manifestForm.shoot.date" placeholder="yyyy-MM-dd"></el-input>
+                                <el-input v-model="manifestForm.shoot.date"></el-input>
                             </el-form-item>
                             <el-form-item label="Start Time" class="manifest-span-4">
-                                <el-input v-model="manifestForm.shoot.start_time" placeholder="HH:mm"></el-input>
+                                <el-input v-model="manifestForm.shoot.start_time"></el-input>
                             </el-form-item>
                             <el-form-item label="End Time" class="manifest-span-4">
-                                <el-input v-model="manifestForm.shoot.end_time" placeholder="HH:mm"></el-input>
+                                <el-input v-model="manifestForm.shoot.end_time"></el-input>
                             </el-form-item>
                             <el-form-item label="Environment" class="manifest-span-6">
-                                <el-select v-model="manifestForm.shoot.environment" clearable placeholder="Select environment" style="width:100%">
+                                <el-select v-model="manifestForm.shoot.environment" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.environment" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Weather" class="manifest-span-6">
-                                <el-select v-model="manifestForm.shoot.weather" clearable placeholder="Select weather" style="width:100%">
+                                <el-select v-model="manifestForm.shoot.weather" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.weather" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
@@ -1365,16 +1365,33 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Name" class="manifest-span-6">
-                                <el-input v-model="manifestForm.location.name" placeholder="Location name"></el-input>
+                                <el-autocomplete v-model="manifestForm.location.name"
+                                                 :fetch-suggestions="queryKnownLocations"
+                                                 clearable
+                                                 style="width:100%"
+                                                 @select="selectKnownLocation"
+                                                 @change="syncKnownLocation"></el-autocomplete>
                             </el-form-item>
                             <el-form-item label="Address" class="manifest-span-6">
-                                <el-input v-model="manifestForm.location.address" placeholder="Address"></el-input>
+                                <el-input v-model="manifestForm.location.address"></el-input>
                             </el-form-item>
                             <el-form-item label="Latitude" class="manifest-span-6">
-                                <el-input-number v-model="manifestForm.location.lat" :controls="false" :precision="5" :step="0.00001" placeholder="35.90738" style="width:100%"></el-input-number>
+                                <el-input-number v-model="manifestForm.location.lat" :controls="false" :precision="5" :step="0.00001" style="width:100%"></el-input-number>
                             </el-form-item>
-                            <el-form-item label="Longitude" class="manifest-span-6">
-                                <el-input-number v-model="manifestForm.location.lng" :controls="false" :precision="5" :step="0.00001" placeholder="119.92868" style="width:100%"></el-input-number>
+                            <el-form-item class="manifest-span-6">
+                                <template #label>
+                                    <div class="manifest-coordinate-label">
+                                        <span>Longitude</span>
+                                        <el-tooltip content="Import GPS from iPhone photo" placement="top">
+                                            <el-button class="manifest-gps-import-button" text circle size="small"
+                                                       :loading="gpsImporting" @click.prevent="importGpsFromPhoto"
+                                                       aria-label="Import GPS from iPhone photo">
+                                                <el-icon v-if="!gpsImporting"><Upload /></el-icon>
+                                            </el-button>
+                                        </el-tooltip>
+                                    </div>
+                                </template>
+                                <el-input-number v-model="manifestForm.location.lng" :controls="false" :precision="5" :step="0.00001" style="width:100%"></el-input-number>
                             </el-form-item>
                         </div>
                     </section>
@@ -1385,23 +1402,28 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Name" class="manifest-span-6">
-                                <el-input v-model="manifestForm.theme.name" placeholder="Theme name"></el-input>
+                                <el-input v-model="manifestForm.theme.name"></el-input>
                             </el-form-item>
                             <el-form-item label="Genre" class="manifest-span-6">
-                                <el-select v-model="manifestForm.theme.genre" clearable placeholder="Select genre" style="width:100%">
+                                <el-select v-model="manifestForm.theme.genre" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.genre" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Source Title" class="manifest-span-6">
-                                <el-input v-model="manifestForm.theme.source_title" placeholder="Source title"></el-input>
+                                <el-autocomplete v-model="manifestForm.theme.source_title"
+                                                 :fetch-suggestions="queryKnownSources"
+                                                 clearable
+                                                 style="width:100%"
+                                                 @select="selectKnownSource"
+                                                 @change="syncKnownSource"></el-autocomplete>
                             </el-form-item>
                             <el-form-item label="Source Type" class="manifest-span-6">
-                                <el-select v-model="manifestForm.theme.source_type" clearable placeholder="Select source type" style="width:100%">
+                                <el-select v-model="manifestForm.theme.source_type" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.source_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Character" class="manifest-span-6">
-                                <el-input v-model="manifestForm.theme.character" placeholder="Character"></el-input>
+                                <el-input v-model="manifestForm.theme.character"></el-input>
                             </el-form-item>
                         </div>
                     </section>
@@ -1412,12 +1434,12 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Collaboration Type" class="manifest-span-6">
-                                <el-select v-model="manifestForm.production.collaboration_type" clearable placeholder="Select collaboration type" style="width:100%">
+                                <el-select v-model="manifestForm.production.collaboration_type" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.collaboration_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Venue Fee Payer" class="manifest-span-6">
-                                <el-select v-model="manifestForm.production.venue_fee_payer" clearable placeholder="Select payer" style="width:100%">
+                                <el-select v-model="manifestForm.production.venue_fee_payer" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.venue_fee_payer" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
@@ -1442,10 +1464,10 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Subject" class="manifest-span-12">
-                                <el-select v-model="manifestForm.props.subject" multiple filterable allow-create default-first-option placeholder="Type and press Enter" style="width:100%"></el-select>
+                                <el-select v-model="manifestForm.props.subject" multiple filterable allow-create default-first-option style="width:100%"></el-select>
                             </el-form-item>
                             <el-form-item label="Set" class="manifest-span-12">
-                                <el-select v-model="manifestForm.props.set" multiple filterable allow-create default-first-option placeholder="Type and press Enter" style="width:100%"></el-select>
+                                <el-select v-model="manifestForm.props.set" multiple filterable allow-create default-first-option style="width:100%"></el-select>
                             </el-form-item>
                         </div>
                     </section>
@@ -1471,12 +1493,12 @@
                                 </div>
                                 <div class="manifest-form-grid manifest-light-grid">
                                     <el-form-item label="Role" class="manifest-span-4">
-                                        <el-select v-model="light.role" filterable allow-create default-first-option clearable placeholder="Select or type role" style="width:100%">
+                                        <el-select v-model="light.role" filterable allow-create default-first-option clearable style="width:100%">
                                             <el-option v-for="option in manifestOptions.role" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Light Type" class="manifest-span-4">
-                                        <el-select v-model="light.light_type" clearable placeholder="Select light type" style="width:100%">
+                                        <el-select v-model="light.light_type" clearable style="width:100%">
                                             <el-option v-for="option in manifestOptions.light_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
@@ -1484,20 +1506,20 @@
                                         <el-input-number v-model="light.count" :controls="false" :min="1" style="width:100%"></el-input-number>
                                     </el-form-item>
                                     <el-form-item label="Fixture" class="manifest-span-4">
-                                        <el-input v-model="light.fixture" placeholder="Godox QT1200 II"></el-input>
+                                        <el-input v-model="light.fixture"></el-input>
                                     </el-form-item>
                                     <el-form-item label="Modifier" class="manifest-span-4">
-                                        <el-select v-model="light.modifier" filterable allow-create default-first-option clearable placeholder="Select or type modifier" style="width:100%">
+                                        <el-select v-model="light.modifier" filterable allow-create default-first-option clearable style="width:100%">
                                             <el-option v-for="option in manifestOptions.modifier" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Position" class="manifest-span-4">
-                                        <el-select v-model="light.position" filterable allow-create default-first-option clearable placeholder="Select or type position" style="width:100%">
+                                        <el-select v-model="light.position" filterable allow-create default-first-option clearable style="width:100%">
                                             <el-option v-for="option in manifestOptions.position" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Note" class="manifest-span-12">
-                                        <el-input v-model="light.note" placeholder="Note"></el-input>
+                                        <el-input v-model="light.note"></el-input>
                                     </el-form-item>
                                 </div>
                             </div>
@@ -1604,7 +1626,9 @@
     </div>
 </div>
 
-<script type="module" src="app.js?v=20260920-01"></script>
+<script src="gps-import.js?v=20260920-03"></script>
+<script src="manifest-autofill.js?v=20260920-02"></script>
+<script type="module" src="app.js?v=20260920-02"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","spa":2}' crossorigin="anonymous"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"1c1c7799c54e46349cc23295b5e08299","spa":2}' crossorigin="anonymous"></script>
 </body>

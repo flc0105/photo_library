@@ -2033,3 +2033,30 @@ body {
         gap: 2px;
     }
 }
+
+
+/* Low-profile GPS import action beside the coordinate field. */
+.manifest-coordinate-label {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.manifest-gps-import-button.el-button {
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 0;
+    margin: -3px 0 -3px 6px;
+    color: var(--el-text-color-secondary);
+    opacity: .72;
+}
+
+.manifest-gps-import-button.el-button:hover,
+.manifest-gps-import-button.el-button:focus-visible {
+    opacity: 1;
+    color: var(--el-color-primary);
+    background: var(--el-fill-color-light);
+}
