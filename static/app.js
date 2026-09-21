@@ -667,7 +667,7 @@ const app = createApp({
             collaboration_type: ['tf', 'photographer_paid', 'group_shoot', 'client_commissioned'],
             venue_fee_payer: ['model', 'photographer', 'split'],
             light_type: ['strobe', 'continuous', 'natural'],
-            role: ['rim', 'fill', 'bounce', 'top', 'face'],
+            role: ['key', 'fill', 'separation', 'set'],
             modifier: ['bare_bulb', 'deep_parabolic', 'standard_reflector'],
             position: ['front', 'overhead', 'high_rear_right', 'high_rear_left', 'rear_right', 'rear_left', 'side_right', 'side_left', 'ceiling']
         };
@@ -734,7 +734,6 @@ const app = createApp({
         const isLibraryRoot = computed(() => !!currentLibrarySource.value && (libraryListing.value.path || '') === '');
 
         const newLightingRow = () => ({
-            key: false,
             role: '',
             light_type: '',
             fixture: '',
@@ -791,8 +790,7 @@ const app = createApp({
                     set: Array.isArray(props.set) ? [...props.set] : []
                 },
                 lighting: lights.map(light => ({
-                    key: light?.key === true,
-                    role: light?.role ?? '',
+                    role: manifestOptions.role.includes(light?.role) ? light.role : '',
                     light_type: light?.light_type ?? '',
                     fixture: light?.fixture ?? '',
                     modifier: light?.modifier ?? '',
@@ -803,7 +801,7 @@ const app = createApp({
             };
         };
 
-        const applyManifestThemeStorageRules = (payload) => {
+        const applyManifestStorageRules = (payload) => {
             if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
 
             const theme = payload.theme && typeof payload.theme === 'object' && !Array.isArray(payload.theme)
@@ -823,7 +821,22 @@ const app = createApp({
                 theme.outfit = theme.outfit ?? '';
             }
 
-            return {...payload, theme};
+            const lighting = Array.isArray(payload.lighting)
+                ? payload.lighting.map(light => {
+                    const item = light && typeof light === 'object' && !Array.isArray(light) ? light : {};
+                    return {
+                        role: manifestOptions.role.includes(item.role) ? item.role : '',
+                        light_type: item.light_type ?? '',
+                        fixture: item.fixture ?? '',
+                        modifier: item.modifier ?? '',
+                        count: item.count ?? 1,
+                        position: item.position ?? '',
+                        note: item.note ?? ''
+                    };
+                })
+                : payload.lighting;
+
+            return {...payload, theme, ...(Array.isArray(lighting) ? {lighting} : {})};
         };
 
         const serializeManifestForm = () => {
@@ -850,19 +863,15 @@ const app = createApp({
                     subject: [...form.props.subject],
                     set: [...form.props.set]
                 },
-                lighting: form.lighting.map(light => {
-                    const item = {
-                        role: light.role,
-                        light_type: light.light_type,
-                        fixture: light.fixture,
-                        modifier: light.modifier,
-                        count: light.count,
-                        position: light.position,
-                        note: light.note
-                    };
-                    if (light.key === true) item.key = true;
-                    return item;
-                })
+                lighting: form.lighting.map(light => ({
+                    role: light.role,
+                    light_type: light.light_type,
+                    fixture: light.fixture,
+                    modifier: light.modifier,
+                    count: light.count,
+                    position: light.position,
+                    note: light.note
+                }))
             };
         };
 
@@ -1503,7 +1512,7 @@ const app = createApp({
             } else {
                 payload = serializeManifestForm();
             }
-            payload = applyManifestThemeStorageRules(payload);
+            payload = applyManifestStorageRules(payload);
             try {
                 const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {
                     method: 'PUT',

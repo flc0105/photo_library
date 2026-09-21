@@ -1563,7 +1563,6 @@
                         <div v-for="(light, index) in currentManifestData.lighting" :key="index" class="manifest-light-card">
                             <div class="manifest-light-header">
                                 <strong>Light {{ index + 1 }}</strong>
-                                <el-tag v-if="light.key" size="small" type="warning">KEY</el-tag>
                             </div>
                             <div class="manifest-detail-grid">
                                 <div class="manifest-detail-item"><span>Role</span><strong>{{ formatEnumValue(light.role) }}</strong></div>
@@ -1812,13 +1811,12 @@
                                         <strong>Light {{ index + 1 }}</strong>
                                     </div>
                                     <div class="manifest-light-actions">
-                                        <el-checkbox v-model="light.key">Key</el-checkbox>
                                         <el-button text type="danger" @click="removeLightingRow(index)">Remove</el-button>
                                     </div>
                                 </div>
                                 <div class="manifest-form-grid manifest-light-grid">
                                     <el-form-item label="Role" class="manifest-span-4">
-                                        <el-select v-model="light.role" filterable allow-create default-first-option clearable style="width:100%">
+                                        <el-select v-model="light.role" clearable style="width:100%">
                                             <el-option v-for="option in manifestOptions.role" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
