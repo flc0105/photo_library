@@ -3554,6 +3554,7 @@ const app = createApp({
             openImageInspectionTool: workflowTools.openImageInspection,
             openVisualRenameTool: workflowTools.openVisualRename,
             rerunVisualRenamePreview: workflowTools.analyzeVisualRename,
+            openDiscardUnreturnedBaseTool: workflowTools.openDiscardUnreturnedBase,
             openSyncRawByJpgTool: workflowTools.openSyncRawByJpg,
             openSyncJpgByRawTool: workflowTools.openSyncJpgByRaw,
             openSelectRawTool: workflowTools.openSelectRaw,

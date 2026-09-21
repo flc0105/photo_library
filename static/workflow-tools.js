@@ -121,6 +121,32 @@
             await analyzeVisualRename();
         };
 
+        const openDiscardUnreturnedBase = async () => {
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+            previewKind.value = 'discard_unreturned_base';
+            previewTitle.value = 'Base 未返图 → Discards';
+            previewData.value = null;
+            previewVisible.value = true;
+            previewLoading.value = true;
+            try {
+                previewData.value = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/discard-unreturned/preview`,
+                    {path: ctx.path}
+                );
+            } catch (error) {
+                previewData.value = null;
+                ElMessage.error(error.message || 'Base 未返图检查失败');
+            } finally {
+                previewLoading.value = false;
+            }
+        };
+
         const openSync = async (direction) => {
             let ctx;
             try {
@@ -179,6 +205,9 @@
             const data = previewData.value;
             if (!data || !data.plan_id) return false;
             if (previewKind.value === 'visual_rename') return (data.summary?.rename_count || 0) > 0;
+            if (previewKind.value === 'discard_unreturned_base') {
+                return (data.summary?.move_count || 0) > 0 && (data.summary?.conflict_count || 0) === 0;
+            }
             if (previewKind.value === 'sync_originals') return (data.summary?.trash_count || 0) > 0;
             if (previewKind.value === 'select_raw') return (data.summary?.copy_count || 0) > 0;
             return false;
@@ -188,6 +217,9 @@
             const data = previewData.value || {};
             if (previewKind.value === 'visual_rename') {
                 return `将按当前预览重命名 ${data.summary?.rename_count || 0} 个 03_Model_Edit 文件。执行前已固定映射，文件发生变化时会拒绝执行。`;
+            }
+            if (previewKind.value === 'discard_unreturned_base') {
+                return `将把 ${data.summary?.move_count || 0} 个在 03_Model_Edit 中没有同 stem 的 Base_Edit 文件移动到 02_Base_Edit/discards。只移动，不删除；预览后 Base/Model 文件发生变化时会拒绝执行。`;
             }
             if (previewKind.value === 'sync_originals') {
                 return `请再次确认你已经检查过预览列表。最终将有 ${data.summary?.trash_count || 0} 个文件随 Deleted 进入系统回收站，其中 ${data.summary?.move_count || 0} 个会先从当前目录移动进 Deleted。不会调用永久删除。`;
@@ -216,6 +248,7 @@
 
             let endpoint = '';
             if (previewKind.value === 'visual_rename') endpoint = 'visual-rename/start';
+            if (previewKind.value === 'discard_unreturned_base') endpoint = 'discard-unreturned/start';
             if (previewKind.value === 'sync_originals') endpoint = 'sync/start';
             if (previewKind.value === 'select_raw') endpoint = 'select-raw/start';
 
@@ -302,6 +335,8 @@
             already_exists: 'Exists',
             missing_raw: 'Missing RAW',
             ambiguous_raw: 'Ambiguous RAW',
+            move_to_discards: 'Move',
+            destination_exists: 'Conflict',
             move_to_deleted: 'Move',
             already_in_deleted: 'In Deleted'
         }[status] || status || '—');
@@ -314,6 +349,8 @@
             already_exists: 'info',
             missing_raw: 'danger',
             ambiguous_raw: 'warning',
+            move_to_discards: 'warning',
+            destination_exists: 'danger',
             move_to_deleted: 'warning',
             already_in_deleted: 'info'
         }[status] || 'info');
@@ -343,6 +380,7 @@
             openImageInspection,
             openVisualRename,
             analyzeVisualRename,
+            openDiscardUnreturnedBase,
             openSyncRawByJpg: () => openSync('raw_by_jpg'),
             openSyncJpgByRaw: () => openSync('jpg_by_raw'),
             openSelectRaw,

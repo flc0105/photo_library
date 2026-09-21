@@ -27,7 +27,7 @@ _REQUIRED_SET_DIRS = {
 }
 _ALLOWED_TOP_LEVEL_DIRS = _REQUIRED_SET_DIRS | {'Discards'}
 _ALLOWED_ORIGINAL_DIRS = {'JPG', 'RAW', 'Selects'}
-_ALLOWED_BASE_SUBDIRS = {'Ready'}
+_ALLOWED_BASE_SUBDIRS = {'Ready', 'discards'}
 
 
 def _is_hidden_or_control(name):
@@ -273,7 +273,7 @@ def _write_equipment_cache(get_db_connection, source_id, set_rel, signature, pay
 def _count_set_stages(set_dir: Path):
     original_jpg = _iter_files(set_dir / '01_Original' / 'JPG', _ORIGINAL_JPG_EXTENSIONS, {'Deleted'})
     original_raw = _iter_files(set_dir / '01_Original' / 'RAW', _RAW_EXTENSIONS, {'Deleted'})
-    base_edit = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
+    base_edit = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted', 'discards'})
     model_edit = _iter_files(set_dir / '03_Model_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
     revision = _iter_files(set_dir / '04_Revision', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
     final = _iter_files(set_dir / '05_Final', _ORIGINAL_JPG_EXTENSIONS, {'Deleted'})
@@ -428,7 +428,7 @@ def _validate_one_set(set_dir: Path):
 
     dpp_files = [path.name for path in jpg_files if path.stem.lower().endswith('-dpp')]
 
-    base_all = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
+    base_all = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted', 'discards'})
     ready_files = _iter_files(set_dir / '02_Base_Edit' / 'Ready', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
     ready_set = {str(path.resolve()) for path in ready_files}
     base_comparable = [path for path in base_all if str(path.resolve()) not in ready_set]
@@ -457,7 +457,8 @@ def _validate_one_set(set_dir: Path):
 
     version_files = []
     for stage in ('02_Base_Edit', '03_Model_Edit', '04_Revision'):
-        version_files.extend(_iter_files(set_dir / stage, _STAGE_IMAGE_EXTENSIONS, {'Deleted'}))
+        skip_dirs = {'Deleted', 'discards'} if stage == '02_Base_Edit' else {'Deleted'}
+        version_files.extend(_iter_files(set_dir / stage, _STAGE_IMAGE_EXTENSIONS, skip_dirs))
     versions = _extract_version_tags(version_files)
 
     if issues:

@@ -208,6 +208,7 @@
                                 <el-dropdown-menu>
                                     <el-dropdown-item @click="openImageInspectionTool">图像检测</el-dropdown-item>
                                     <el-dropdown-item divided @click="openVisualRenameTool">Visual Rename · Model Edit</el-dropdown-item>
+                                    <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Base 未返图 → Discards</el-dropdown-item>
                                     <el-dropdown-item divided @click="openSyncRawByJpgTool">同步 RAW（以 JPG 为准）</el-dropdown-item>
                                     <el-dropdown-item @click="openSyncJpgByRawTool">同步 JPG（以 RAW 为准）</el-dropdown-item>
                                     <el-dropdown-item divided @click="openSelectRawTool">收藏 JPG → RAW Selects</el-dropdown-item>
@@ -1317,6 +1318,40 @@
                     </el-table>
                 </template>
 
+                <template v-else-if="workflowPreviewKind === 'discard_unreturned_base'">
+                    <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
+                        <strong>02_Base_Edit → 02_Base_Edit/discards</strong>
+                        <span>按文件 stem 对照 03_Model_Edit；Model Edit 顶层没有同 stem 的 Base 图会移入 discards。只检查两个阶段顶层的 JPG/JPEG/PNG，不扫描 Ready、discards 等子目录。建议先完成 Visual Rename。</span>
+                    </div>
+                    <div v-if="workflowPreviewData" class="workflow-summary-strip">
+                        <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
+                        <span>Model <strong>{{ workflowPreviewData.summary.model_count }}</strong></span>
+                        <span>Matched <strong>{{ workflowPreviewData.summary.matched_count }}</strong></span>
+                        <span>Move <strong>{{ workflowPreviewData.summary.move_count }}</strong></span>
+                        <span v-if="workflowPreviewData.summary.conflict_count" class="is-danger">Conflict <strong>{{ workflowPreviewData.summary.conflict_count }}</strong></span>
+                    </div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.conflict_count" class="workflow-inline-warnings">
+                        discards 中存在同名目标文件。为避免自动改名或覆盖，当前预览禁止执行；请先手动处理冲突后重新预览。
+                    </div>
+                    <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
+                        <el-table-column label="Base file" min-width="260">
+                            <template #default="scope"><code>{{ scope.row.name }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="→ Destination" min-width="360">
+                            <template #default="scope"><code>{{ scope.row.destination }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="Status" width="135">
+                            <template #default="scope">
+                                <el-tag size="small" :type="workflowStatusType(scope.row.status)">{{ workflowStatusLabel(scope.row.status) }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Size" width="130" align="right">
+                            <template #default="scope">{{ workflowFormatSize(scope.row.size) }}</template>
+                        </el-table-column>
+                    </el-table>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.move_count === 0 && workflowPreviewData.summary.conflict_count === 0" class="workflow-empty-result">所有 Base Edit 顶层图片都能在 Model Edit 找到同 stem，无需处理。</div>
+                </template>
+
                 <template v-else-if="workflowPreviewKind === 'sync_originals'">
                     <div v-if="workflowPreviewData" class="workflow-warning-box">
                         <strong>{{ workflowPreviewData.direction === 'raw_by_jpg' ? 'RAW 以 JPG 为准' : 'JPG 以 RAW 为准' }}</strong>
@@ -2184,8 +2219,8 @@
 
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260920-02"></script>
-<script src="workflow-tools.js?v=20260921-03"></script>
+<script src="workflow-tools.js?v=20260921-04"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260921-03"></script>
+<script type="module" src="app.js?v=20260921-04"></script>
 </body>
 </html>
