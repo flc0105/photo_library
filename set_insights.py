@@ -287,6 +287,55 @@ def _count_set_stages(set_dir: Path):
     }
 
 
+def _set_theme_name(set_dir: Path):
+    manifest_path = set_dir / 'manifest.json'
+    try:
+        data = json.loads(manifest_path.read_text(encoding='utf-8'))
+        if isinstance(data, dict):
+            theme = data.get('theme')
+            if isinstance(theme, dict):
+                value = str(theme.get('name') or '').strip()
+                if value:
+                    return value
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+
+    parts = set_dir.name.split('-', 2)
+    return parts[2] if len(parts) >= 3 else set_dir.name
+
+
+def _same_day_sessions(root: Path, current_set: Path):
+    date_key = current_set.name[:8]
+    if len(date_key) != 8 or not date_key.isdigit():
+        return {'count': 0, 'items': []}
+
+    items = []
+    try:
+        candidates = sorted(
+            [
+                path for path in root.iterdir()
+                if path.is_dir()
+                and path != current_set
+                and _SET_RE.fullmatch(path.name)
+                and path.name.startswith(date_key)
+            ],
+            key=lambda path: path.name.casefold(),
+        )
+    except OSError:
+        candidates = []
+
+    for path in candidates:
+        parts = path.name.split('-', 2)
+        items.append({
+            'path': path.relative_to(root).as_posix(),
+            'name': path.name,
+            'model': parts[1] if len(parts) >= 2 else '',
+            'theme': _set_theme_name(path),
+        })
+
+    return {'count': len(items), 'items': items}
+
+
 def _top_level_subdirs(path: Path):
     if not path.is_dir():
         return set()
@@ -373,7 +422,7 @@ def _validate_one_set(set_dir: Path):
     elif raw_count == 0 and jpg_count > 0:
         issues.append(f'Original RAW is empty ({jpg_count} JPG)')
     elif jpg_count == 0 and raw_count > 0:
-        warnings.append(f'Original JPG is empty ({raw_count} RAW)')
+        info.append(f'Original JPG is empty ({raw_count} RAW)')
     elif jpg_count != raw_count:
         warnings.append(f'Original count mismatch: {jpg_count} JPG / {raw_count} RAW')
 
@@ -391,11 +440,11 @@ def _validate_one_set(set_dir: Path):
     ready_count = len(ready_files)
 
     # Base/Model status semantics:
-    # - both non-zero but counts differ -> Issue (unexpected mismatch)
-    # - Base is zero -> Normal, regardless of whether Model has files
-    # - Base has files but Model is zero -> Normal (no return / no retouch needed)
+    # - both non-zero but counts differ -> Warning
+    # - either side empty -> Normal
+    # - both empty -> Normal
     if base_count > 0 and model_count > 0 and base_count != model_count:
-        issues.append(f'Base/Model count mismatch: {base_count} / {model_count}')
+        warnings.append(f'Base/Model count mismatch: {base_count} / {model_count}')
     elif base_count > 0 and model_count == 0:
         info.append(f'Base Edit has {base_count} file(s), Model Edit is empty')
     elif base_count == 0 and model_count > 0:
@@ -506,11 +555,14 @@ def create_set_insights_blueprint(admin_guard, get_source, resolve_path, get_db_
 
     @bp.route('/api/library/insights/sources/<int:source_id>/set-stats', methods=['GET'])
     def set_stats(source_id):
-        _source, target, _rel, error = resolve_set(source_id)
+        source, target, _rel, error = resolve_set(source_id)
         if error:
             return error
         try:
-            return jsonify(_count_set_stages(target))
+            payload = _count_set_stages(target)
+            root = Path(source['root_path']).expanduser().resolve()
+            payload['same_day_sessions'] = _same_day_sessions(root, target)
+            return jsonify(payload)
         except OSError as exc:
             return jsonify({'error': f'统计 Set 文件失败: {exc}'}), 500
 

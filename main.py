@@ -1472,6 +1472,7 @@ def _suggest_manifest(target, include_times=False):
             'start_time': times['start_time'],
             'end_time': times['end_time'],
             'environment': '',
+            'scene': '',
             'weather': ''
         },
         'location': {
@@ -1482,10 +1483,13 @@ def _suggest_manifest(target, include_times=False):
         },
         'theme': {
             'name': theme,
-            'genre': '',
+            'genre': 'cosplay',
             'source_title': '',
             'source_type': '',
-            'character': ''
+            'character': '',
+            'variant': '',
+            'reference_type': '',
+            'reference': ''
         },
         'production': {
             'collaboration_type': '',

@@ -663,7 +663,21 @@ const app = createApp({
             environment: ['studio', 'outdoor', 'indoor'],
             weather: ['sunny', 'cloudy', 'overcast', 'rainy', 'snowy'],
             genre: ['cosplay', 'jk', 'lolita', 'casual', 'jirai'],
+            scene: [
+                'white_studio/plain', 'white_studio/diorama', 'white_studio/scenic',
+                'themed_studio/european', 'themed_studio/gothic', 'themed_studio/japanese',
+                'themed_studio/chinese', 'themed_studio/bar', 'themed_studio/office',
+                'themed_studio/hospital', 'themed_studio/church', 'themed_studio/cyber',
+                'school/classroom', 'school/equipment_room', 'school/campus',
+                'home/living_room', 'home/bedroom', 'home/kitchen',
+                'sports/gym', 'sports/pool',
+                'urban/street', 'urban/cafe', 'urban/transit', 'urban/industrial', 'urban/rooftop', 'urban/ruins',
+                'nature/grassland', 'nature/wheatfield', 'nature/flower_tree', 'nature/forest', 'nature/countryside',
+                'coastal/beach', 'coastal/harbor',
+                'traditional/chinese', 'traditional/japanese'
+            ],
             source_type: ['mobile_game', 'galgame', 'anime', 'comic', 'original', 'vtuber', 'other'],
+            reference_type: ['default', 'alternate', 'collab', 'official_art', 'merch', 'fan_art', 'custom', 'other'],
             collaboration_type: ['tf', 'photographer_paid', 'group_shoot', 'client_commissioned'],
             venue_fee_payer: ['model', 'photographer', 'split'],
             light_type: ['strobe', 'continuous', 'natural'],
@@ -754,6 +768,9 @@ const app = createApp({
             const production = data.production && typeof data.production === 'object' ? data.production : {};
             const props = data.props && typeof data.props === 'object' && !Array.isArray(data.props) ? data.props : {};
             const lights = Array.isArray(data.lighting) ? data.lighting : [];
+            const additionalSession = shoot.additional_session && typeof shoot.additional_session === 'object' && !Array.isArray(shoot.additional_session)
+                ? shoot.additional_session
+                : null;
 
             return {
                 model: data.model ?? legacyModel ?? '',
@@ -762,7 +779,14 @@ const app = createApp({
                     start_time: shoot.start_time ?? '',
                     end_time: shoot.end_time ?? '',
                     environment: shoot.environment ?? shoot.type ?? '',
-                    weather: shoot.weather ?? ''
+                    scene: shoot.scene ?? '',
+                    weather: shoot.weather ?? '',
+                    additional_session: additionalSession ? {
+                        date: additionalSession.date ?? '',
+                        start_time: additionalSession.start_time ?? '',
+                        end_time: additionalSession.end_time ?? '',
+                        weather: additionalSession.weather ?? ''
+                    } : null
                 },
                 location: {
                     name: location.name ?? shoot.location ?? '',
@@ -772,15 +796,20 @@ const app = createApp({
                 },
                 theme: {
                     name: theme.name ?? data.title ?? '',
-                    genre: theme.genre ?? theme.style ?? '',
+                    genre: theme.genre ?? theme.style ?? 'cosplay',
                     source_title: theme.source_title ?? theme.source_ip ?? '',
                     source_type: theme.source_type ?? theme.source_category ?? '',
                     character: theme.character ?? '',
+                    variant: theme.variant ?? '',
+                    reference_type: theme.reference_type ?? '',
+                    reference: theme.reference ?? '',
                     outfit: theme.outfit ?? theme.clothing ?? data.clothing_name ?? ''
                 },
                 production: {
                     collaboration_type: production.collaboration_type ?? '',
                     lead_photographer: production.lead_photographer ?? production.is_lead_photographer ?? true,
+                    primary_photographer: production.primary_photographer ?? '',
+                    assistants: Array.isArray(production.assistants) ? [...production.assistants] : [],
                     model_fee: production.model_fee ?? 0,
                     venue_fee: production.venue_fee !== undefined ? production.venue_fee : null,
                     venue_fee_payer: production.venue_fee_payer ?? production.fee_payer ?? ''
@@ -814,10 +843,16 @@ const app = createApp({
                 theme.source_title = theme.source_title ?? '';
                 theme.source_type = theme.source_type ?? '';
                 theme.character = theme.character ?? '';
+                theme.variant = theme.variant ?? '';
+                theme.reference_type = theme.reference_type ?? '';
+                theme.reference = theme.reference ?? '';
             } else {
                 delete theme.source_title;
                 delete theme.source_type;
                 delete theme.character;
+                delete theme.variant;
+                delete theme.reference_type;
+                delete theme.reference;
                 theme.outfit = theme.outfit ?? '';
             }
 
@@ -841,6 +876,18 @@ const app = createApp({
 
         const serializeManifestForm = () => {
             const form = normalizeManifest(manifestForm.value);
+            const shoot = {
+                date: form.shoot.date,
+                start_time: form.shoot.start_time,
+                end_time: form.shoot.end_time,
+                environment: form.shoot.environment,
+                scene: form.shoot.scene,
+                weather: form.shoot.weather
+            };
+            if (form.shoot.additional_session) {
+                shoot.additional_session = {...form.shoot.additional_session};
+            }
+
             const theme = {
                 name: form.theme.name,
                 genre: form.theme.genre
@@ -849,16 +896,34 @@ const app = createApp({
                 theme.source_title = form.theme.source_title;
                 theme.source_type = form.theme.source_type;
                 theme.character = form.theme.character;
+                theme.variant = form.theme.variant;
+                theme.reference_type = form.theme.reference_type;
+                theme.reference = form.theme.reference;
             } else {
                 theme.outfit = form.theme.outfit;
             }
 
+            const production = {
+                collaboration_type: form.production.collaboration_type,
+                lead_photographer: form.production.lead_photographer,
+                model_fee: form.production.model_fee,
+                venue_fee: form.production.venue_fee,
+                venue_fee_payer: form.production.venue_fee_payer
+            };
+            if (form.production.lead_photographer) {
+                if (form.production.assistants.length) {
+                    production.assistants = [...form.production.assistants];
+                }
+            } else {
+                production.primary_photographer = form.production.primary_photographer;
+            }
+
             return {
                 model: form.model,
-                shoot: {...form.shoot},
+                shoot,
                 location: {...form.location},
                 theme,
-                production: {...form.production},
+                production,
                 props: {
                     subject: [...form.props.subject],
                     set: [...form.props.set]
@@ -894,10 +959,14 @@ const app = createApp({
             const merged = {...source};
 
             merged.model = formPayload.model;
-            merged.shoot = {
+            const nextShoot = {
                 ...(source.shoot && typeof source.shoot === 'object' && !Array.isArray(source.shoot) ? source.shoot : {}),
                 ...formPayload.shoot
             };
+            if (!Object.prototype.hasOwnProperty.call(formPayload.shoot, 'additional_session')) {
+                delete nextShoot.additional_session;
+            }
+            merged.shoot = nextShoot;
             merged.location = {
                 ...(source.location && typeof source.location === 'object' && !Array.isArray(source.location) ? source.location : {}),
                 ...formPayload.location
@@ -909,19 +978,34 @@ const app = createApp({
                 nextTheme.source_title = formPayload.theme.source_title ?? '';
                 nextTheme.source_type = formPayload.theme.source_type ?? '';
                 nextTheme.character = formPayload.theme.character ?? '';
+                nextTheme.variant = formPayload.theme.variant ?? '';
+                nextTheme.reference_type = formPayload.theme.reference_type ?? '';
+                nextTheme.reference = formPayload.theme.reference ?? '';
                 delete nextTheme.outfit;
             } else {
                 nextTheme.outfit = formPayload.theme.outfit ?? '';
                 delete nextTheme.source_title;
                 delete nextTheme.source_type;
                 delete nextTheme.character;
+                delete nextTheme.variant;
+                delete nextTheme.reference_type;
+                delete nextTheme.reference;
             }
             merged.theme = nextTheme;
 
-            merged.production = {
+            const nextProduction = {
                 ...(source.production && typeof source.production === 'object' && !Array.isArray(source.production) ? source.production : {}),
                 ...formPayload.production
             };
+            if (formPayload.production.lead_photographer) {
+                delete nextProduction.primary_photographer;
+                if (!Array.isArray(formPayload.production.assistants) || !formPayload.production.assistants.length) {
+                    delete nextProduction.assistants;
+                }
+            } else {
+                delete nextProduction.assistants;
+            }
+            merged.production = nextProduction;
             merged.props = {
                 ...(source.props && typeof source.props === 'object' && !Array.isArray(source.props) ? source.props : {}),
                 subject: [...formPayload.props.subject],
@@ -994,6 +1078,11 @@ const app = createApp({
             if (typeof value === 'boolean') return value ? 'Yes' : 'No';
             if (Array.isArray(value)) return value.length ? value.join(' · ') : '—';
             return String(value);
+        };
+
+        const formatSceneValue = (value) => {
+            if (value === null || value === undefined || value === '') return '—';
+            return String(value).split('/').map(part => formatEnumValue(part)).join(' › ');
         };
 
 
@@ -1098,6 +1187,21 @@ const app = createApp({
         const removeLightingRow = (index) => {
             if (!Array.isArray(manifestForm.value.lighting)) return;
             manifestForm.value.lighting.splice(index, 1);
+        };
+
+        const addAdditionalSession = () => {
+            if (!manifestForm.value.shoot) manifestForm.value.shoot = {};
+            manifestForm.value.shoot.additional_session = {
+                date: '',
+                start_time: '',
+                end_time: '',
+                weather: ''
+            };
+        };
+
+        const removeAdditionalSession = () => {
+            if (!manifestForm.value.shoot) return;
+            manifestForm.value.shoot.additional_session = null;
         };
 
         const loadLibrarySources = async () => {
@@ -1233,6 +1337,14 @@ const app = createApp({
         const openLibraryDirectory = async (item, event = null) => {
             rememberLibraryDirectoryPosition(item, event);
             await loadLibraryDirectory(item.relative_path);
+            librarySelectedDirectoryPath.value = '';
+            await scrollLibraryPageTop();
+        };
+
+        const jumpToRelatedSet = async (path) => {
+            if (!path) return;
+            showManifestDetailDialog.value = false;
+            await loadLibraryDirectory(path);
             librarySelectedDirectoryPath.value = '';
             await scrollLibraryPageTop();
         };
@@ -3448,6 +3560,7 @@ const app = createApp({
             currentManifestData,
             formatEnumValue,
             formatManifestValue,
+            formatSceneValue,
             formatWeatherValue,
             manifestShootDuration,
             currentManifestLightCount,
@@ -3477,6 +3590,9 @@ const app = createApp({
             openManifestDetails,
             openManifestEditor,
             editManifestFromDetail,
+            jumpToRelatedSet,
+            addAdditionalSession,
+            removeAdditionalSession,
             addLightingRow,
             removeLightingRow,
             saveManifest,

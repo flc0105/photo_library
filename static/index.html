@@ -1506,7 +1506,32 @@
                         <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.end_time) }}</strong></div>
                         <div v-if="manifestShootDuration" class="manifest-detail-item manifest-computed-item"><span>Duration</span><strong>{{ manifestShootDuration }}</strong></div>
                         <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Scene</span><strong>{{ formatSceneValue(currentManifestData.shoot.scene) }}</strong></div>
                         <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
+                        <div class="manifest-detail-item manifest-detail-wide manifest-computed-item">
+                            <span>Same-day Sessions</span>
+                            <strong v-if="setStatsLoading">Calculating…</strong>
+                            <strong v-else-if="setStats && setStats.same_day_sessions">
+                                <template v-if="setStats.same_day_sessions.count">
+                                    {{ setStats.same_day_sessions.count }} ·
+                                    <template v-for="(item, index) in setStats.same_day_sessions.items" :key="item.path">
+                                        <el-link type="primary" :underline="false" @click="jumpToRelatedSet(item.path)">{{ item.theme || item.name }}</el-link><template v-if="index < setStats.same_day_sessions.items.length - 1"> · </template>
+                                    </template>
+                                </template>
+                                <template v-else>0</template>
+                            </strong>
+                            <strong v-else>—</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section v-if="currentManifestData.shoot.additional_session" class="manifest-detail-section">
+                    <h3>Additional Session</h3>
+                    <div class="manifest-detail-grid">
+                        <div class="manifest-detail-item"><span>Date</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.date) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Start Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.start_time) }}</strong></div>
+                        <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.end_time) }}</strong></div>
+                        <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.additional_session.weather) }}</strong></div>
                     </div>
                 </section>
 
@@ -1529,6 +1554,9 @@
                             <div class="manifest-detail-item"><span>Source Title</span><strong>{{ formatManifestValue(currentManifestData.theme.source_title) }}</strong></div>
                             <div class="manifest-detail-item"><span>Source Type</span><strong>{{ formatEnumValue(currentManifestData.theme.source_type) }}</strong></div>
                             <div class="manifest-detail-item"><span>Character</span><strong>{{ formatManifestValue(currentManifestData.theme.character) }}</strong></div>
+                            <div class="manifest-detail-item"><span>Variant</span><strong>{{ formatManifestValue(currentManifestData.theme.variant) }}</strong></div>
+                            <div v-if="currentManifestData.theme.reference_type" class="manifest-detail-item"><span>Reference Type</span><strong>{{ formatEnumValue(currentManifestData.theme.reference_type) }}</strong></div>
+                            <div v-if="currentManifestData.theme.reference" class="manifest-detail-item manifest-detail-wide"><span>Reference</span><strong>{{ formatManifestValue(currentManifestData.theme.reference) }}</strong></div>
                         </template>
                         <div v-else class="manifest-detail-item"><span>Outfit</span><strong>{{ formatManifestValue(currentManifestData.theme.outfit) }}</strong></div>
                     </div>
@@ -1539,6 +1567,8 @@
                     <div class="manifest-detail-grid">
                         <div class="manifest-detail-item"><span>Collaboration</span><strong>{{ formatEnumValue(currentManifestData.production.collaboration_type) }}</strong></div>
                         <div class="manifest-detail-item"><span>Lead Photographer</span><strong>{{ formatManifestValue(currentManifestData.production.lead_photographer) }}</strong></div>
+                        <div v-if="!currentManifestData.production.lead_photographer" class="manifest-detail-item"><span>Primary Photographer</span><strong>{{ formatManifestValue(currentManifestData.production.primary_photographer) }}</strong></div>
+                        <div v-if="currentManifestData.production.lead_photographer && currentManifestData.production.assistants.length" class="manifest-detail-item manifest-detail-wide"><span>Assistants</span><strong>{{ formatManifestValue(currentManifestData.production.assistants) }}</strong></div>
                         <div class="manifest-detail-item"><span>Model Fee</span><strong>{{ formatManifestValue(currentManifestData.production.model_fee) }}</strong></div>
                         <div class="manifest-detail-item"><span>Venue Fee</span><strong>{{ formatManifestValue(currentManifestData.production.venue_fee) }}</strong></div>
                         <div class="manifest-detail-item"><span>Venue Fee Payer</span><strong>{{ formatEnumValue(currentManifestData.production.venue_fee_payer) }}</strong></div>
@@ -1620,7 +1650,7 @@
             </div>
             <template #footer>
                 <el-button @click="showManifestDetailDialog = false">Close</el-button>
-                <el-button v-if="isAdmin" type="primary" @click="editManifestFromDetail">Edit</el-button>
+                <el-button type="primary" @click="editManifestFromDetail">Edit</el-button>
             </template>
         </el-dialog>
 
@@ -1673,16 +1703,44 @@
                             <el-form-item label="End Time" class="manifest-span-4">
                                 <el-input v-model="manifestForm.shoot.end_time"></el-input>
                             </el-form-item>
-                            <el-form-item label="Environment" class="manifest-span-6">
+                            <el-form-item label="Environment" class="manifest-span-4">
                                 <el-select v-model="manifestForm.shoot.environment" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.environment" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
-                            <el-form-item label="Weather" class="manifest-span-6">
+                            <el-form-item label="Scene" class="manifest-span-4">
+                                <el-select v-model="manifestForm.shoot.scene" clearable filterable style="width:100%">
+                                    <el-option v-for="option in manifestOptions.scene" :key="option" :label="formatSceneValue(option)" :value="option"></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="Weather" class="manifest-span-4">
                                 <el-select v-model="manifestForm.shoot.weather" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.weather" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
+                            <div v-if="!manifestForm.shoot.additional_session" class="manifest-span-12">
+                                <el-button size="small" plain @click="addAdditionalSession">Add Additional Session</el-button>
+                            </div>
+                            <template v-else>
+                                <div class="manifest-span-12 manifest-section-heading">
+                                    <strong>Additional Session</strong>
+                                    <el-button text type="danger" @click="removeAdditionalSession">Remove</el-button>
+                                </div>
+                                <el-form-item label="Date" class="manifest-span-4">
+                                    <el-input v-model="manifestForm.shoot.additional_session.date"></el-input>
+                                </el-form-item>
+                                <el-form-item label="Start Time" class="manifest-span-4">
+                                    <el-input v-model="manifestForm.shoot.additional_session.start_time"></el-input>
+                                </el-form-item>
+                                <el-form-item label="End Time" class="manifest-span-4">
+                                    <el-input v-model="manifestForm.shoot.additional_session.end_time"></el-input>
+                                </el-form-item>
+                                <el-form-item label="Weather" class="manifest-span-6">
+                                    <el-select v-model="manifestForm.shoot.additional_session.weather" clearable style="width:100%">
+                                        <el-option v-for="option in manifestOptions.weather" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                            </template>
                         </div>
                     </section>
 
@@ -1753,6 +1811,17 @@
                                 <el-form-item label="Character" class="manifest-span-6">
                                     <el-input v-model="manifestForm.theme.character"></el-input>
                                 </el-form-item>
+                                <el-form-item label="Variant" class="manifest-span-6">
+                                    <el-input v-model="manifestForm.theme.variant"></el-input>
+                                </el-form-item>
+                                <el-form-item label="Reference Type" class="manifest-span-6">
+                                    <el-select v-model="manifestForm.theme.reference_type" clearable style="width:100%">
+                                        <el-option v-for="option in manifestOptions.reference_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="Reference" class="manifest-span-6">
+                                    <el-input v-model="manifestForm.theme.reference"></el-input>
+                                </el-form-item>
                             </template>
                             <el-form-item v-else label="Outfit" class="manifest-span-6">
                                 <el-input v-model="manifestForm.theme.outfit"></el-input>
@@ -1786,6 +1855,12 @@
                                     <el-switch v-model="manifestForm.production.lead_photographer"></el-switch>
                                     <span>{{ manifestForm.production.lead_photographer ? 'Yes' : 'No' }}</span>
                                 </div>
+                            </el-form-item>
+                            <el-form-item v-if="manifestForm.production.lead_photographer" label="Assistants" class="manifest-span-12">
+                                <el-select v-model="manifestForm.production.assistants" multiple filterable allow-create default-first-option style="width:100%"></el-select>
+                            </el-form-item>
+                            <el-form-item v-else label="Primary Photographer" class="manifest-span-12">
+                                <el-input v-model="manifestForm.production.primary_photographer"></el-input>
                             </el-form-item>
                         </div>
                     </section>
@@ -1961,6 +2036,6 @@
 <script src="manifest-autofill.js?v=20260920-02"></script>
 <script src="workflow-tools.js?v=20260920-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260920-26"></script>
+<script type="module" src="app.js?v=20260921-01"></script>
 </body>
 </html>
