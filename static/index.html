@@ -246,8 +246,9 @@
                 <div v-if="folderViewMode === 'grid'" class="album-grid">
                     <div v-for="item in libraryDirectories" :key="item.relative_path"
                          class="album-card library-folder-card"
-                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid}"
-                         @click="openLibraryDirectory(item)">
+                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid, 'is-return-selected': librarySelectedDirectoryPath === item.relative_path}"
+                         :data-library-directory-path="item.relative_path"
+                         @click="openLibraryDirectory(item, $event)">
                         <img v-if="item.cover_path"
                              :src="libraryPathAssetUrl(item.cover_path, 'thumbnail')"
                              :alt="item.name"
@@ -273,8 +274,9 @@
                 <div v-else class="library-folder-list">
                     <div v-for="item in libraryDirectories" :key="item.relative_path"
                          class="library-folder-list-row"
-                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid}"
-                         @click="openLibraryDirectory(item)">
+                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid, 'is-return-selected': librarySelectedDirectoryPath === item.relative_path}"
+                         :data-library-directory-path="item.relative_path"
+                         @click="openLibraryDirectory(item, $event)">
                         <div class="library-folder-list-cover">
                             <img v-if="item.cover_path"
                                  :src="libraryPathAssetUrl(item.cover_path, 'thumbnail')"
@@ -1487,7 +1489,7 @@
         </el-dialog>
 
         <!-- Set metadata detail -->
-        <el-dialog v-model="showManifestDetailDialog" title="Set Details" width="900px" class="manifest-detail-dialog">
+        <el-dialog v-model="showManifestDetailDialog" title="Set Details" width="900px" class="manifest-detail-dialog" @opened="resetManifestDetailScroll">
             <div v-if="currentManifestData" class="manifest-detail-content">
                 <section class="manifest-detail-section">
                     <h3>Basic</h3>
@@ -1523,9 +1525,12 @@
                     <div class="manifest-detail-grid">
                         <div class="manifest-detail-item"><span>Name</span><strong>{{ formatManifestValue(currentManifestData.theme.name) }}</strong></div>
                         <div class="manifest-detail-item"><span>Genre</span><strong>{{ formatEnumValue(currentManifestData.theme.genre) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Source Title</span><strong>{{ formatManifestValue(currentManifestData.theme.source_title) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Source Type</span><strong>{{ formatEnumValue(currentManifestData.theme.source_type) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Character</span><strong>{{ formatManifestValue(currentManifestData.theme.character) }}</strong></div>
+                        <template v-if="currentManifestData.theme.genre === 'cosplay'">
+                            <div class="manifest-detail-item"><span>Source Title</span><strong>{{ formatManifestValue(currentManifestData.theme.source_title) }}</strong></div>
+                            <div class="manifest-detail-item"><span>Source Type</span><strong>{{ formatEnumValue(currentManifestData.theme.source_type) }}</strong></div>
+                            <div class="manifest-detail-item"><span>Character</span><strong>{{ formatManifestValue(currentManifestData.theme.character) }}</strong></div>
+                        </template>
+                        <div v-else class="manifest-detail-item"><span>Outfit</span><strong>{{ formatManifestValue(currentManifestData.theme.outfit) }}</strong></div>
                     </div>
                 </section>
 
@@ -1621,7 +1626,7 @@
         </el-dialog>
 
         <!-- Manifest editor: structured form + raw JSON. Empty fields are intentionally retained. -->
-        <el-dialog v-model="showManifestDialog" title="Edit manifest.json" width="980px" class="manifest-edit-dialog">
+        <el-dialog v-model="showManifestDialog" title="Edit manifest.json" width="980px" class="manifest-edit-dialog" @opened="resetManifestEditorScroll">
             <div class="manifest-editor-shell">
                 <div class="manifest-editor-toolbar">
                     <div class="manifest-editor-mode-copy">
@@ -1713,7 +1718,7 @@
 
                     <section class="manifest-form-section">
                         <div class="manifest-form-section-title">
-                            <div><h3>Theme</h3><p>Theme and source metadata</p></div>
+                            <div><h3>Theme</h3><p>Theme metadata</p></div>
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Name" class="manifest-span-6">
@@ -1724,21 +1729,26 @@
                                     <el-option v-for="option in manifestOptions.genre" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
-                            <el-form-item label="Source Title" class="manifest-span-6">
-                                <el-autocomplete v-model="manifestForm.theme.source_title"
-                                                 :fetch-suggestions="queryKnownSources"
-                                                 clearable
-                                                 style="width:100%"
-                                                 @select="selectKnownSource"
-                                                 @change="syncKnownSource"></el-autocomplete>
-                            </el-form-item>
-                            <el-form-item label="Source Type" class="manifest-span-6">
-                                <el-select v-model="manifestForm.theme.source_type" clearable style="width:100%">
-                                    <el-option v-for="option in manifestOptions.source_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
-                                </el-select>
-                            </el-form-item>
-                            <el-form-item label="Character" class="manifest-span-6">
-                                <el-input v-model="manifestForm.theme.character"></el-input>
+                            <template v-if="manifestForm.theme.genre === 'cosplay'">
+                                <el-form-item label="Source Title" class="manifest-span-6">
+                                    <el-autocomplete v-model="manifestForm.theme.source_title"
+                                                     :fetch-suggestions="queryKnownSources"
+                                                     clearable
+                                                     style="width:100%"
+                                                     @select="selectKnownSource"
+                                                     @change="syncKnownSource"></el-autocomplete>
+                                </el-form-item>
+                                <el-form-item label="Source Type" class="manifest-span-6">
+                                    <el-select v-model="manifestForm.theme.source_type" clearable style="width:100%">
+                                        <el-option v-for="option in manifestOptions.source_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="Character" class="manifest-span-6">
+                                    <el-input v-model="manifestForm.theme.character"></el-input>
+                                </el-form-item>
+                            </template>
+                            <el-form-item v-else label="Outfit" class="manifest-span-6">
+                                <el-input v-model="manifestForm.theme.outfit"></el-input>
                             </el-form-item>
                         </div>
                     </section>

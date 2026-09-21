@@ -449,6 +449,11 @@ body {
     transform: translateY(0);
 }
 
+/* Dialogs should open closer to the top edge instead of Element Plus's default 15vh. */
+.el-dialog {
+    margin-top: 5vh !important;
+}
+
 /* 移动端优化 */
 @media (max-width: 768px) {
     .container {
@@ -2652,4 +2657,16 @@ body {
         grid-column: 3;
         grid-row: 1 / span 2;
     }
+}
+
+
+/* Library back-navigation: keep the last-opened directory visibly selected. */
+.library-folder-card.is-return-selected {
+    box-shadow: 0 0 0 3px rgba(64, 158, 255, .22), 0 5px 15px rgba(0, 0, 0, .12);
+}
+
+.library-folder-list-row.is-return-selected {
+    background: #f2f8ff;
+    border-color: #a0cfff;
+    box-shadow: 0 0 0 2px rgba(64, 158, 255, .12);
 }

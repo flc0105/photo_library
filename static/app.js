@@ -620,6 +620,12 @@ const app = createApp({
         const showManifestDialog = ref(false);
         const showManifestDetailDialog = ref(false);
         const manifestEditPath = ref('');
+
+        // Library navigation remembers the folder that was opened from each
+        // directory, plus its viewport position. Returning to the parent then
+        // restores both the selection and the exact place the user left.
+        const libraryDirectoryNavigationState = new Map();
+        const librarySelectedDirectoryPath = ref('');
         const manifestForm = ref({});
         const manifestEditorMode = ref('form');
         const manifestJsonText = ref('');
@@ -770,7 +776,8 @@ const app = createApp({
                     genre: theme.genre ?? theme.style ?? '',
                     source_title: theme.source_title ?? theme.source_ip ?? '',
                     source_type: theme.source_type ?? theme.source_category ?? '',
-                    character: theme.character ?? ''
+                    character: theme.character ?? '',
+                    outfit: theme.outfit ?? theme.clothing ?? data.clothing_name ?? ''
                 },
                 production: {
                     collaboration_type: production.collaboration_type ?? '',
@@ -796,13 +803,48 @@ const app = createApp({
             };
         };
 
+        const applyManifestThemeStorageRules = (payload) => {
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+
+            const theme = payload.theme && typeof payload.theme === 'object' && !Array.isArray(payload.theme)
+                ? {...payload.theme}
+                : {};
+            const genre = theme.genre ?? '';
+
+            if (genre === 'cosplay') {
+                delete theme.outfit;
+                theme.source_title = theme.source_title ?? '';
+                theme.source_type = theme.source_type ?? '';
+                theme.character = theme.character ?? '';
+            } else {
+                delete theme.source_title;
+                delete theme.source_type;
+                delete theme.character;
+                theme.outfit = theme.outfit ?? '';
+            }
+
+            return {...payload, theme};
+        };
+
         const serializeManifestForm = () => {
             const form = normalizeManifest(manifestForm.value);
+            const theme = {
+                name: form.theme.name,
+                genre: form.theme.genre
+            };
+            if (form.theme.genre === 'cosplay') {
+                theme.source_title = form.theme.source_title;
+                theme.source_type = form.theme.source_type;
+                theme.character = form.theme.character;
+            } else {
+                theme.outfit = form.theme.outfit;
+            }
+
             return {
                 model: form.model,
                 shoot: {...form.shoot},
                 location: {...form.location},
-                theme: {...form.theme},
+                theme,
                 production: {...form.production},
                 props: {
                     subject: [...form.props.subject],
@@ -1048,6 +1090,47 @@ const app = createApp({
             }
         };
 
+        const libraryDirectoryStateKey = (path = '') =>
+            `${currentLibrarySource.value ? currentLibrarySource.value.id : ''}:${path || ''}`;
+
+        const rememberLibraryDirectoryPosition = (item, event) => {
+            if (!item) return;
+            const parentPath = (libraryListing.value && libraryListing.value.path) || '';
+            const target = event && event.currentTarget instanceof Element ? event.currentTarget : null;
+            libraryDirectoryNavigationState.set(libraryDirectoryStateKey(parentPath), {
+                selectedPath: item.relative_path || '',
+                scrollY: window.scrollY || window.pageYOffset || 0,
+                viewportTop: target ? target.getBoundingClientRect().top : null
+            });
+            librarySelectedDirectoryPath.value = item.relative_path || '';
+        };
+
+        const restoreLibraryDirectoryPosition = async (path = '') => {
+            const state = libraryDirectoryNavigationState.get(libraryDirectoryStateKey(path));
+            librarySelectedDirectoryPath.value = state && state.selectedPath ? state.selectedPath : '';
+            if (!state) return;
+
+            await nextTick();
+            window.requestAnimationFrame(() => {
+                const nodes = document.querySelectorAll('[data-library-directory-path]');
+                const target = Array.from(nodes).find(node =>
+                    node.getAttribute('data-library-directory-path') === state.selectedPath
+                );
+
+                if (target && Number.isFinite(state.viewportTop)) {
+                    const delta = target.getBoundingClientRect().top - state.viewportTop;
+                    window.scrollTo(0, Math.max(0, (window.scrollY || window.pageYOffset || 0) + delta));
+                } else if (Number.isFinite(state.scrollY)) {
+                    window.scrollTo(0, Math.max(0, state.scrollY));
+                }
+            });
+        };
+
+        const scrollLibraryPageTop = async () => {
+            await nextTick();
+            window.requestAnimationFrame(() => window.scrollTo(0, 0));
+        };
+
         const loadLibraryDirectory = async (path = '') => {
             if (!currentLibrarySource.value) return;
             libraryLoading.value = true;
@@ -1080,13 +1163,18 @@ const app = createApp({
             await loadLibraryDirectory(path);
         };
 
-        const openLibraryDirectory = async (item) => {
+        const openLibraryDirectory = async (item, event = null) => {
+            rememberLibraryDirectoryPosition(item, event);
             await loadLibraryDirectory(item.relative_path);
+            librarySelectedDirectoryPath.value = '';
+            await scrollLibraryPageTop();
         };
 
         const libraryBack = async () => {
             if (libraryListing.value.parent_path !== null && libraryListing.value.parent_path !== undefined) {
-                await loadLibraryDirectory(libraryListing.value.parent_path || '');
+                const parentPath = libraryListing.value.parent_path || '';
+                await loadLibraryDirectory(parentPath);
+                await restoreLibraryDirectoryPosition(parentPath);
             } else {
                 currentView.value = 'albums';
                 currentLibrarySource.value = null;
@@ -1336,6 +1424,20 @@ const app = createApp({
         const selectKnownSource = (item) => manifestAutofill.selectSource(item);
         const syncKnownSource = (value) => manifestAutofill.syncSource(value, true);
 
+        const resetManifestDialogScroll = (dialogClass) => {
+            nextTick(() => {
+                window.requestAnimationFrame(() => {
+                    const dialog = document.querySelector(`.el-dialog.${dialogClass}`)
+                        || document.querySelector(`.${dialogClass} .el-dialog`);
+                    const body = dialog ? dialog.querySelector('.el-dialog__body') : null;
+                    if (body) body.scrollTop = 0;
+                });
+            });
+        };
+
+        const resetManifestDetailScroll = () => resetManifestDialogScroll('manifest-detail-dialog');
+        const resetManifestEditorScroll = () => resetManifestDialogScroll('manifest-edit-dialog');
+
         const openManifestDetails = () => {
             if (!isSetDirectory.value || !currentManifestData.value) return;
             showManifestDetailDialog.value = true;
@@ -1401,6 +1503,7 @@ const app = createApp({
             } else {
                 payload = serializeManifestForm();
             }
+            payload = applyManifestThemeStorageRules(payload);
             try {
                 const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {
                     method: 'PUT',
@@ -3283,6 +3386,8 @@ const app = createApp({
             manifestJsonText,
             manifestJsonError,
             manifestOptions,
+            resetManifestDetailScroll,
+            resetManifestEditorScroll,
             queryKnownLocations,
             selectKnownLocation,
             syncKnownLocation,
@@ -3427,7 +3532,7 @@ const app = createApp({
 
             showShareDialog,
             generateAlbumShareUrl,
-            generateImageShareUrl, viewMode, folderViewMode,
+            generateImageShareUrl, viewMode, folderViewMode, librarySelectedDirectoryPath,
 
 
             cacheImageExif,
