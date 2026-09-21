@@ -1508,17 +1508,16 @@
                         <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
                         <div class="manifest-detail-item"><span>Scene</span><strong>{{ formatSceneValue(currentManifestData.shoot.scene) }}</strong></div>
                         <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
-                        <div class="manifest-detail-item manifest-detail-wide manifest-computed-item">
-                            <span>Same-day Sessions</span>
+                        <div class="manifest-detail-item manifest-detail-wide">
+                            <span>Same-day Sessions · calc<template v-if="setStats && setStats.same_day_sessions"> ({{ setStats.same_day_sessions.count }})</template></span>
                             <strong v-if="setStatsLoading">Calculating…</strong>
                             <strong v-else-if="setStats && setStats.same_day_sessions">
                                 <template v-if="setStats.same_day_sessions.count">
-                                    {{ setStats.same_day_sessions.count }} ·
                                     <template v-for="(item, index) in setStats.same_day_sessions.items" :key="item.path">
                                         <el-link type="primary" :underline="false" @click="jumpToRelatedSet(item.path)">{{ item.theme || item.name }}</el-link><template v-if="index < setStats.same_day_sessions.items.length - 1"> · </template>
                                     </template>
                                 </template>
-                                <template v-else>0</template>
+                                <template v-else>—</template>
                             </strong>
                             <strong v-else>—</strong>
                         </div>
@@ -1709,7 +1708,7 @@
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Scene" class="manifest-span-4">
-                                <el-select v-model="manifestForm.shoot.scene" clearable filterable style="width:100%">
+                                <el-select v-model="manifestForm.shoot.scene" clearable filterable allow-create default-first-option style="width:100%">
                                     <el-option v-for="option in manifestOptions.scene" :key="option" :label="formatSceneValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
