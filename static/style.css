@@ -2670,3 +2670,81 @@ body {
     border-color: #a0cfff;
     box-shadow: 0 0 0 2px rgba(64, 158, 255, .12);
 }
+
+/* ==================== Manifest editor independent buffers ==================== */
+.manifest-editor-toolbar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.manifest-editor-toolbar-actions > .el-button {
+    margin-left: 0;
+}
+
+@media (max-width: 720px) {
+    .manifest-editor-toolbar {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .manifest-editor-toolbar-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+/* ==================== Validation toolbar select / responsive layout ==================== */
+/* Keep the original stat strip and version-tag presentation. Only the toolbar
+   layout and sort control are adjusted. */
+.validation-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 132px;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.validation-toolbar .validation-summary-strip {
+    margin: 0;
+    min-width: 0;
+    min-height: 34px;
+    padding: 7px 12px;
+    align-items: center;
+}
+
+.validation-sort-select {
+    width: 132px;
+    align-self: stretch;
+}
+
+.validation-sort-select .el-select__wrapper {
+    min-height: 34px;
+    height: 34px;
+    box-sizing: border-box;
+}
+
+@media (max-width: 760px) {
+    .validation-toolbar {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .validation-toolbar .validation-summary-strip {
+        min-height: 0;
+        padding: 10px 12px;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        white-space: normal;
+    }
+
+    .validation-sort-select {
+        width: 100%;
+    }
+
+    .validation-root-versions {
+        align-items: flex-start;
+    }
+}

@@ -1425,10 +1425,10 @@
                             <span>Normal <strong>{{ validationData.summary.info_count }}</strong></span>
                             <span>OK <strong>{{ validationData.summary.ok_count }}</strong></span>
                         </div>
-                        <el-radio-group v-model="validationSortMode" class="validation-sort-switch">
-                            <el-radio-button label="severity">Severity</el-radio-button>
-                            <el-radio-button label="date">Date</el-radio-button>
-                        </el-radio-group>
+                        <el-select v-model="validationSortMode" class="validation-sort-select" aria-label="Validation sort">
+                            <el-option label="Severity" value="severity"></el-option>
+                            <el-option label="Date" value="date"></el-option>
+                        </el-select>
                     </div>
                     <div v-if="validationData.versions && validationData.versions.length" class="validation-root-versions">
                         <span class="validation-muted-label">Version tags</span>
@@ -1632,10 +1632,18 @@
                         <span class="manifest-editor-kicker">Edit mode</span>
                         <strong>{{ manifestEditorMode === 'form' ? 'Structured Form' : 'Raw JSON' }}</strong>
                     </div>
-                    <el-radio-group :model-value="manifestEditorMode" size="small" @change="switchManifestEditorMode">
-                        <el-radio-button label="form">Form</el-radio-button>
-                        <el-radio-button label="json">JSON</el-radio-button>
-                    </el-radio-group>
+                    <div class="manifest-editor-toolbar-actions">
+                        <el-tooltip v-if="manifestEditorMode === 'form'" content="Replace supported Form fields with values from the current JSON buffer" placement="bottom">
+                            <el-button size="small" plain @click="syncManifestFormFromJson">JSON → Form</el-button>
+                        </el-tooltip>
+                        <el-tooltip v-else content="Update supported JSON fields from the Form while keeping JSON-only fields" placement="bottom">
+                            <el-button size="small" plain @click="syncManifestJsonFromForm">Form → JSON</el-button>
+                        </el-tooltip>
+                        <el-radio-group :model-value="manifestEditorMode" size="small" @change="switchManifestEditorMode">
+                            <el-radio-button label="form">Form</el-radio-button>
+                            <el-radio-button label="json">JSON</el-radio-button>
+                        </el-radio-group>
+                    </div>
                 </div>
 
                 <el-form v-if="manifestEditorMode === 'form' && manifestForm && manifestForm.shoot"
@@ -1871,7 +1879,7 @@
             </div>
             <template #footer>
                 <div class="manifest-dialog-footer">
-                    <span class="manifest-editor-footnote">Empty fields are kept in manifest.json.</span>
+                    <span class="manifest-editor-footnote">Form and JSON are independent. Switching modes never syncs; Save uses the active mode.</span>
                     <div class="manifest-dialog-actions">
                         <el-button @click="showManifestDialog = false">Cancel</el-button>
                         <el-button type="primary" @click="saveManifest">Save</el-button>

@@ -889,25 +889,83 @@ const app = createApp({
             }
         };
 
-        const refreshManifestJsonText = () => {
-            manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
+        const mergeManifestFormIntoRaw = (raw, formPayload) => {
+            const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+            const merged = {...source};
+
+            merged.model = formPayload.model;
+            merged.shoot = {
+                ...(source.shoot && typeof source.shoot === 'object' && !Array.isArray(source.shoot) ? source.shoot : {}),
+                ...formPayload.shoot
+            };
+            merged.location = {
+                ...(source.location && typeof source.location === 'object' && !Array.isArray(source.location) ? source.location : {}),
+                ...formPayload.location
+            };
+
+            const sourceTheme = source.theme && typeof source.theme === 'object' && !Array.isArray(source.theme) ? source.theme : {};
+            const nextTheme = {...sourceTheme, name: formPayload.theme.name, genre: formPayload.theme.genre};
+            if (formPayload.theme.genre === 'cosplay') {
+                nextTheme.source_title = formPayload.theme.source_title ?? '';
+                nextTheme.source_type = formPayload.theme.source_type ?? '';
+                nextTheme.character = formPayload.theme.character ?? '';
+                delete nextTheme.outfit;
+            } else {
+                nextTheme.outfit = formPayload.theme.outfit ?? '';
+                delete nextTheme.source_title;
+                delete nextTheme.source_type;
+                delete nextTheme.character;
+            }
+            merged.theme = nextTheme;
+
+            merged.production = {
+                ...(source.production && typeof source.production === 'object' && !Array.isArray(source.production) ? source.production : {}),
+                ...formPayload.production
+            };
+            merged.props = {
+                ...(source.props && typeof source.props === 'object' && !Array.isArray(source.props) ? source.props : {}),
+                subject: [...formPayload.props.subject],
+                set: [...formPayload.props.set]
+            };
+
+            const sourceLights = Array.isArray(source.lighting) ? source.lighting : [];
+            merged.lighting = formPayload.lighting.map((light, index) => ({
+                ...(sourceLights[index] && typeof sourceLights[index] === 'object' && !Array.isArray(sourceLights[index]) ? sourceLights[index] : {}),
+                role: light.role,
+                light_type: light.light_type,
+                fixture: light.fixture,
+                modifier: light.modifier,
+                count: light.count,
+                position: light.position,
+                note: light.note
+            }));
+
+            return merged;
+        };
+
+        const syncManifestJsonFromForm = () => {
+            const currentRaw = parseManifestJsonText();
+            if (!currentRaw) {
+                ElMessage.error('当前 JSON 格式有误，不能安全地从 Form 同步');
+                return;
+            }
+            const merged = mergeManifestFormIntoRaw(currentRaw, serializeManifestForm());
+            manifestJsonText.value = JSON.stringify(merged, null, 2);
             manifestJsonError.value = '';
+        };
+
+        const syncManifestFormFromJson = () => {
+            const parsed = parseManifestJsonText();
+            if (!parsed) {
+                ElMessage.error('JSON 格式有误，无法同步到 Form');
+                return;
+            }
+            manifestForm.value = normalizeManifest(parsed);
         };
 
         const switchManifestEditorMode = (mode) => {
             if (mode === manifestEditorMode.value) return;
-            if (mode === 'json') {
-                refreshManifestJsonText();
-                manifestEditorMode.value = 'json';
-                return;
-            }
-            const parsed = parseManifestJsonText();
-            if (!parsed) {
-                ElMessage.error('JSON 格式有误，修复后才能切回 Form');
-                return;
-            }
-            manifestForm.value = normalizeManifest(parsed);
-            manifestEditorMode.value = 'form';
+            manifestEditorMode.value = mode;
         };
 
         const formatManifestJson = () => {
@@ -1470,7 +1528,14 @@ const app = createApp({
             manifestEditPath.value = libraryListing.value.path || '';
             manifestForm.value = normalizeManifest(data);
             manifestEditorMode.value = 'form';
-            manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
+            // Raw JSON must reflect the manifest file itself. Using the parsed object
+            // here lets the server JSON serializer reorder top-level keys, which is
+            // especially dangerous for hand-maintained manifests. Existing files use
+            // the original text returned by _read_manifest; new manifests fall back
+            // to the suggested object.
+            manifestJsonText.value = manifest.valid && typeof manifest.raw === 'string'
+                ? manifest.raw
+                : JSON.stringify(data, null, 2);
             manifestJsonError.value = '';
             showManifestDialog.value = true;
 
@@ -1493,7 +1558,6 @@ const app = createApp({
             }
 
             await manifestAutofill.syncCurrent();
-            manifestJsonText.value = JSON.stringify(serializeManifestForm(), null, 2);
         };
 
         const editManifestFromDetail = () => {
@@ -1509,10 +1573,11 @@ const app = createApp({
                     ElMessage.error('JSON 格式有误，无法保存');
                     return;
                 }
+                // Raw JSON mode is intentionally pass-through: do not normalize or
+                // strip fields that are not represented by the structured Form.
             } else {
-                payload = serializeManifestForm();
+                payload = applyManifestStorageRules(serializeManifestForm());
             }
-            payload = applyManifestStorageRules(payload);
             try {
                 const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {
                     method: 'PUT',
@@ -3406,6 +3471,8 @@ const app = createApp({
             gpsImporting: gpsPhotoImport.loading,
             importGpsFromPhoto: gpsPhotoImport.run,
             switchManifestEditorMode,
+            syncManifestJsonFromForm,
+            syncManifestFormFromJson,
             formatManifestJson,
             openManifestDetails,
             openManifestEditor,

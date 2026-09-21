@@ -1412,13 +1412,15 @@ def _read_manifest(path):
     if not manifest_path.is_file():
         return None
     try:
-        with manifest_path.open('r', encoding='utf-8') as f:
-            data = json.load(f)
+        raw = manifest_path.read_text(encoding='utf-8')
+        data = json.loads(raw)
         if not isinstance(data, dict):
             raise ValueError('manifest 根节点必须是 JSON object')
-        return {'exists': True, 'valid': True, 'data': data, 'error': None}
+        # Keep the original text alongside parsed data so Raw JSON editing can
+        # preserve the file's exact field order and formatting on open.
+        return {'exists': True, 'valid': True, 'data': data, 'raw': raw, 'error': None}
     except Exception as exc:
-        return {'exists': True, 'valid': False, 'data': None, 'error': str(exc)}
+        return {'exists': True, 'valid': False, 'data': None, 'raw': None, 'error': str(exc)}
 
 
 def _find_nearest_manifest(root, target):
@@ -2046,6 +2048,14 @@ def save_library_manifest(source_id):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temp_path, manifest_path)
+        # The backup is only a transactional safety copy. Once the atomic
+        # replacement succeeds, remove it so manifest.json.bak never lingers
+        # in a healthy Set directory.
+        try:
+            if backup_path.exists():
+                backup_path.unlink()
+        except OSError as exc:
+            app.logger.warning('manifest saved but backup cleanup failed: %s', exc)
         return jsonify({'success': True, 'path': rel, 'manifest': payload})
     except (ValueError, FileNotFoundError) as exc:
         return jsonify({'error': str(exc)}), 400
