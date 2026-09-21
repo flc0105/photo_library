@@ -2,6 +2,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import subprocess
 import threading
@@ -596,6 +597,454 @@ def _move_to_trash(path: Path):
     raise RuntimeError('无法调用系统回收站，文件已保留在 Deleted 目录，未执行永久删除' + (f'：{detail}' if detail else ''))
 
 
+
+_IMAGE_INSPECTION_FOCUS_FIELDS = [
+    ('ColorSpace', 'ColorSpace'),
+    ('DateTimeOriginal', 'DateTimeOriginal'),
+    ('Make', 'Make'),
+    ('Model', 'Model'),
+    ('LensModel', 'LensModel'),
+    ('SerialNumber', 'SerialNumber'),
+    ('FocalLength', 'FocalLength'),
+    ('FNumber', 'FNumber'),
+    ('ExposureTime', 'ExposureTime'),
+    ('ISO', 'ISO'),
+    ('ExposureCompensation', 'ExposureCompensation'),
+    ('ExposureProgram', 'ExposureProgram'),
+    ('Flash', 'Flash'),
+    ('MeteringMode', 'MeteringMode'),
+    ('WhiteBalance', 'WhiteBalance'),
+]
+_IMAGE_INSPECTION_STAGES = [
+    ('base_edit', 'Base Edit', '02_Base_Edit'),
+    ('model_edit', 'Model Edit', '03_Model_Edit'),
+    ('revision', 'Revision', '04_Revision'),
+]
+_IMAGE_INSPECTION_EXCLUDED_META_GROUPS = {'ExifTool', 'File', 'System', 'Composite'}
+_IMAGE_INSPECTION_BATCH_SIZE = 120
+_IMAGE_INSPECTION_CROP_LOSS_LIMIT = 3.0
+
+
+def _image_inspection_files(set_dir: Path):
+    """Recursively scan the three editable image stages only.
+
+    01_Original is intentionally not inspected here. Nested directories under
+    Base Edit / Model Edit / Revision remain fully supported.
+    """
+    entries = []
+    for stage_key, stage_label, stage_dir_name in _IMAGE_INSPECTION_STAGES:
+        stage_dir = set_dir / stage_dir_name
+        if not stage_dir.is_dir():
+            continue
+        for current_root, _dir_names, file_names in os.walk(stage_dir):
+            root_path = Path(current_root)
+            for name in file_names:
+                path = root_path / name
+                if path.suffix.lower() not in _IMAGE_EXTENSIONS:
+                    continue
+                entries.append({
+                    'stage': stage_key,
+                    'stage_label': stage_label,
+                    'stage_dir_name': stage_dir_name,
+                    'stage_dir': stage_dir,
+                    'path': path,
+                })
+    return sorted(
+        entries,
+        key=lambda item: (
+            next(i for i, stage in enumerate(_IMAGE_INSPECTION_STAGES) if stage[0] == item['stage']),
+            item['path'].relative_to(item['stage_dir']).as_posix().lower(),
+        ),
+    )
+
+
+def _exiftool_group(tag_name: str):
+    return tag_name.split(':', 1)[0] if ':' in tag_name else ''
+
+
+def _embedded_metadata_fields(record):
+    fields = []
+    for key in record:
+        if key == 'SourceFile':
+            continue
+        group = _exiftool_group(key)
+        if group in _IMAGE_INSPECTION_EXCLUDED_META_GROUPS:
+            continue
+        fields.append(key)
+    return sorted(fields, key=str.lower)
+
+
+def _metadata_value_text(value):
+    if value is None:
+        return ''
+    if isinstance(value, list):
+        return ', '.join(_metadata_value_text(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
+def _focus_metadata(record, tag):
+    preferred_groups = ('EXIF', 'MakerNotes', 'Canon', 'Nikon', 'Sony', 'Olympus', 'Panasonic', 'Pentax', 'XMP-exif', 'XMP')
+    candidates = []
+    for key, value in record.items():
+        if key == 'SourceFile':
+            continue
+        bare = key.split(':', 1)[-1]
+        if bare != tag:
+            continue
+        group = _exiftool_group(key)
+        try:
+            rank = preferred_groups.index(group)
+        except ValueError:
+            rank = len(preferred_groups)
+        candidates.append((rank, key, value))
+    if not candidates:
+        return {'present': False, 'value': '', 'source_tag': ''}
+    candidates.sort(key=lambda item: (item[0], item[1].lower()))
+    _, key, value = candidates[0]
+    text = _metadata_value_text(value)
+    return {'present': text != '', 'value': text, 'source_tag': key}
+
+
+def _extract_dimension(record, tag):
+    preferred = [
+        f'File:{tag}',
+        f'EXIF:{tag}',
+        f'PNG:{tag}',
+        f'JPEG:{tag}',
+    ]
+    for key in preferred:
+        if key in record:
+            try:
+                return int(record[key])
+            except (TypeError, ValueError):
+                pass
+    for key, value in record.items():
+        if key.split(':', 1)[-1] == tag:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                pass
+    return 0
+
+
+def _format_ratio_part(value: float):
+    text = f'{value:.2f}'
+    return text.rstrip('0').rstrip('.')
+
+
+def _ratio_analysis(width: int, height: int):
+    if width <= 0 or height <= 0:
+        return {
+            'orientation': 'unknown',
+            'ratio_value': None,
+            'ratio_display': '—',
+            'target_ratio': '',
+            'exact_ratio': False,
+            'crop_width': 0,
+            'crop_height': 0,
+            'crop_width_px': 0,
+            'crop_height_px': 0,
+            'crop_area_percent': None,
+            'crop_adjustment': '—',
+            'final_target': '',
+            'pixel_insufficient': True,
+            'crop_loss_excessive': False,
+            'display_status_level': 'error',
+            'display_status_text': '尺寸读取失败',
+            'status_ok': False,
+        }
+
+    portrait = height >= width
+    if portrait:
+        orientation = 'portrait' if height > width else 'square'
+        target_ratio = '2:3'
+        unit = min(width // 2, height // 3)
+        crop_width = unit * 2
+        crop_height = unit * 3
+        final_width, final_height = 3200, 4800
+        exact = width * 3 == height * 2
+        ratio_display = f'{_format_ratio_part(width * 3 / height)}:3'
+    else:
+        orientation = 'landscape'
+        target_ratio = '3:2'
+        unit = min(width // 3, height // 2)
+        crop_width = unit * 3
+        crop_height = unit * 2
+        final_width, final_height = 4800, 3200
+        exact = width * 2 == height * 3
+        ratio_display = f'3:{_format_ratio_part(height * 3 / width)}'
+
+    crop_width_px = max(0, width - crop_width)
+    crop_height_px = max(0, height - crop_height)
+    source_area = width * height
+    crop_area = max(0, source_area - crop_width * crop_height)
+    crop_area_percent = (crop_area / source_area * 100.0) if source_area else 0.0
+
+    crop_parts = []
+    if crop_width_px:
+        crop_parts.append(f'W -{crop_width_px}px')
+    if crop_height_px:
+        crop_parts.append(f'H -{crop_height_px}px')
+    crop_adjustment = 'Exact' if exact else (' · '.join(crop_parts) if crop_parts else 'Crop required')
+
+    # Pixel sufficiency is intentionally checked on the source before crop.
+    # A center crop can only remove pixels; it can never repair a short side.
+    pixel_insufficient = width < final_width or height < final_height
+    crop_loss_excessive = (not exact) and crop_area_percent > _IMAGE_INSPECTION_CROP_LOSS_LIMIT
+
+    if pixel_insufficient and crop_loss_excessive:
+        display_status_level = 'error'
+        display_status_text = '像素不足，裁切损失大'
+    elif pixel_insufficient and not exact:
+        display_status_level = 'error'
+        display_status_text = '像素不足，需裁切'
+    elif pixel_insufficient:
+        display_status_level = 'error'
+        display_status_text = '像素不足'
+    elif crop_loss_excessive:
+        display_status_level = 'error'
+        display_status_text = '裁切损失大'
+    elif not exact:
+        display_status_level = 'warning'
+        display_status_text = '少量裁切'
+    else:
+        display_status_level = 'success'
+        display_status_text = '比例精准'
+
+    return {
+        'orientation': orientation,
+        'ratio_value': round(width / height, 6),
+        'ratio_display': ratio_display,
+        'target_ratio': target_ratio,
+        'exact_ratio': exact,
+        'crop_width': crop_width,
+        'crop_height': crop_height,
+        'crop_width_px': crop_width_px,
+        'crop_height_px': crop_height_px,
+        'crop_area_percent': round(crop_area_percent, 4),
+        'crop_adjustment': crop_adjustment,
+        'final_target': f'{final_width}×{final_height}',
+        'pixel_insufficient': pixel_insufficient,
+        'crop_loss_excessive': crop_loss_excessive,
+        'display_status_level': display_status_level,
+        'display_status_text': display_status_text,
+        'status_ok': display_status_level == 'success',
+    }
+
+def _run_exiftool_records(exiftool_path: str, files):
+    records = []
+    for offset in range(0, len(files), _IMAGE_INSPECTION_BATCH_SIZE):
+        chunk = files[offset:offset + _IMAGE_INSPECTION_BATCH_SIZE]
+        command = [
+            exiftool_path,
+            '-j',
+            '-a',
+            '-G1',
+            '-s',
+            '-charset',
+            'filename=UTF8',
+            *[str(path) for path in chunk],
+        ]
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=180,
+            check=False,
+        )
+        if not result.stdout.strip():
+            detail = result.stderr.strip() or f'ExifTool exited with code {result.returncode}'
+            raise RuntimeError(f'ExifTool 扫描失败：{detail}')
+        try:
+            batch_records = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f'ExifTool 返回结果无法解析：{exc}') from exc
+        if not isinstance(batch_records, list):
+            raise RuntimeError('ExifTool 返回结果格式异常')
+        records.extend(batch_records)
+    return records
+
+
+def _natural_text_key(value: str):
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', value)]
+
+
+def _build_image_inspection(set_dir: Path):
+    exiftool_path = shutil.which('exiftool')
+    if not exiftool_path:
+        raise FileNotFoundError('ExifTool 未安装或不在 PATH 中；图像检测不会 fallback 到 Pillow。')
+
+    try:
+        version = subprocess.run(
+            [exiftool_path, '-ver'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=15,
+            check=False,
+        ).stdout.strip()
+    except Exception:
+        version = ''
+
+    entries = _image_inspection_files(set_dir)
+    if not entries:
+        return {
+            'exiftool_version': version,
+            'summary': {
+                'file_count': 0,
+                'exact_ratio_count': 0,
+                'ratio_wrong_count': 0,
+                'pixel_insufficient_count': 0,
+                'metadata_complete_count': 0,
+            },
+            'rows': [],
+        }
+
+    files = [entry['path'] for entry in entries]
+    records = _run_exiftool_records(exiftool_path, files)
+    by_path = {}
+    for record in records:
+        source = record.get('SourceFile')
+        if not source:
+            continue
+        try:
+            key = str(Path(source).resolve())
+        except OSError:
+            key = str(Path(source))
+        by_path[key] = record
+
+    items = []
+    exact_ratio_count = 0
+    ratio_wrong_count = 0
+    pixel_insufficient_count = 0
+    metadata_complete_count = 0
+
+    for entry in entries:
+        path = entry['path']
+        stage_dir = entry['stage_dir']
+        record = by_path.get(str(path.resolve()), {})
+        width = _extract_dimension(record, 'ImageWidth')
+        height = _extract_dimension(record, 'ImageHeight')
+        ratio = _ratio_analysis(width, height)
+
+        if ratio['exact_ratio']:
+            exact_ratio_count += 1
+        else:
+            ratio_wrong_count += 1
+        if ratio['pixel_insufficient']:
+            pixel_insufficient_count += 1
+
+        focus_fields = []
+        focus_present = 0
+        for label, tag in _IMAGE_INSPECTION_FOCUS_FIELDS:
+            value = _focus_metadata(record, tag)
+            focus_fields.append({'name': label, **value})
+            if value['present']:
+                focus_present += 1
+        if focus_present == len(_IMAGE_INSPECTION_FOCUS_FIELDS):
+            metadata_complete_count += 1
+
+        metadata_fields = _embedded_metadata_fields(record)
+        stage_relative_path = path.relative_to(stage_dir).as_posix()
+        items.append({
+            'stage': entry['stage'],
+            'stage_label': entry['stage_label'],
+            'stage_dir_name': entry['stage_dir_name'],
+            'file': path.name,
+            'stem': path.stem,
+            'match_key': path.stem.casefold(),
+            'stage_relative_path': stage_relative_path,
+            'relative_path': path.relative_to(set_dir).as_posix(),
+            'width': width,
+            'height': height,
+            'resolution': f'{width}×{height}' if width and height else '—',
+            **ratio,
+            'metadata_field_count': len(metadata_fields),
+            'metadata_focus_present': focus_present,
+            'metadata_focus_total': len(_IMAGE_INSPECTION_FOCUS_FIELDS),
+            'metadata_focus_missing': len(_IMAGE_INSPECTION_FOCUS_FIELDS) - focus_present,
+            'metadata_status_level': 'success' if focus_present == len(_IMAGE_INSPECTION_FOCUS_FIELDS) else 'error',
+            'metadata_status_text': (
+                'EXIF完整' if focus_present == len(_IMAGE_INSPECTION_FOCUS_FIELDS)
+                else 'EXIF缺失'
+            ),
+            'focus_fields': focus_fields,
+            'metadata_error': _metadata_value_text(record.get('ExifTool:Error') or record.get('File:Error') or ''),
+        })
+
+    groups = {}
+    for item in items:
+        group = groups.setdefault(item['match_key'], {
+            'display_stem': item['stem'],
+            'base_edit': [],
+            'model_edit': [],
+            'revision': [],
+        })
+        group[item['stage']].append(item)
+
+    rows = []
+    for match_key, group in groups.items():
+        for stage_key, _stage_label, _stage_dir_name in _IMAGE_INSPECTION_STAGES:
+            group[stage_key].sort(key=lambda item: _natural_text_key(item['stage_relative_path']))
+        max_count = max(len(group[stage_key]) for stage_key, _, _ in _IMAGE_INSPECTION_STAGES)
+        for index in range(max_count):
+            row = {
+                'row_key': f'{match_key}:{index}',
+                'stem': group['display_stem'],
+            }
+            present_count = 0
+            for stage_key, _stage_label, _stage_dir_name in _IMAGE_INSPECTION_STAGES:
+                value = group[stage_key][index] if index < len(group[stage_key]) else None
+                row[stage_key] = value
+                if value is not None:
+                    present_count += 1
+            row['match_count'] = present_count
+
+            # Row ordering is severity-first while preserving the horizontal
+            # stem alignment. Missing stages are errors; otherwise any image
+            # or EXIF error makes the row red, warning is second, clean rows last.
+            row_severity = 0
+            if present_count < len(_IMAGE_INSPECTION_STAGES):
+                row_severity = 2
+            for stage_key, _stage_label, _stage_dir_name in _IMAGE_INSPECTION_STAGES:
+                value = row[stage_key]
+                if value is None:
+                    continue
+                if value['display_status_level'] == 'error' or value['metadata_status_level'] == 'error':
+                    row_severity = max(row_severity, 2)
+                elif value['display_status_level'] == 'warning':
+                    row_severity = max(row_severity, 1)
+            row['severity_rank'] = row_severity
+            rows.append(row)
+
+    # Error rows first, then warnings, then fully clean rows. Stems still stay
+    # aligned across Base / Model / Revision inside each row.
+    rows.sort(key=lambda row: (
+        -row['severity_rank'],
+        -row['match_count'],
+        _natural_text_key(row['stem']),
+        row['row_key'],
+    ))
+
+    return {
+        'exiftool_version': version,
+        'summary': {
+            'file_count': len(items),
+            'exact_ratio_count': exact_ratio_count,
+            'ratio_wrong_count': ratio_wrong_count,
+            'pixel_insufficient_count': pixel_insufficient_count,
+            'metadata_complete_count': metadata_complete_count,
+        },
+        'rows': rows,
+    }
+
 def create_workflow_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
     bp = Blueprint('workflow_tools', __name__)
 
@@ -607,6 +1056,20 @@ def create_workflow_blueprint(admin_guard, get_source, resolve_path, get_db_conn
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
             raise ValueError('当前目录不是 Set')
         return source, root, target, rel
+
+
+    @bp.route('/api/library/workflow/sources/<int:source_id>/image-inspection', methods=['POST'])
+    def image_inspection(source_id):
+        denied = admin_guard()
+        if denied:
+            return denied
+        try:
+            source, root, set_dir, set_rel = require_set(source_id)
+            return jsonify(_build_image_inspection(set_dir))
+        except FileNotFoundError as exc:
+            return jsonify({'error': str(exc)}), 503
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 400
 
     @bp.route('/api/library/workflow/sources/<int:source_id>/visual-rename/preview', methods=['POST'])
     def visual_rename_preview(source_id):

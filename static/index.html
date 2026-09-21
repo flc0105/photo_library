@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20260920-26">
+    <link rel="stylesheet" href="style.css?v=20260921-04">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -206,7 +206,8 @@
                             <el-button title="高级功能" aria-label="高级功能">高级功能</el-button>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item @click="openVisualRenameTool">Visual Rename · Model Edit</el-dropdown-item>
+                                    <el-dropdown-item @click="openImageInspectionTool">图像检测</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openVisualRenameTool">Visual Rename · Model Edit</el-dropdown-item>
                                     <el-dropdown-item divided @click="openSyncRawByJpgTool">同步 RAW（以 JPG 为准）</el-dropdown-item>
                                     <el-dropdown-item @click="openSyncJpgByRawTool">同步 JPG（以 RAW 为准）</el-dropdown-item>
                                     <el-dropdown-item divided @click="openSelectRawTool">收藏 JPG → RAW Selects</el-dropdown-item>
@@ -1386,6 +1387,156 @@
             </template>
         </el-dialog>
 
+        <!-- Read-only recursive Set image inspection / stage diff. -->
+        <el-dialog v-model="imageInspectionVisible"
+                   title="图像检测"
+                   width="96%"
+                   class="image-inspection-dialog"
+                   :close-on-click-modal="!imageInspectionLoading">
+            <div v-loading="imageInspectionLoading" class="image-inspection-body">
+                <el-alert v-if="imageInspectionError"
+                          :title="imageInspectionError"
+                          type="error"
+                          :closable="false"
+                          show-icon></el-alert>
+
+                <template v-if="imageInspectionData">
+                    <div class="workflow-summary-strip image-inspection-summary">
+                        <span>文件 <strong>{{ imageInspectionData.summary.file_count }}</strong></span>
+                        <span class="is-success">精准比例 <strong>{{ imageInspectionData.summary.exact_ratio_count }}</strong></span>
+                        <span class="is-danger">比例不对 <strong>{{ imageInspectionData.summary.ratio_wrong_count }}</strong></span>
+                        <span class="is-danger">像素不足 <strong>{{ imageInspectionData.summary.pixel_insufficient_count }}</strong></span>
+                        <span class="is-success">Key EXIF 完整 <strong>{{ imageInspectionData.summary.metadata_complete_count }}</strong></span>
+                    </div>
+
+                    <el-table :data="imageInspectionData.rows"
+                              class="image-inspection-table image-inspection-stage-table"
+                              stripe
+                              row-key="row_key">
+                        <el-table-column type="expand" width="44">
+                            <template #default="scope">
+                                <div class="image-inspection-expand image-inspection-stage-expand">
+                                    <div v-for="stage in [
+                                            {key: 'base_edit', label: 'Base Edit'},
+                                            {key: 'model_edit', label: 'Model Edit'},
+                                            {key: 'revision', label: 'Revision'}
+                                        ]"
+                                        :key="stage.key"
+                                        class="image-inspection-detail-column">
+                                        <div class="image-inspection-detail-title">{{ stage.label }}</div>
+                                        <template v-if="scope.row[stage.key]">
+                                            <div class="image-inspection-expand-grid">
+                                                <div><span>Current ratio</span><strong>{{ scope.row[stage.key].ratio_display }}</strong></div>
+                                                <div><span>Center crop</span><strong>{{ scope.row[stage.key].crop_adjustment }}</strong></div>
+                                            </div>
+
+                                            <el-alert v-if="scope.row[stage.key].metadata_error"
+                                                      :title="scope.row[stage.key].metadata_error"
+                                                      type="warning"
+                                                      :closable="false"
+                                                      show-icon></el-alert>
+
+                                            <div class="image-inspection-focus-grid">
+                                                <div v-for="field in scope.row[stage.key].focus_fields"
+                                                     :key="field.name"
+                                                     class="image-inspection-focus-item"
+                                                     :class="{'is-missing': !field.present}">
+                                                    <span>{{ field.name }}</span>
+                                                    <strong>{{ field.present ? field.value : 'Missing' }}</strong>
+                                                    <small v-if="field.present && field.source_tag">{{ field.source_tag }}</small>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <div v-else class="workflow-empty-result">No matching file.</div>
+                                    </div>
+                                </div>
+                            </template>
+                        </el-table-column>
+
+                        <el-table-column label="Base Edit" min-width="350">
+                            <template #default="scope">
+                                <div v-if="scope.row.base_edit" class="image-inspection-stage-cell">
+                                    <div class="image-inspection-file-head">
+                                        <code class="image-inspection-file-path">{{ scope.row.base_edit.stage_relative_path }}</code>
+                                        <div class="image-inspection-file-tags">
+                                            <el-tag size="small"
+                                                    :type="scope.row.base_edit.display_status_level === 'success' ? 'success' : (scope.row.base_edit.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.base_edit.display_status_text }}</el-tag>
+                                            <el-tag size="small"
+                                                    :type="scope.row.base_edit.metadata_status_level === 'success' ? 'success' : 'danger'">{{ scope.row.base_edit.metadata_status_text }}</el-tag>
+                                        </div>
+                                    </div>
+                                    <div class="image-inspection-stage-metrics">
+                                        <span>{{ scope.row.base_edit.resolution }}</span>
+                                        <span>{{ scope.row.base_edit.ratio_display }}</span>
+                                        <span>Crop {{ scope.row.base_edit.crop_area_percent === null ? '—' : `${Number(scope.row.base_edit.crop_area_percent).toFixed(2)}%` }}</span>
+                                    </div>
+                                    <div class="image-inspection-stage-meta">
+                                        Meta {{ scope.row.base_edit.metadata_field_count }} · Key EXIF
+                                        <strong :class="{'image-inspection-complete': scope.row.base_edit.metadata_focus_present === scope.row.base_edit.metadata_focus_total}">{{ scope.row.base_edit.metadata_focus_present }}/{{ scope.row.base_edit.metadata_focus_total }}</strong>
+                                    </div>
+                                </div>
+                            </template>
+                        </el-table-column>
+
+                        <el-table-column label="Model Edit" min-width="350">
+                            <template #default="scope">
+                                <div v-if="scope.row.model_edit" class="image-inspection-stage-cell">
+                                    <div class="image-inspection-file-head">
+                                        <code class="image-inspection-file-path">{{ scope.row.model_edit.stage_relative_path }}</code>
+                                        <div class="image-inspection-file-tags">
+                                            <el-tag size="small"
+                                                    :type="scope.row.model_edit.display_status_level === 'success' ? 'success' : (scope.row.model_edit.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.model_edit.display_status_text }}</el-tag>
+                                            <el-tag size="small"
+                                                    :type="scope.row.model_edit.metadata_status_level === 'success' ? 'success' : 'danger'">{{ scope.row.model_edit.metadata_status_text }}</el-tag>
+                                        </div>
+                                    </div>
+                                    <div class="image-inspection-stage-metrics">
+                                        <span>{{ scope.row.model_edit.resolution }}</span>
+                                        <span>{{ scope.row.model_edit.ratio_display }}</span>
+                                        <span>Crop {{ scope.row.model_edit.crop_area_percent === null ? '—' : `${Number(scope.row.model_edit.crop_area_percent).toFixed(2)}%` }}</span>
+                                    </div>
+                                    <div class="image-inspection-stage-meta">
+                                        Meta {{ scope.row.model_edit.metadata_field_count }} · Key EXIF
+                                        <strong :class="{'image-inspection-complete': scope.row.model_edit.metadata_focus_present === scope.row.model_edit.metadata_focus_total}">{{ scope.row.model_edit.metadata_focus_present }}/{{ scope.row.model_edit.metadata_focus_total }}</strong>
+                                    </div>
+                                </div>
+                            </template>
+                        </el-table-column>
+
+                        <el-table-column label="Revision" min-width="350">
+                            <template #default="scope">
+                                <div v-if="scope.row.revision" class="image-inspection-stage-cell">
+                                    <div class="image-inspection-file-head">
+                                        <code class="image-inspection-file-path">{{ scope.row.revision.stage_relative_path }}</code>
+                                        <div class="image-inspection-file-tags">
+                                            <el-tag size="small"
+                                                    :type="scope.row.revision.display_status_level === 'success' ? 'success' : (scope.row.revision.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.revision.display_status_text }}</el-tag>
+                                            <el-tag size="small"
+                                                    :type="scope.row.revision.metadata_status_level === 'success' ? 'success' : 'danger'">{{ scope.row.revision.metadata_status_text }}</el-tag>
+                                        </div>
+                                    </div>
+                                    <div class="image-inspection-stage-metrics">
+                                        <span>{{ scope.row.revision.resolution }}</span>
+                                        <span>{{ scope.row.revision.ratio_display }}</span>
+                                        <span>Crop {{ scope.row.revision.crop_area_percent === null ? '—' : `${Number(scope.row.revision.crop_area_percent).toFixed(2)}%` }}</span>
+                                    </div>
+                                    <div class="image-inspection-stage-meta">
+                                        Meta {{ scope.row.revision.metadata_field_count }} · Key EXIF
+                                        <strong :class="{'image-inspection-complete': scope.row.revision.metadata_focus_present === scope.row.revision.metadata_focus_total}">{{ scope.row.revision.metadata_focus_present }}/{{ scope.row.revision.metadata_focus_total }}</strong>
+                                    </div>
+                                </div>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+
+                    <div v-if="imageInspectionData.summary.file_count === 0" class="workflow-empty-result">Base Edit / Model Edit / Revision 中没有找到 JPG/JPEG/PNG。</div>
+                </template>
+            </div>
+            <template #footer>
+                <el-button @click="imageInspectionVisible = false" :disabled="imageInspectionLoading">关闭</el-button>
+            </template>
+        </el-dialog>
+
         <!-- First version uses a blocking progress dialog intentionally: file operations stay visible. -->
         <el-dialog v-model="workflowProgressVisible"
                    title="Workflow Progress"
@@ -2033,8 +2184,8 @@
 
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260920-02"></script>
-<script src="workflow-tools.js?v=20260920-01"></script>
+<script src="workflow-tools.js?v=20260921-03"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260921-01"></script>
+<script type="module" src="app.js?v=20260921-03"></script>
 </body>
 </html>

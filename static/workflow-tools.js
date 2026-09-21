@@ -10,6 +10,11 @@
         const previewData = ref(null);
         const threshold = ref(0.8);
 
+        const inspectionVisible = ref(false);
+        const inspectionLoading = ref(false);
+        const inspectionData = ref(null);
+        const inspectionError = ref('');
+
         const progressVisible = ref(false);
         const task = ref({
             id: '',
@@ -53,6 +58,32 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload || {})
         });
+
+        const openImageInspection = async () => {
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+            inspectionData.value = null;
+            inspectionError.value = '';
+            inspectionVisible.value = true;
+            inspectionLoading.value = true;
+            try {
+                inspectionData.value = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/image-inspection`,
+                    {path: ctx.path}
+                );
+            } catch (error) {
+                inspectionError.value = error.message || '图像检测失败';
+                ElMessage.error(inspectionError.value);
+            } finally {
+                inspectionLoading.value = false;
+            }
+        };
+
 
         const analyzeVisualRename = async () => {
             let ctx;
@@ -302,9 +333,14 @@
             previewTitle,
             previewData,
             threshold,
+            inspectionVisible,
+            inspectionLoading,
+            inspectionData,
+            inspectionError,
             progressVisible,
             task,
             canExecute,
+            openImageInspection,
             openVisualRename,
             analyzeVisualRename,
             openSyncRawByJpg: () => openSync('raw_by_jpg'),

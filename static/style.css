@@ -2277,6 +2277,204 @@ body {
     }
 }
 
+/* ==================== Set image inspection ==================== */
+.image-inspection-dialog .el-dialog {
+    max-width: calc(100vw - 24px);
+}
+
+.image-inspection-dialog .el-dialog__body {
+    max-height: 78vh;
+    overflow-y: auto;
+    padding-top: 12px;
+}
+
+.image-inspection-body {
+    min-height: 220px;
+}
+
+.image-inspection-summary {
+    margin: 0 0 12px;
+}
+
+.image-inspection-summary .is-danger,
+.image-inspection-summary .is-danger strong {
+    color: #f56c6c;
+}
+
+.image-inspection-summary .is-success,
+.image-inspection-summary .is-success strong {
+    color: #67c23a;
+}
+
+.image-inspection-table {
+    width: 100%;
+}
+
+.image-inspection-stage-table .el-table__cell {
+    vertical-align: top;
+}
+
+.image-inspection-stage-table code,
+.image-inspection-file-path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.image-inspection-stage-cell {
+    min-width: 0;
+    padding: 3px 0;
+}
+
+.image-inspection-file-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+}
+
+.image-inspection-file-path {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    color: #303133;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.image-inspection-file-tags {
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.image-inspection-file-tags .el-tag {
+    margin: 0;
+}
+
+.image-inspection-stage-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 6px;
+    color: #606266;
+    font-size: 11px;
+}
+
+.image-inspection-stage-meta {
+    margin-top: 6px;
+    color: #909399;
+    font-size: 11px;
+}
+
+.image-inspection-complete {
+    color: #67c23a;
+}
+
+.image-inspection-expand {
+    padding: 12px 14px 18px;
+}
+
+.image-inspection-stage-expand {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.image-inspection-detail-column {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    background: #fafafa;
+}
+
+.image-inspection-detail-title {
+    margin-bottom: 10px;
+    color: #303133;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.image-inspection-expand-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin-bottom: 12px;
+}
+
+.image-inspection-expand-grid > div,
+.image-inspection-focus-item {
+    min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid #ebeef5;
+    border-radius: 7px;
+    background: #fff;
+}
+
+.image-inspection-expand-grid span,
+.image-inspection-focus-item span {
+    display: block;
+    margin-bottom: 3px;
+    color: #909399;
+    font-size: 10px;
+}
+
+.image-inspection-expand-grid strong,
+.image-inspection-focus-item strong {
+    display: block;
+    overflow-wrap: anywhere;
+    color: #303133;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.image-inspection-focus-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 12px;
+}
+
+.image-inspection-focus-item small {
+    display: block;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+    color: #b0b4bb;
+    font-size: 9px;
+}
+
+.image-inspection-focus-item.is-missing {
+    border-color: #fde2e2;
+    background: #fef0f0;
+}
+
+.image-inspection-focus-item.is-missing strong {
+    color: #f56c6c;
+}
+
+@media (max-width: 1180px) {
+    .image-inspection-stage-expand {
+        grid-template-columns: 1fr;
+    }
+
+    .image-inspection-detail-column {
+        padding: 10px;
+    }
+}
+
+@media (max-width: 680px) {
+    .image-inspection-expand-grid,
+    .image-inspection-focus-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ==================== Set derived insights / validation v14 ==================== */
 .manifest-derived-section {
     background: #fcfcfd;
