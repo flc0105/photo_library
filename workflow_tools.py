@@ -729,9 +729,29 @@ def _extract_dimension(record, tag):
     return 0
 
 
-def _format_ratio_part(value: float):
-    text = f'{value:.2f}'
-    return text.rstrip('0').rstrip('.')
+def _format_ratio_part(numerator: int, denominator: int, exact_value: int):
+    """Format a normalized ratio component without rounding it into a false exact ratio.
+
+    Start with four decimal places, truncating rather than rounding. If a non-exact
+    ratio is so close to the target integer that four places would collapse to the
+    exact-looking value, increase precision up to six places.
+    """
+    if denominator <= 0:
+        return '—'
+
+    for decimals in range(4, 7):
+        scale = 10 ** decimals
+        scaled = numerator * scale // denominator
+        integer = scaled // scale
+        fraction = scaled % scale
+        text = f'{integer}.{fraction:0{decimals}d}'.rstrip('0').rstrip('.')
+        if text != str(exact_value):
+            return text
+
+    # With ordinary image dimensions six decimal places is already more than enough.
+    # Keep a bounded display even for pathological dimensions while still making it
+    # explicit that the ratio is not exact.
+    return f'>{exact_value}' if numerator > exact_value * denominator else f'<{exact_value}'
 
 
 def _ratio_analysis(width: int, height: int):
@@ -765,7 +785,7 @@ def _ratio_analysis(width: int, height: int):
         crop_height = unit * 3
         final_width, final_height = 3200, 4800
         exact = width * 3 == height * 2
-        ratio_display = f'{_format_ratio_part(width * 3 / height)}:3'
+        ratio_display = '2:3' if exact else f'{_format_ratio_part(width * 3, height, 2)}:3'
     else:
         orientation = 'landscape'
         target_ratio = '3:2'
@@ -774,7 +794,7 @@ def _ratio_analysis(width: int, height: int):
         crop_height = unit * 2
         final_width, final_height = 4800, 3200
         exact = width * 2 == height * 3
-        ratio_display = f'3:{_format_ratio_part(height * 3 / width)}'
+        ratio_display = '3:2' if exact else f'3:{_format_ratio_part(height * 3, width, 2)}'
 
     crop_width_px = max(0, width - crop_width)
     crop_height_px = max(0, height - crop_height)
