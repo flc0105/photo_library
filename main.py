@@ -1601,6 +1601,98 @@ def _suggest_manifest(target, include_times=False):
     }
 
 
+def _validate_new_set_text(value, label, allow_hyphen=True):
+    text = str(value or '').strip()
+    if not text:
+        raise ValueError(f'{label}不能为空')
+    if text in {'.', '..'} or any(char in text for char in ('/', '\\', '\x00', '\n', '\r')):
+        raise ValueError(f'{label}包含非法路径字符')
+    if not allow_hyphen and '-' in text:
+        raise ValueError(f'{label}不能包含连字符 -')
+    return text
+
+
+def _new_set_manifest(target):
+    """Create the canonical blank manifest used by New Set.
+
+    Only model, shoot.date and theme.name are derived from the Set folder name.
+    The remaining descriptive fields stay blank/default so directory creation
+    never invents metadata that the user has not entered yet.
+    """
+    manifest = _suggest_manifest(target, include_times=False)
+    manifest['theme']['genre'] = ''
+    manifest['production']['venue_fee'] = 0
+    return _order_manifest_keys(manifest)
+
+
+def _create_new_set(root, date_text, model, theme):
+    """Create one complete Set atomically below a Source root."""
+    root = Path(root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError('Source 根目录不存在')
+    if _is_set_folder_name(root.name):
+        raise ValueError('New Set 只能在 Set 父目录创建')
+
+    try:
+        shoot_date = datetime.strptime(str(date_text or '').strip(), '%Y-%m-%d').date()
+    except ValueError as exc:
+        raise ValueError('日期格式必须为 YYYY-MM-DD') from exc
+
+    # The first hyphen separates date/model in the canonical Set name, so a
+    # model containing '-' would make the existing Set parser ambiguous.
+    model = _validate_new_set_text(model, '模特', allow_hyphen=False)
+    theme = _validate_new_set_text(theme, '主题', allow_hyphen=True)
+    set_name = f'{shoot_date:%Y%m%d}-{model}-{theme}'
+    set_path = root / set_name
+
+    if set_path.exists():
+        raise FileExistsError(f'Set 已存在: {set_name}')
+
+    set_path.mkdir()
+    try:
+        directories = [
+            set_path / '01_Original' / 'JPG',
+            set_path / '01_Original' / 'RAW',
+            set_path / '02_Base_Edit',
+            set_path / '03_Model_Edit',
+            set_path / '04_Revision',
+            set_path / '05_Final',
+        ]
+
+        # Intermediates is intentionally temporary and mirrors the Set name so
+        # the whole subtree can later be moved outside Completed without losing
+        # which Set it belongs to.
+        intermediate_root = set_path / 'Intermediates' / set_name
+        directories.extend([
+            intermediate_root / 'DPP',
+            intermediate_root / 'PixCake',
+            intermediate_root / 'PSD' / 'BaseEdit',
+            intermediate_root / 'PSD' / 'Revision',
+            intermediate_root / 'Discards' / 'BaseEdit',
+            intermediate_root / 'Discards' / 'Revision',
+        ])
+
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=False)
+
+        manifest = _new_set_manifest(set_path)
+        manifest_path = set_path / MANIFEST_FILENAME
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8'
+        )
+    except Exception:
+        # A New Set is one unit. Never leave a half-created directory tree.
+        shutil.rmtree(set_path, ignore_errors=True)
+        raise
+
+    return {
+        'name': set_name,
+        'path': set_name,
+        'manifest': manifest,
+    }
+
+
 def _library_state_map(source_id, relative_paths):
     paths = [p for p in relative_paths if p]
     if not paths:
@@ -2021,6 +2113,33 @@ def browse_library_source(source_id):
         return jsonify(_list_library_directory(source, request.args.get('path', '')))
     except (ValueError, FileNotFoundError, NotADirectoryError) as exc:
         return jsonify({'error': str(exc)}), 400
+
+
+@app.route('/api/library/sources/<int:source_id>/sets', methods=['POST'])
+def create_library_set(source_id):
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+    source = _get_library_source(source_id)
+    if not source:
+        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+
+    data = request.get_json(silent=True) or {}
+    try:
+        root, _, _ = _resolve_library_path(source, '')
+        result = _create_new_set(
+            root,
+            data.get('date'),
+            data.get('model'),
+            data.get('theme'),
+        )
+        return jsonify(result), 201
+    except FileExistsError as exc:
+        return jsonify({'error': str(exc)}), 409
+    except (ValueError, FileNotFoundError, NotADirectoryError) as exc:
+        return jsonify({'error': str(exc)}), 400
+    except OSError as exc:
+        return jsonify({'error': f'创建 Set 失败: {exc}'}), 500
 
 
 @app.route('/api/library/sources/<int:source_id>/asset', methods=['GET'])

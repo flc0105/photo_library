@@ -198,20 +198,21 @@
                     </el-dropdown>
 
                     <template v-if="isAdmin">
+                        <el-button v-if="isLibraryRoot && !isSetDirectory" type="primary" @click="openNewSetDialog">New Set</el-button>
                         <el-button v-if="isLibraryRoot" @click="openLibraryValidation">Validation</el-button>
                         <el-button v-if="isSetDirectory" @click="openManifestEditor">
                             {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
                         </el-button>
                         <el-dropdown v-if="isSetDirectory" trigger="click" placement="bottom-end">
-                            <el-button title="高级功能" aria-label="高级功能">高级功能</el-button>
+                            <el-button title="Workflow" aria-label="Workflow">Workflow</el-button>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item @click="openImageInspectionTool">图像检测</el-dropdown-item>
-                                    <el-dropdown-item divided @click="openVisualRenameTool">Visual Rename · Model Edit</el-dropdown-item>
-                                    <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Base 未返图 → Discards</el-dropdown-item>
-                                    <el-dropdown-item divided @click="openSyncRawByJpgTool">同步 RAW（以 JPG 为准）</el-dropdown-item>
-                                    <el-dropdown-item @click="openSyncJpgByRawTool">同步 JPG（以 RAW 为准）</el-dropdown-item>
-                                    <el-dropdown-item divided @click="openSelectRawTool">收藏 JPG → RAW Selects</el-dropdown-item>
+                                    <el-dropdown-item @click="openImageInspectionTool">Image Check</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openVisualRenameTool">Match Rename</el-dropdown-item>
+                                    <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openSyncJpgByRawTool">Delete Extra JPG</el-dropdown-item>
+                                    <el-dropdown-item @click="openSyncRawByJpgTool">Delete Extra RAW</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openSelectRawTool">Pick RAW</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -1249,6 +1250,30 @@
         </el-dialog>
 
 
+
+        <!-- Set 父目录专用：沿用 ShotFlowManager 的 Date / Model / Theme 创建逻辑。 -->
+        <el-dialog v-model="showNewSetDialog" title="New Set" width="480px">
+            <el-form :model="newSetForm" label-width="72px" @submit.prevent="createNewSet">
+                <el-form-item label="Model">
+                    <el-input v-model="newSetForm.model" placeholder="模特"></el-input>
+                </el-form-item>
+                <el-form-item label="Date">
+                    <el-date-picker v-model="newSetForm.date"
+                                    type="date"
+                                    format="YYYYMMDD"
+                                    value-format="YYYY-MM-DD"
+                                    placeholder="日期"
+                                    style="width: 100%;"></el-date-picker>
+                </el-form-item>
+                <el-form-item label="Theme">
+                    <el-input v-model="newSetForm.theme" placeholder="主题" @keyup.enter="createNewSet"></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showNewSetDialog = false" :disabled="newSetCreating">取消</el-button>
+                <el-button type="primary" @click="createNewSet" :loading="newSetCreating">Create</el-button>
+            </template>
+        </el-dialog>
 
         <!-- 本地目录 Source 管理 -->
         <el-dialog v-model="showLibrarySourcesDialog" title="本地目录 Source" width="720px">

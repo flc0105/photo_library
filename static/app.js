@@ -616,6 +616,9 @@ const app = createApp({
         const libraryLoading = ref(false);
         const showLibrarySourcesDialog = ref(false);
         const newLibrarySource = ref({name: 'Completed', root_path: ''});
+        const showNewSetDialog = ref(false);
+        const newSetCreating = ref(false);
+        const newSetForm = ref({model: '', date: '', theme: ''});
 
         const showManifestDialog = ref(false);
         const showManifestDetailDialog = ref(false);
@@ -747,6 +750,60 @@ const app = createApp({
 
         const isSetDirectory = computed(() => !!libraryListing.value.is_set);
         const isLibraryRoot = computed(() => !!currentLibrarySource.value && (libraryListing.value.path || '') === '');
+
+        const localToday = () => {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const openNewSetDialog = () => {
+            if (!isLibraryRoot.value || !currentLibrarySource.value) {
+                ElMessage.warning('New Set 只能在 Set 父目录创建');
+                return;
+            }
+            newSetForm.value = {model: '', date: localToday(), theme: ''};
+            showNewSetDialog.value = true;
+        };
+
+        const createNewSet = async () => {
+            if (!currentLibrarySource.value || !isLibraryRoot.value) {
+                ElMessage.error('当前目录不是 Set 父目录');
+                return;
+            }
+
+            const payload = {
+                model: String(newSetForm.value.model || '').trim(),
+                date: String(newSetForm.value.date || '').trim(),
+                theme: String(newSetForm.value.theme || '').trim()
+            };
+            if (!payload.model || !payload.date || !payload.theme) {
+                ElMessage.warning('模特、日期、主题都必须填写');
+                return;
+            }
+
+            newSetCreating.value = true;
+            try {
+                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/sets`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || '创建 Set 失败');
+
+                showNewSetDialog.value = false;
+                await loadLibraryDirectory('');
+                librarySelectedDirectoryPath.value = data.path || '';
+                ElMessage.success(`已创建 ${data.name}`);
+            } catch (error) {
+                ElMessage.error(error?.message || '创建 Set 失败');
+            } finally {
+                newSetCreating.value = false;
+            }
+        };
 
         const newLightingRow = () => ({
             role: '',
@@ -3642,6 +3699,11 @@ const app = createApp({
             libraryEmptyMessage,
             showLibrarySourcesDialog,
             newLibrarySource,
+            showNewSetDialog,
+            newSetCreating,
+            newSetForm,
+            openNewSetDialog,
+            createNewSet,
             loadLibrarySources,
             addLibrarySource,
             deleteLibrarySource,
