@@ -15,6 +15,16 @@
         const inspectionData = ref(null);
         const inspectionError = ref('');
 
+        const photoImportVisible = ref(false);
+        const photoImportLoading = ref(false);
+        const photoImportExecuting = ref(false);
+        const photoImportForm = ref({
+            source_root: '/Users/flc/Pictures/',
+            gap_minutes: 30
+        });
+        const photoImportPlan = ref(null);
+        const photoImportSelectedGroups = ref([]);
+
         const progressVisible = ref(false);
         const task = ref({
             id: '',
@@ -201,6 +211,139 @@
             }
         };
 
+        const previewPhotoImport = async () => {
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+            const root = String(photoImportForm.value.source_root || '').trim();
+            const gap = Number(photoImportForm.value.gap_minutes);
+            if (!root) {
+                ElMessage.error('Source Root 不能为空');
+                return;
+            }
+            if (!Number.isInteger(gap) || gap < 1 || gap > 1440) {
+                ElMessage.error('Gap 必须是 1–1440 分钟的整数');
+                return;
+            }
+
+            photoImportLoading.value = true;
+            photoImportPlan.value = null;
+            photoImportSelectedGroups.value = [];
+            try {
+                const data = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/photo-import/preview`,
+                    {path: ctx.path, source_root: root, gap_minutes: gap}
+                );
+                photoImportPlan.value = data;
+                photoImportSelectedGroups.value = (data.groups || []).map(group => group.id);
+            } catch (error) {
+                ElMessage.error(error.message || '照片导入 Preview 失败');
+            } finally {
+                photoImportLoading.value = false;
+            }
+        };
+
+        const openPhotoImport = async () => {
+            try {
+                context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+            photoImportForm.value = {
+                source_root: '/Users/flc/Pictures/',
+                gap_minutes: 30
+            };
+            photoImportPlan.value = null;
+            photoImportSelectedGroups.value = [];
+            photoImportVisible.value = true;
+            await previewPhotoImport();
+        };
+
+        const photoImportThumbnailUrl = (fileId) => {
+            const source = options.getSource && options.getSource();
+            const path = options.getSetPath && options.getSetPath();
+            const planId = photoImportPlan.value && photoImportPlan.value.plan_id;
+            if (!source || !source.id || !planId || path === null || path === undefined) return '';
+            return `/api/library/workflow/sources/${source.id}/photo-import/thumbnail/${encodeURIComponent(planId)}/${encodeURIComponent(fileId)}?path=${encodeURIComponent(path)}`;
+        };
+
+        const photoImportGroupTime = (group) => {
+            if (!group) return '';
+            if (group.unknown_time) return 'Unknown Time';
+            if (group.start_time && group.end_time) return `${group.start_time}–${group.end_time}`;
+            return group.start_time || group.end_time || '';
+        };
+
+        const executePhotoImport = async () => {
+            if (!photoImportPlan.value || !photoImportPlan.value.plan_id) return;
+            if (!photoImportSelectedGroups.value.length) {
+                ElMessage.warning('至少选择一组照片');
+                return;
+            }
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+
+            photoImportExecuting.value = true;
+            try {
+                const prepared = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/photo-import/prepare`,
+                    {
+                        path: ctx.path,
+                        plan_id: photoImportPlan.value.plan_id,
+                        group_ids: photoImportSelectedGroups.value
+                    }
+                );
+
+                await ElMessageBox.confirm(
+                    `将移动 ${prepared.jpg_count} 个 JPG 和 ${prepared.raw_count} 个同 stem RAW（共 ${prepared.total_files} 个文件）到当前 Set 的 01_Original/JPG 与 01_Original/RAW。执行后源目录中的这些文件会被移走。`,
+                    '确认导入',
+                    {
+                        confirmButtonText: 'Move',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }
+                );
+
+                const started = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/photo-import/start`,
+                    {path: ctx.path, plan_id: prepared.plan_id}
+                );
+                photoImportVisible.value = false;
+                refreshedTaskId = '';
+                task.value = {
+                    id: started.task_id,
+                    kind: 'photo_import',
+                    status: 'queued',
+                    total: prepared.total_files || 0,
+                    completed: 0,
+                    current: 0,
+                    percent: 0,
+                    message: '导入任务已提交…',
+                    logs: [],
+                    result: null,
+                    error: null
+                };
+                progressVisible.value = true;
+                startPolling();
+            } catch (error) {
+                if (error !== 'cancel' && error !== 'close') {
+                    ElMessage.error(error?.message || '导入失败');
+                }
+            } finally {
+                photoImportExecuting.value = false;
+            }
+        };
+
         const canExecute = computed(() => {
             const data = previewData.value;
             if (!data || !data.plan_id) return false;
@@ -374,6 +517,17 @@
             inspectionLoading,
             inspectionData,
             inspectionError,
+            photoImportVisible,
+            photoImportLoading,
+            photoImportExecuting,
+            photoImportForm,
+            photoImportPlan,
+            photoImportSelectedGroups,
+            previewPhotoImport,
+            openPhotoImport,
+            executePhotoImport,
+            photoImportThumbnailUrl,
+            photoImportGroupTime,
             progressVisible,
             task,
             canExecute,

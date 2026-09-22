@@ -224,7 +224,8 @@
                             <el-button title="Workflow" aria-label="Workflow">Workflow</el-button>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item @click="openImageInspectionTool">Image Check</el-dropdown-item>
+                                    <el-dropdown-item @click="openPhotoImportTool">Import Photos</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openImageInspectionTool">Image Check</el-dropdown-item>
                                     <el-dropdown-item divided @click="openVisualRenameTool">Match Rename</el-dropdown-item>
                                     <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
                                     <el-dropdown-item divided @click="openSyncJpgByRawTool">Delete Extra JPG</el-dropdown-item>
@@ -1714,6 +1715,99 @@
                 <el-button type="primary"
                            :disabled="workflowTask.status === 'running' || workflowTask.status === 'queued'"
                            @click="closeWorkflowProgress">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Set 内部：从相机导出目录按拍摄时间分组预览，再成对移动 JPG / RAW。 -->
+        <el-dialog v-model="photoImportVisible" title="Import Photos" width="1120px" top="5vh">
+            <div v-loading="photoImportLoading || photoImportExecuting" style="min-height:180px;">
+                <div style="display:flex; align-items:flex-end; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:440px;">
+                        <div style="font-size:12px; color:#606266; margin-bottom:5px;">Source Root</div>
+                        <el-input v-model="photoImportForm.source_root"
+                                  placeholder="/Users/flc/Pictures/"
+                                  @keyup.enter="previewPhotoImport"></el-input>
+                    </div>
+                    <div style="width:150px;">
+                        <div style="font-size:12px; color:#606266; margin-bottom:5px;">Gap</div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <el-input-number v-model="photoImportForm.gap_minutes"
+                                             :min="1"
+                                             :max="1440"
+                                             :step="5"
+                                             controls-position="right"
+                                             style="width:112px;"></el-input-number>
+                            <span style="font-size:12px; color:#909399;">min</span>
+                        </div>
+                    </div>
+                    <el-button type="primary" plain @click="previewPhotoImport" :loading="photoImportLoading">Preview</el-button>
+                </div>
+
+                <template v-if="photoImportPlan">
+                    <div style="padding:10px 12px; background:#f5f7fa; border-radius:6px; margin-bottom:14px; font-size:12px; line-height:1.7; color:#606266;">
+                        <div><strong>{{ photoImportPlan.shoot_date }}</strong> · {{ photoImportPlan.jpg_count }} JPG · Gap {{ photoImportPlan.gap_minutes }} min</div>
+                        <div>JPG: {{ photoImportPlan.jpg_dir }}</div>
+                        <div>RAW: {{ photoImportPlan.raw_dir }}</div>
+                    </div>
+
+                    <el-checkbox-group v-model="photoImportSelectedGroups">
+                        <div v-for="group in photoImportPlan.groups"
+                             :key="group.id"
+                             style="border:1px solid #dcdfe6; border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                                <el-checkbox :label="group.id">
+                                    <strong>Group {{ group.index }}</strong>
+                                </el-checkbox>
+                                <div style="font-size:13px; color:#606266;">
+                                    {{ photoImportGroupTime(group) }} · {{ group.count }} JPG
+                                </div>
+                            </div>
+
+                            <div v-if="group.unknown_time"
+                                 style="font-size:12px; color:#e6a23c; margin-bottom:9px;">
+                                These JPGs have no readable DateTimeOriginal, so they cannot be time-split reliably.
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:8px; overflow-x:auto; padding-bottom:3px;">
+                                <div v-for="sample in group.sample.head" :key="`head-${group.id}-${sample.id}`"
+                                     style="width:92px; flex:0 0 92px;">
+                                    <img :src="photoImportThumbnailUrl(sample.id)"
+                                         :alt="sample.name"
+                                         style="display:block; width:92px; height:68px; object-fit:cover; border-radius:4px; background:#f2f3f5;">
+                                    <div :title="sample.name"
+                                         style="font-size:10px; color:#606266; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px;">
+                                        {{ sample.name }}
+                                    </div>
+                                </div>
+
+                                <div v-if="group.sample.omitted_count > 0"
+                                     style="flex:0 0 104px; text-align:center; color:#909399; font-size:12px;">
+                                    … {{ group.sample.omitted_count }} photos …
+                                </div>
+
+                                <div v-for="sample in group.sample.tail" :key="`tail-${group.id}-${sample.id}`"
+                                     style="width:92px; flex:0 0 92px;">
+                                    <img :src="photoImportThumbnailUrl(sample.id)"
+                                         :alt="sample.name"
+                                         style="display:block; width:92px; height:68px; object-fit:cover; border-radius:4px; background:#f2f3f5;">
+                                    <div :title="sample.name"
+                                         style="font-size:10px; color:#606266; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px;">
+                                        {{ sample.name }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </el-checkbox-group>
+                </template>
+            </div>
+            <template #footer>
+                <el-button @click="photoImportVisible = false" :disabled="photoImportExecuting">Cancel</el-button>
+                <el-button type="primary"
+                           @click="executePhotoImport"
+                           :loading="photoImportExecuting"
+                           :disabled="!photoImportPlan || photoImportSelectedGroups.length === 0 || photoImportLoading">
+                    Execute
+                </el-button>
             </template>
         </el-dialog>
 
