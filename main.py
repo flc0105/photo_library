@@ -1887,62 +1887,62 @@ def _site_config_enabled(key, default=True):
     return str(row['value']).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _natural_cover_sort_key(path, base):
+    """Natural A-Z / 1-9 sort for deterministic Set cover selection."""
+    path = Path(path)
+    base = Path(base)
+
+    def split_key(value):
+        return tuple(
+            int(part) if part.isdigit() else part.casefold()
+            for part in re.split(r'(\d+)', value)
+        )
+
+    try:
+        rel = path.relative_to(base)
+    except ValueError:
+        rel = path
+    return (split_key(path.name), tuple(split_key(part) for part in rel.parts))
+
+
 def _first_cover_image(directory, recursive=False):
-    """Return the first deterministic JPG/PNG candidate without decoding it."""
+    """Return the first JPG/PNG using natural filename order."""
     directory = Path(directory)
     try:
         if recursive:
-            candidates = (
+            candidates = [
                 path for path in directory.rglob('*')
                 if path.is_file()
                 and not any(part.startswith('.') for part in path.relative_to(directory).parts)
                 and path.suffix.lower() in LIBRARY_COVER_EXTENSIONS
-            )
+            ]
         else:
-            candidates = (
+            candidates = [
                 path for path in directory.iterdir()
                 if path.is_file() and path.suffix.lower() in LIBRARY_COVER_EXTENSIONS
-            )
-        return min(candidates, key=lambda path: path.relative_to(directory).as_posix().casefold(), default=None)
+            ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda path: _natural_cover_sort_key(path, directory))
     except OSError:
         return None
 
 
-def _is_inside_set(root, directory):
-    """Whether a directory is a Set itself or lies below a Set folder."""
-    root = Path(root).resolve()
-    current = Path(directory).resolve()
-    while True:
-        if _is_set_folder_name(current.name):
-            return True
-        if current == root:
-            return False
-        try:
-            current.relative_to(root)
-        except ValueError:
-            return False
-        parent = current.parent
-        if parent == current:
-            return False
-        current = parent
-
-
 def _directory_cover_path(root, directory, direct_manifest=None):
-    """Return a cover only for Sets and directories contained by a Set.
+    """Return a cover only for a Set card; every other mapped folder stays icon-only.
 
-    Explicit manifest cover stays authoritative.  A Set then prefers an edited
-    result in Revision -> Model_Edit -> Base_Edit order, falling back to the first
-    JPG/PNG anywhere in the Set.  Nested Set folders keep the existing cheap
-    behavior: only a directly-contained JPG/PNG can become their cover.
+    An explicit manifest cover remains authoritative. Otherwise Set covers follow
+    04_Revision -> 03_Model_Edit -> 02_Base_Edit, then fall back to the first
+    JPG/PNG found anywhere in the Set. Within each step, the first image is chosen
+    by natural filename order (A-Z, 1-9).
     """
     root = Path(root).resolve()
     directory = Path(directory).resolve()
-    is_set = _is_set_folder_name(directory.name)
-    if not is_set and not _is_inside_set(root, directory):
+    if not _is_set_folder_name(directory.name):
         return None
 
     candidates = []
-    if is_set and direct_manifest and direct_manifest.get('valid'):
+    if direct_manifest and direct_manifest.get('valid'):
         cover = direct_manifest.get('data', {}).get('cover')
         if isinstance(cover, str) and cover.strip():
             try:
@@ -1950,26 +1950,18 @@ def _directory_cover_path(root, directory, direct_manifest=None):
             except ValueError:
                 pass
 
-    if is_set and not candidates:
+    if not candidates:
         for stage_name in ('04_Revision', '03_Model_Edit', '02_Base_Edit'):
             stage = directory / stage_name
-            if stage.is_dir():
-                candidate = _first_cover_image(stage, recursive=True)
-                if candidate is not None:
-                    candidates.append(candidate)
-                    break
-        if not candidates:
-            original_jpg = directory / '01_Original' / 'JPG'
-            if original_jpg.is_dir():
-                candidate = _first_cover_image(original_jpg, recursive=False)
-                if candidate is not None:
-                    candidates.append(candidate)
-        if not candidates:
-            candidate = _first_cover_image(directory, recursive=True)
+            if not stage.is_dir():
+                continue
+            candidate = _first_cover_image(stage, recursive=True)
             if candidate is not None:
                 candidates.append(candidate)
-    elif not is_set:
-        candidate = _first_cover_image(directory, recursive=False)
+                break
+
+    if not candidates:
+        candidate = _first_cover_image(directory, recursive=True)
         if candidate is not None:
             candidates.append(candidate)
 
