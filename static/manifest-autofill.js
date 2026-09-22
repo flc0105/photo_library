@@ -9,6 +9,7 @@
         let loadingPromise = null;
         let locations = [];
         let sources = [];
+        let values = {};
 
         const reset = () => {
             sourceId = null;
@@ -16,6 +17,7 @@
             loadingPromise = null;
             locations = [];
             sources = [];
+            values = {};
         };
 
         const load = async () => {
@@ -33,6 +35,7 @@
                     if (!response.ok) throw new Error(data.error || 'Failed to load manifest references');
                     locations = Array.isArray(data.locations) ? data.locations : [];
                     sources = Array.isArray(data.sources) ? data.sources : [];
+                    values = data.values && typeof data.values === 'object' ? data.values : {};
                     loaded = true;
                 } catch (error) {
                     // Autofill is convenience only. Do not block manifest editing.
@@ -106,6 +109,25 @@
             callback(result);
         };
 
+        const queryValues = async (kind, query, callback) => {
+            await load();
+            const needle = keyOf(query);
+            const options = Array.isArray(values[kind]) ? values[kind] : [];
+            const result = options
+                .filter(value => !needle || keyOf(value).includes(needle))
+                .slice(0, 50)
+                .map(value => ({ value }));
+            callback(result);
+        };
+
+        const getValues = () => {
+            const result = {};
+            Object.entries(values || {}).forEach(([key, items]) => {
+                result[key] = Array.isArray(items) ? [...items] : [];
+            });
+            return result;
+        };
+
         const selectLocation = (item) => applyLocation(item, true);
         const selectSource = (item) => applySource(item, true);
 
@@ -123,6 +145,8 @@
             invalidate: reset,
             queryLocations,
             querySources,
+            queryValues,
+            getValues,
             selectLocation,
             selectSource,
             syncLocation,

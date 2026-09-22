@@ -1693,9 +1693,9 @@
                         <div v-if="manifestShootDuration" class="manifest-detail-item manifest-computed-item"><span>Duration</span><strong>{{ manifestShootDuration }}</strong></div>
                         <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
                         <div class="manifest-detail-item"><span>Scene</span><strong>{{ formatSceneValue(currentManifestData.shoot.scene) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
-                        <div class="manifest-detail-item manifest-detail-wide">
-                            <span>Same-day Sessions · calc<template v-if="setStats && setStats.same_day_sessions"> ({{ setStats.same_day_sessions.count }})</template></span>
+                        <div v-if="hasManifestValue(currentManifestData.shoot.weather)" class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
+                        <div v-if="setStatsLoading || (setStats && setStats.same_day_sessions && setStats.same_day_sessions.count > 0)" class="manifest-detail-item manifest-detail-wide">
+                            <span>Same-day Sessions · calc<template v-if="setStats && setStats.same_day_sessions && setStats.same_day_sessions.count > 0"> ({{ setStats.same_day_sessions.count }})</template></span>
                             <strong v-if="setStatsLoading">Calculating…</strong>
                             <strong v-else-if="setStats && setStats.same_day_sessions">
                                 <template v-if="setStats.same_day_sessions.count">
@@ -1716,7 +1716,7 @@
                         <div class="manifest-detail-item"><span>Date</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.date) }}</strong></div>
                         <div class="manifest-detail-item"><span>Start Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.start_time) }}</strong></div>
                         <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.end_time) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.additional_session.weather) }}</strong></div>
+                        <div v-if="hasManifestValue(currentManifestData.shoot.additional_session.weather)" class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.additional_session.weather) }}</strong></div>
                     </div>
                 </section>
 
@@ -1754,14 +1754,14 @@
                         <div class="manifest-detail-item"><span>Lead Photographer</span><strong>{{ formatManifestValue(currentManifestData.production.lead_photographer) }}</strong></div>
                         <div v-if="!currentManifestData.production.lead_photographer" class="manifest-detail-item"><span>Primary Photographer</span><strong>{{ formatManifestValue(currentManifestData.production.primary_photographer) }}</strong></div>
                         <div v-if="currentManifestData.production.lead_photographer && currentManifestData.production.assistants.length" class="manifest-detail-item manifest-detail-wide"><span>Assistants</span><strong>{{ formatManifestValue(currentManifestData.production.assistants) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Model Fee</span><strong>{{ formatManifestValue(currentManifestData.production.model_fee) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Venue Fee</span><strong>{{ formatManifestValue(currentManifestData.production.venue_fee) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Venue Fee Payer</span><strong>{{ formatEnumValue(currentManifestData.production.venue_fee_payer) }}</strong></div>
+                        <div v-if="hasManifestValue(currentManifestData.production.model_fee) && Number(currentManifestData.production.model_fee) !== 0" class="manifest-detail-item"><span>Model Fee</span><strong>{{ formatManifestValue(currentManifestData.production.model_fee) }}</strong></div>
+                        <div v-if="hasManifestValue(currentManifestData.production.venue_fee)" class="manifest-detail-item"><span>Venue Fee</span><strong>{{ formatManifestValue(currentManifestData.production.venue_fee) }}</strong></div>
+                        <div v-if="hasManifestValue(currentManifestData.production.venue_fee_payer)" class="manifest-detail-item"><span>Venue Fee Payer</span><strong>{{ formatEnumValue(currentManifestData.production.venue_fee_payer) }}</strong></div>
                         <div v-if="manifestVenuePaid !== null" class="manifest-detail-item manifest-computed-item"><span>Venue Fee Paid</span><strong>{{ formatManifestValue(manifestVenuePaid) }}</strong></div>
                     </div>
                 </section>
 
-                <section class="manifest-detail-section">
+                <section v-if="hasManifestProps" class="manifest-detail-section">
                     <h3>Props</h3>
                     <div class="manifest-detail-grid">
                         <div class="manifest-detail-item manifest-detail-wide"><span>Subject</span><strong>{{ formatManifestValue(currentManifestData.props.subject) }}</strong></div>
@@ -1786,7 +1786,7 @@
                                 <div class="manifest-detail-item"><span>Modifier</span><strong>{{ formatEnumValue(light.modifier) }}</strong></div>
                                 <div class="manifest-detail-item"><span>Count</span><strong>{{ formatManifestValue(light.count) }}</strong></div>
                                 <div class="manifest-detail-item"><span>Position</span><strong>{{ formatEnumValue(light.position) }}</strong></div>
-                                <div class="manifest-detail-item manifest-detail-wide"><span>Note</span><strong>{{ formatManifestValue(light.note) }}</strong></div>
+                                <div v-if="hasManifestValue(light.note)" class="manifest-detail-item manifest-detail-wide"><span>Note</span><strong>{{ formatManifestValue(light.note) }}</strong></div>
                             </div>
                         </div>
                     </div>
@@ -1869,7 +1869,10 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Model" class="manifest-span-12">
-                                <el-input v-model="manifestForm.model"></el-input>
+                                <el-autocomplete v-model="manifestForm.model"
+                                                 :fetch-suggestions="queryKnownModels"
+                                                 clearable
+                                                 style="width:100%"></el-autocomplete>
                             </el-form-item>
                         </div>
                     </section>
@@ -1972,7 +1975,10 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Name" class="manifest-span-6">
-                                <el-input v-model="manifestForm.theme.name"></el-input>
+                                <el-autocomplete v-model="manifestForm.theme.name"
+                                                 :fetch-suggestions="queryKnownThemeNames"
+                                                 clearable
+                                                 style="width:100%"></el-autocomplete>
                             </el-form-item>
                             <el-form-item label="Genre" class="manifest-span-6">
                                 <el-select v-model="manifestForm.theme.genre" clearable style="width:100%">
@@ -1994,10 +2000,16 @@
                                     </el-select>
                                 </el-form-item>
                                 <el-form-item label="Character" class="manifest-span-6">
-                                    <el-input v-model="manifestForm.theme.character"></el-input>
+                                    <el-autocomplete v-model="manifestForm.theme.character"
+                                                     :fetch-suggestions="queryKnownCharacters"
+                                                     clearable
+                                                     style="width:100%"></el-autocomplete>
                                 </el-form-item>
                                 <el-form-item label="Variant" class="manifest-span-6">
-                                    <el-input v-model="manifestForm.theme.variant"></el-input>
+                                    <el-autocomplete v-model="manifestForm.theme.variant"
+                                                     :fetch-suggestions="queryKnownVariants"
+                                                     clearable
+                                                     style="width:100%"></el-autocomplete>
                                 </el-form-item>
                                 <el-form-item label="Reference Type" class="manifest-span-6">
                                     <el-select v-model="manifestForm.theme.reference_type" clearable style="width:100%">
@@ -2005,11 +2017,17 @@
                                     </el-select>
                                 </el-form-item>
                                 <el-form-item label="Reference" class="manifest-span-6">
-                                    <el-input v-model="manifestForm.theme.reference"></el-input>
+                                    <el-autocomplete v-model="manifestForm.theme.reference"
+                                                     :fetch-suggestions="queryKnownReferences"
+                                                     clearable
+                                                     style="width:100%"></el-autocomplete>
                                 </el-form-item>
                             </template>
                             <el-form-item v-else label="Outfit" class="manifest-span-6">
-                                <el-input v-model="manifestForm.theme.outfit"></el-input>
+                                <el-autocomplete v-model="manifestForm.theme.outfit"
+                                                 :fetch-suggestions="queryKnownOutfits"
+                                                 clearable
+                                                 style="width:100%"></el-autocomplete>
                             </el-form-item>
                         </div>
                     </section>
@@ -2025,7 +2043,7 @@
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Venue Fee Payer" class="manifest-span-6">
-                                <el-select v-model="manifestForm.production.venue_fee_payer" clearable style="width:100%">
+                                <el-select v-model="manifestForm.production.venue_fee_payer" :disabled="manifestForm.production.venue_fee === 0" clearable style="width:100%">
                                     <el-option v-for="option in manifestOptions.venue_fee_payer" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
@@ -2042,10 +2060,15 @@
                                 </div>
                             </el-form-item>
                             <el-form-item v-if="manifestForm.production.lead_photographer" label="Assistants" class="manifest-span-12">
-                                <el-select v-model="manifestForm.production.assistants" multiple filterable allow-create default-first-option style="width:100%"></el-select>
+                                <el-select v-model="manifestForm.production.assistants" multiple filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestKnownValues.assistants || []" :key="option" :label="option" :value="option"></el-option>
+                                </el-select>
                             </el-form-item>
                             <el-form-item v-else label="Primary Photographer" class="manifest-span-12">
-                                <el-input v-model="manifestForm.production.primary_photographer"></el-input>
+                                <el-autocomplete v-model="manifestForm.production.primary_photographer"
+                                                 :fetch-suggestions="queryKnownPrimaryPhotographers"
+                                                 clearable
+                                                 style="width:100%"></el-autocomplete>
                             </el-form-item>
                         </div>
                     </section>
@@ -2056,10 +2079,14 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Subject" class="manifest-span-12">
-                                <el-select v-model="manifestForm.props.subject" multiple filterable allow-create default-first-option style="width:100%"></el-select>
+                                <el-select v-model="manifestForm.props.subject" multiple filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestKnownValues.subject_props || []" :key="option" :label="option" :value="option"></el-option>
+                                </el-select>
                             </el-form-item>
                             <el-form-item label="Set" class="manifest-span-12">
-                                <el-select v-model="manifestForm.props.set" multiple filterable allow-create default-first-option style="width:100%"></el-select>
+                                <el-select v-model="manifestForm.props.set" multiple filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestKnownValues.set_props || []" :key="option" :label="option" :value="option"></el-option>
+                                </el-select>
                             </el-form-item>
                         </div>
                     </section>
@@ -2097,11 +2124,14 @@
                                         <el-input-number v-model="light.count" :controls="false" :min="1" style="width:100%"></el-input-number>
                                     </el-form-item>
                                     <el-form-item label="Fixture" class="manifest-span-4">
-                                        <el-input v-model="light.fixture"></el-input>
+                                        <el-autocomplete v-model="light.fixture"
+                                                         :fetch-suggestions="queryKnownFixtures"
+                                                         clearable
+                                                         style="width:100%"></el-autocomplete>
                                     </el-form-item>
                                     <el-form-item label="Modifier" class="manifest-span-4">
                                         <el-select v-model="light.modifier" filterable allow-create default-first-option clearable style="width:100%">
-                                            <el-option v-for="option in manifestOptions.modifier" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                            <el-option v-for="option in manifestHistoryOptions('modifiers', manifestOptions.modifier)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Position" class="manifest-span-4">
@@ -2110,7 +2140,10 @@
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Note" class="manifest-span-12">
-                                        <el-input v-model="light.note"></el-input>
+                                        <el-autocomplete v-model="light.note"
+                                                         :fetch-suggestions="queryKnownLightingNotes"
+                                                         clearable
+                                                         style="width:100%"></el-autocomplete>
                                     </el-form-item>
                                 </div>
                             </div>

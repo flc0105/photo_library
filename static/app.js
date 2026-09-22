@@ -627,6 +627,7 @@ const app = createApp({
         const libraryDirectoryNavigationState = new Map();
         const librarySelectedDirectoryPath = ref('');
         const manifestForm = ref({});
+        const manifestKnownValues = ref({});
         const manifestEditorMode = ref('form');
         const manifestJsonText = ref('');
         const manifestJsonError = ref('');
@@ -1079,6 +1080,21 @@ const app = createApp({
             if (Array.isArray(value)) return value.length ? value.join(' · ') : '—';
             return String(value);
         };
+
+        // Detail preview visibility only. These helpers never alter Form or Raw JSON.
+        const hasManifestValue = (value) => {
+            if (value === null || value === undefined) return false;
+            if (typeof value === 'string') return value.trim() !== '';
+            return true;
+        };
+
+        const hasManifestProps = computed(() => {
+            const data = currentManifestData.value;
+            if (!data || !data.props) return false;
+            const subject = Array.isArray(data.props.subject) ? data.props.subject : [];
+            const set = Array.isArray(data.props.set) ? data.props.set : [];
+            return subject.length > 0 || set.length > 0;
+        });
 
         const formatSceneValue = (value) => {
             if (value === null || value === undefined || value === '') return '—';
@@ -1603,6 +1619,36 @@ const app = createApp({
         const selectKnownSource = (item) => manifestAutofill.selectSource(item);
         const syncKnownSource = (value) => manifestAutofill.syncSource(value, true);
 
+        // Historical free-text suggestions. These are editor conveniences only:
+        // selecting a suggestion changes the Form exactly like typing the same
+        // value would; no hidden JSON fields or cross-field inference is added.
+        const queryKnownManifestValue = (kind, query, callback) => manifestAutofill.queryValues(kind, query, callback);
+        const queryKnownModels = (query, callback) => queryKnownManifestValue('models', query, callback);
+        const queryKnownThemeNames = (query, callback) => queryKnownManifestValue('theme_names', query, callback);
+        const queryKnownCharacters = (query, callback) => queryKnownManifestValue('characters', query, callback);
+        const queryKnownVariants = (query, callback) => queryKnownManifestValue('variants', query, callback);
+        const queryKnownReferences = (query, callback) => queryKnownManifestValue('references', query, callback);
+        const queryKnownOutfits = (query, callback) => queryKnownManifestValue('outfits', query, callback);
+        const queryKnownPrimaryPhotographers = (query, callback) => queryKnownManifestValue('primary_photographers', query, callback);
+        const queryKnownFixtures = (query, callback) => queryKnownManifestValue('fixtures', query, callback);
+        const queryKnownLightingNotes = (query, callback) => queryKnownManifestValue('lighting_notes', query, callback);
+
+        const manifestHistoryOptions = (kind, base = []) => {
+            const combined = [
+                ...(Array.isArray(base) ? base : []),
+                ...(Array.isArray(manifestKnownValues.value?.[kind]) ? manifestKnownValues.value[kind] : [])
+            ];
+            const seen = new Set();
+            return combined.filter(value => {
+                const text = String(value ?? '').trim();
+                if (!text) return false;
+                const key = text.toLocaleLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
+
         const resetManifestDialogScroll = (dialogClass) => {
             nextTick(() => {
                 window.requestAnimationFrame(() => {
@@ -1670,6 +1716,7 @@ const app = createApp({
             }
 
             await manifestAutofill.syncCurrent();
+            manifestKnownValues.value = manifestAutofill.getValues();
         };
 
         const editManifestFromDetail = () => {
@@ -3304,7 +3351,23 @@ const app = createApp({
 
         // 图片浏览模式与文件夹浏览模式彼此独立。
         const viewMode = ref('grid'); // 'grid' 或 'waterfall'
-        const folderViewMode = ref('grid'); // 'grid' 或 'list'；仅在当前层包含文件夹时显示切换
+        const folderViewModeStorageKey = 'gallery.folderViewMode';
+        let savedFolderViewMode = 'grid';
+        try {
+            const storedMode = window.localStorage.getItem(folderViewModeStorageKey);
+            if (storedMode === 'grid' || storedMode === 'list') savedFolderViewMode = storedMode;
+        } catch (_) {
+            // localStorage 不可用时保持默认值，不影响目录浏览。
+        }
+        const folderViewMode = ref(savedFolderViewMode); // 'grid' 或 'list'；仅在当前层包含文件夹时显示切换
+        watch(folderViewMode, (mode) => {
+            if (mode !== 'grid' && mode !== 'list') return;
+            try {
+                window.localStorage.setItem(folderViewModeStorageKey, mode);
+            } catch (_) {
+                // 持久化失败只影响偏好记忆，不影响当前会话。
+            }
+        });
 
 
         //exif waterfall
@@ -3566,6 +3629,8 @@ const app = createApp({
             currentManifestData,
             formatEnumValue,
             formatManifestValue,
+            hasManifestValue,
+            hasManifestProps,
             formatSceneValue,
             formatWeatherValue,
             manifestShootDuration,
@@ -3579,6 +3644,8 @@ const app = createApp({
             manifestJsonText,
             manifestJsonError,
             manifestOptions,
+            manifestKnownValues,
+            manifestHistoryOptions,
             resetManifestDetailScroll,
             resetManifestEditorScroll,
             queryKnownLocations,
@@ -3587,6 +3654,15 @@ const app = createApp({
             queryKnownSources,
             selectKnownSource,
             syncKnownSource,
+            queryKnownModels,
+            queryKnownThemeNames,
+            queryKnownCharacters,
+            queryKnownVariants,
+            queryKnownReferences,
+            queryKnownOutfits,
+            queryKnownPrimaryPhotographers,
+            queryKnownFixtures,
+            queryKnownLightingNotes,
             gpsImporting: gpsPhotoImport.loading,
             importGpsFromPhoto: gpsPhotoImport.run,
             switchManifestEditorMode,

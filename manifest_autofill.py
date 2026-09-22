@@ -153,6 +153,47 @@ def build_manifest_reference_index(roots):
     locations = {}
     sources = {}
 
+    # Free-text values that benefit from historical suggestions in the editor.
+    # Manifests are processed newest-first, so the first occurrence of a value
+    # becomes the canonical display spelling and the resulting suggestion list
+    # naturally favors recently used values without inventing a new metadata
+    # database.
+    value_keys = (
+        'models',
+        'theme_names',
+        'characters',
+        'variants',
+        'references',
+        'outfits',
+        'assistants',
+        'primary_photographers',
+        'subject_props',
+        'set_props',
+        'fixtures',
+        'modifiers',
+        'lighting_notes',
+    )
+    values = {key: [] for key in value_keys}
+    value_seen = {key: set() for key in value_keys}
+
+    def add_value(key, value):
+        if key not in values:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                add_value(key, item)
+            return
+        if value is None:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        folded = text.casefold()
+        if folded in value_seen[key]:
+            return
+        value_seen[key].add(folded)
+        values[key].append(text)
+
     for _, manifest_path in manifest_rows:
         try:
             with manifest_path.open('r', encoding='utf-8') as handle:
@@ -161,6 +202,16 @@ def build_manifest_reference_index(roots):
             continue
         if not isinstance(data, dict):
             continue
+
+        legacy_model = ''
+        if isinstance(data.get('subjects'), list):
+            subjects = [item for item in data['subjects'] if isinstance(item, dict)]
+            model_subject = next((item for item in subjects if item.get('role') == 'model'), None)
+            if model_subject:
+                legacy_model = model_subject.get('name') or ''
+            elif subjects:
+                legacy_model = subjects[0].get('name') or ''
+        add_value('models', data.get('model') or legacy_model)
 
         location = data.get('location') if isinstance(data.get('location'), dict) else {}
         location_name = str(location.get('name') or '').strip()
@@ -177,6 +228,12 @@ def build_manifest_reference_index(roots):
                     entry[field] = location.get(field)
 
         theme = data.get('theme') if isinstance(data.get('theme'), dict) else {}
+        add_value('theme_names', theme.get('name') or data.get('title'))
+        add_value('characters', theme.get('character'))
+        add_value('variants', theme.get('variant'))
+        add_value('references', theme.get('reference'))
+        add_value('outfits', theme.get('outfit') or theme.get('clothing') or data.get('clothing_name'))
+
         source_title = str(theme.get('source_title') or theme.get('source_ip') or '').strip()
         source_type = theme.get('source_type') or theme.get('source_category') or ''
         if source_title:
@@ -188,7 +245,24 @@ def build_manifest_reference_index(roots):
             if not entry.get('source_type') and source_type:
                 entry['source_type'] = source_type
 
+        production = data.get('production') if isinstance(data.get('production'), dict) else {}
+        add_value('assistants', production.get('assistants'))
+        add_value('primary_photographers', production.get('primary_photographer'))
+
+        props = data.get('props') if isinstance(data.get('props'), dict) else {}
+        add_value('subject_props', props.get('subject'))
+        add_value('set_props', props.get('set'))
+
+        lighting = data.get('lighting') if isinstance(data.get('lighting'), list) else []
+        for light in lighting:
+            if not isinstance(light, dict):
+                continue
+            add_value('fixtures', light.get('fixture'))
+            add_value('modifiers', light.get('modifier'))
+            add_value('lighting_notes', light.get('note'))
+
     return {
         'locations': sorted(locations.values(), key=lambda item: item['name'].casefold()),
         'sources': sorted(sources.values(), key=lambda item: item['title'].casefold()),
+        'values': values,
     }
