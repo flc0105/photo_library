@@ -208,7 +208,15 @@
 
                     <template v-if="isAdmin">
                         <el-button v-if="isLibraryRoot && !isSetDirectory" type="primary" @click="openNewSetDialog">New Set</el-button>
-                        <el-button v-if="isLibraryRoot" @click="openLibraryValidation">Validation</el-button>
+                        <el-dropdown v-if="isLibraryRoot" trigger="click" placement="bottom-end">
+                            <el-button title="Workflow" aria-label="Root Workflow">Workflow</el-button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item @click="openLibraryValidation">Validate</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openManifestArray">Collect Manifests</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                         <el-button v-if="isSetDirectory" @click="openManifestEditor">
                             {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
                         </el-button>
@@ -228,10 +236,9 @@
                         <el-button :disabled="libraryFavoriteCount === 0" @click="exportLibraryFavorites">
                             选图{{ libraryFavoriteCount > 0 ? `(${libraryFavoriteCount})` : '' }}
                         </el-button>
-                        <el-button type="primary"
-                                   :disabled="libraryImages.length === 0"
-                                   :title="libraryImages.length === 0 ? '当前目录没有可分享的图片，请进入包含图片的目录' : '分享当前目录中的图片'"
-                                   @click="openLibraryShareDialog">分享当前目录</el-button>
+                        <el-button v-if="isSetDirectory" type="primary"
+                                   title="分享完整 Set"
+                                   @click="openLibraryShareDialog">Share Set</el-button>
                     </template>
                 </div>
             </div>
@@ -386,26 +393,41 @@
             </div>
         </div>
 
-        <!-- 随机 token 分享页：解锁后完全复用原相册的图片网格 / 瀑布流。 -->
+        <!-- Set 分享页：复用本地目录的文件夹/图片交互，但不暴露编辑或 Workflow。 -->
         <div v-if="currentView === 'library-share'" v-loading="shareLoading">
             <div v-if="shareNeedsPassword" class="share-password-box">
-                <h2 style="margin:0;">{{ libraryShare.title || '分享相册' }}</h2>
+                <h2 style="margin:0;">{{ libraryShare.title || '分享 Set' }}</h2>
                 <el-input v-model="sharePassword" type="password" show-password placeholder="输入分享密码"
                           @keyup.enter="unlockLibraryShare"></el-input>
                 <el-button type="primary" @click="unlockLibraryShare">进入</el-button>
             </div>
 
             <template v-else>
+                <div v-if="libraryShare.listing && libraryShare.listing.parent_path !== null" class="back-button">
+                    <el-button @click="libraryShareBack">返回上一级</el-button>
+                </div>
+
                 <div class="header">
                     <div>
-                        <h1>{{ libraryShare.title || '分享相册' }}</h1>
-                        <div v-if="libraryShare.manifest" class="library-path">
-                            <span v-if="libraryShare.manifest.shoot && libraryShare.manifest.shoot.date">{{ libraryShare.manifest.shoot.date }}</span>
-                            <span v-if="libraryShare.manifest.model"> · {{ libraryShare.manifest.model }}</span>
-                            <span v-if="libraryShare.manifest.location && libraryShare.manifest.location.name"> · {{ libraryShare.manifest.location.name }}</span>
+                        <h1>{{ libraryShare.listing && !libraryShare.listing.is_share_root ? libraryShare.listing.name : (libraryShare.title || '分享 Set') }}</h1>
+                        <div class="library-path">
+                            {{ libraryShare.title || 'Set' }}
+                            <span v-if="libraryShare.listing && !libraryShare.listing.is_share_root"> / {{ libraryShare.listing.path }}</span>
                         </div>
                     </div>
                     <div class="album-actions">
+                        <el-dropdown v-if="shareDirectories.length > 0" trigger="click" placement="bottom-start" style="margin-right:10px;">
+                            <el-button>
+                                <span>{{ folderViewMode === 'grid' ? '目录网格' : '目录列表' }}</span>
+                                <el-icon class="el-icon--right"><arrow-down/></el-icon>
+                            </el-button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item :class="{ 'is-active': folderViewMode === 'grid' }" @click="folderViewMode = 'grid'">目录网格</el-dropdown-item>
+                                    <el-dropdown-item :class="{ 'is-active': folderViewMode === 'list' }" @click="folderViewMode = 'list'">目录列表</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                         <el-dropdown v-if="shareImages.length > 0" trigger="click" placement="bottom-start" style="margin-right:10px;">
                             <el-button>
                                 <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
@@ -424,13 +446,65 @@
                     </div>
                 </div>
 
-                <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
-                    <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
-                    <span>排序: {{ getCurrentSortLabel }}</span>
+                <div v-if="manifestSummary && libraryShare.listing && libraryShare.listing.is_share_root"
+                     class="library-manifest-card library-manifest-summary">
+                    <div class="library-manifest-summary-main">
+                        <div class="library-manifest-title">{{ manifestSummary.title || libraryShare.title || '未命名 Set' }}</div>
+                        <div class="library-manifest-meta">
+                            <span v-if="manifestSummary.date">{{ manifestSummary.date }}</span>
+                            <span v-if="manifestSummary.model">Model: {{ manifestSummary.model }}</span>
+                            <span v-if="manifestSummary.location">Location: {{ manifestSummary.location }}</span>
+                        </div>
+                    </div>
+                    <el-button plain @click="openManifestDetails">Detail</el-button>
                 </div>
 
-                <div v-if="shareImages.length > 0 && viewMode === 'grid'">
-                    <div class="image-grid">
+                <div v-if="shareDirectories.length > 0" class="library-section">
+                    <div v-if="folderViewMode === 'grid'" class="album-grid">
+                        <div v-for="item in shareDirectories" :key="item.relative_path"
+                             class="album-card library-folder-card"
+                             @click="openLibraryShareDirectory(item)">
+                            <img v-if="item.cover_path"
+                                 :src="sharePathAssetUrl(item.cover_path, 'thumbnail')"
+                                 :alt="item.name"
+                                 class="album-cover">
+                            <div v-else class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
+                                <el-icon class="lock-icon"><Folder/></el-icon>
+                                <span class="lock-text">暂无封面</span>
+                            </div>
+                            <div class="album-info">
+                                <div class="album-name">{{ item.name }}</div>
+                                <div class="album-meta library-folder-meta"><span>文件夹</span></div>
+                                <div class="library-folder-stats">{{ formatLibraryFolderCounts(item) }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-else class="library-folder-list">
+                        <div v-for="item in shareDirectories" :key="item.relative_path"
+                             class="library-folder-list-row"
+                             @click="openLibraryShareDirectory(item)">
+                            <div class="library-folder-list-cover">
+                                <img v-if="item.cover_path" :src="sharePathAssetUrl(item.cover_path, 'thumbnail')" :alt="item.name">
+                                <el-icon v-else><Folder/></el-icon>
+                            </div>
+                            <div class="library-folder-list-main">
+                                <div class="library-folder-list-name">{{ item.name }}</div>
+                                <div class="library-folder-list-type">文件夹</div>
+                            </div>
+                            <div class="library-folder-list-stats">{{ formatLibraryFolderCounts(item) }}</div>
+                            <div class="library-folder-list-arrow" aria-hidden="true">›</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="shareImages.length > 0" class="library-section">
+                    <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
+                        <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
+                        <span>排序: {{ getCurrentSortLabel }}</span>
+                    </div>
+
+                    <div v-if="viewMode === 'grid'" class="image-grid">
                         <div v-for="image in filteredImages" :key="image.id" class="image-item" @click="handleImageClick(image.id)">
                             <img :src="shareAssetUrl(image, 'thumbnail')" :alt="image.original_filename" class="image-thumb" />
                             <div v-if="libraryShare.allow_select" class="image-actions" :class="{ 'always-visible': image.is_favorited }">
@@ -443,10 +517,8 @@
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div v-if="shareImages.length > 0 && viewMode === 'waterfall'">
-                    <div class="gallery-waterfall">
+                    <div v-if="viewMode === 'waterfall'" class="gallery-waterfall">
                         <div v-for="image in filteredImages" :key="image.id" class="gallery-item" @click="handleImageClick(image.id)">
                             <img :src="shareAssetUrl(image, 'compressed')"
                                  :alt="image.original_filename"
@@ -483,7 +555,9 @@
                     </div>
                 </div>
 
-                <div v-if="shareImages.length === 0" class="empty-state"><p>这个分享目录没有可预览图片</p></div>
+                <div v-if="shareImages.length === 0" class="empty-state library-directory-state">
+                    <p>{{ shareEmptyMessage }}</p>
+                </div>
             </template>
         </div>
 
@@ -1643,6 +1717,25 @@
             </template>
         </el-dialog>
 
+        <!-- Set 父目录：合并所有 descendant manifest.json，只读预览并复制。 -->
+        <el-dialog v-model="manifestArrayVisible" title="Manifest Array" width="900px">
+            <div v-loading="manifestArrayLoading">
+                <div style="margin-bottom:10px; color:#606266; font-size:13px;">
+                    {{ manifestArrayCount }} manifests · sorted by shoot.date
+                </div>
+                <el-input v-model="manifestArrayText"
+                          type="textarea"
+                          :rows="26"
+                          readonly
+                          resize="vertical"
+                          placeholder="No manifest data"></el-input>
+            </div>
+            <template #footer>
+                <el-button @click="manifestArrayVisible = false">Close</el-button>
+                <el-button type="primary" :disabled="!manifestArrayText" @click="copyManifestArray">Copy</el-button>
+            </template>
+        </el-dialog>
+
         <!-- Completed/Library root validation. Runs only on demand. -->
         <el-dialog v-model="validationVisible" title="Completed Validation" width="1040px" class="library-validation-dialog">
             <div v-loading="validationLoading" class="library-validation-body">
@@ -1738,7 +1831,7 @@
                         <div class="manifest-detail-item"><span>Environment</span><strong>{{ formatEnumValue(currentManifestData.shoot.environment) }}</strong></div>
                         <div class="manifest-detail-item"><span>Scene</span><strong>{{ formatSceneValue(currentManifestData.shoot.scene) }}</strong></div>
                         <div v-if="hasManifestValue(currentManifestData.shoot.weather)" class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.weather) }}</strong></div>
-                        <div v-if="setStatsLoading || (setStats && setStats.same_day_sessions && setStats.same_day_sessions.count > 0)" class="manifest-detail-item manifest-detail-wide">
+                        <div v-if="currentView !== 'library-share' && (setStatsLoading || (setStats && setStats.same_day_sessions && setStats.same_day_sessions.count > 0))" class="manifest-detail-item manifest-detail-wide">
                             <span>Same-day Sessions · calc<template v-if="setStats && setStats.same_day_sessions && setStats.same_day_sessions.count > 0"> ({{ setStats.same_day_sessions.count }})</template></span>
                             <strong v-if="setStatsLoading">Calculating…</strong>
                             <strong v-else-if="setStats && setStats.same_day_sessions">
@@ -1837,7 +1930,7 @@
                     <div v-else class="manifest-empty-value">—</div>
                 </section>
 
-                <section class="manifest-detail-section manifest-derived-section">
+                <section v-if="currentView !== 'library-share'" class="manifest-detail-section manifest-derived-section">
                     <div class="manifest-section-heading">
                         <h3>Files</h3>
                         <span class="manifest-derived-badge">calc</span>
@@ -1853,7 +1946,7 @@
                     <div v-else-if="setStatsError" class="manifest-inline-error">{{ setStatsError }}</div>
                 </section>
 
-                <section class="manifest-detail-section manifest-derived-section">
+                <section v-if="currentView !== 'library-share'" class="manifest-detail-section manifest-derived-section">
                     <div class="manifest-section-heading">
                         <div>
                             <h3>Equipment</h3>
@@ -1879,7 +1972,7 @@
             </div>
             <template #footer>
                 <el-button @click="showManifestDetailDialog = false">Close</el-button>
-                <el-button type="primary" @click="editManifestFromDetail">Edit</el-button>
+                <el-button v-if="currentView !== 'library-share' && isAdmin" type="primary" @click="editManifestFromDetail">Edit</el-button>
             </template>
         </el-dialog>
 
@@ -2225,8 +2318,8 @@
             </template>
         </el-dialog>
 
-        <!-- 当前目录分享 -->
-        <el-dialog v-model="showLibraryShareDialog" title="分享当前目录" width="500px">
+        <!-- 完整 Set 分享 -->
+        <el-dialog v-model="showLibraryShareDialog" title="Share Set" width="500px">
             <el-form label-width="90px">
                 <el-form-item label="标题"><el-input v-model="libraryShareForm.title"></el-input></el-form-item>
                 <el-form-item label="分享密码">

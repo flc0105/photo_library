@@ -699,6 +699,11 @@ const app = createApp({
         const sharePassword = ref('');
         const shareLoading = ref(false);
 
+        const manifestArrayVisible = ref(false);
+        const manifestArrayLoading = ref(false);
+        const manifestArrayText = ref('');
+        const manifestArrayCount = ref(0);
+
         const setSortOrderStorageKey = 'gallery.setSortOrder';
         let savedSetSortOrder = 'newest';
         try {
@@ -766,17 +771,30 @@ const app = createApp({
                 description: item.description || '',
                 is_favorited: !!item.is_favorited
             })));
-        const shareImages = computed(() => (libraryShare.value.images || []).map(item => ({
-            ...item,
-            source_type: 'library-share',
-            share_token: currentShareToken.value,
-            id: `share:${currentShareToken.value}:${item.relative_path}`,
-            original_filename: item.name,
-            file_size: item.size,
-            uploaded_at: item.modified_at,
-            description: item.description || '',
-            is_favorited: !!(item.is_favorited ?? item.selected)
-        })));
+        const shareDirectories = computed(() => (libraryShare.value.listing?.items || [])
+            .filter(item => item.type === 'directory'));
+        const shareImages = computed(() => (libraryShare.value.listing?.items || [])
+            .filter(item => item.type === 'image')
+            .map(item => ({
+                ...item,
+                source_type: 'library-share',
+                share_token: currentShareToken.value,
+                id: `share:${currentShareToken.value}:${item.relative_path}`,
+                original_filename: item.name,
+                file_size: item.size,
+                uploaded_at: item.modified_at,
+                description: item.description || '',
+                is_favorited: !!(item.is_favorited ?? item.selected)
+            })));
+        const shareEmptyMessage = computed(() => {
+            const stats = libraryShare.value.listing?.stats || {};
+            if (shareImages.value.length > 0) return '';
+            if (shareDirectories.value.length > 0) return '当前层没有图片，请进入子文件夹查看。';
+            if ((Number(stats.unsupported_file_count) || 0) > 0) {
+                return `这个目录有 ${stats.unsupported_file_count} 个文件，但没有支持显示的图片。`;
+            }
+            return '这个目录是空的。';
+        });
         const libraryStats = computed(() => libraryListing.value.stats || {
             directory_count: libraryDirectories.value.length,
             image_count: libraryImages.value.length,
@@ -1238,6 +1256,10 @@ const app = createApp({
         };
 
         const currentManifestData = computed(() => {
+            if (currentView.value === 'library-share') {
+                const manifest = libraryShare.value.manifest;
+                return manifest && typeof manifest === 'object' ? normalizeManifest(manifest) : null;
+            }
             const manifest = libraryListing.value.manifest || {};
             return manifest.valid && manifest.data ? normalizeManifest(manifest.data) : null;
         });
@@ -1842,12 +1864,14 @@ const app = createApp({
         const resetManifestEditorScroll = () => resetManifestDialogScroll('manifest-edit-dialog');
 
         const openManifestDetails = () => {
-            if (!isSetDirectory.value || !currentManifestData.value) return;
+            const isShare = currentView.value === 'library-share';
+            if ((!isShare && !isSetDirectory.value) || !currentManifestData.value) return;
             showManifestDetailDialog.value = true;
-            // Render the manifest immediately. Derived counts and equipment are
-            // loaded only after the dialog is visible so a metadata scan never
-            // blocks opening Detail.
-            window.setTimeout(() => void setInsights.loadDetail(), 0);
+            // Public Set shares reuse the same metadata Detail UI but never run
+            // admin-only derived scans or expose edit/workflow actions.
+            if (!isShare) {
+                window.setTimeout(() => void setInsights.loadDetail(), 0);
+            }
         };
 
         const openManifestEditor = async () => {
@@ -1944,9 +1968,47 @@ const app = createApp({
             }
         };
 
+        const openManifestArray = async () => {
+            if (!isLibraryRoot.value || !currentLibrarySource.value) {
+                ElMessage.warning('Manifest Array 只能在 Set 父目录使用');
+                return;
+            }
+            manifestArrayVisible.value = true;
+            manifestArrayLoading.value = true;
+            manifestArrayText.value = '';
+            manifestArrayCount.value = 0;
+            try {
+                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifests`);
+                const data = await response.json();
+                if (!response.ok) {
+                    const details = Array.isArray(data.errors)
+                        ? data.errors.map(item => `${item.path}: ${item.error}`).join('\n')
+                        : '';
+                    throw new Error(details ? `${data.error || '读取 manifest 失败'}\n${details}` : (data.error || '读取 manifest 失败'));
+                }
+                manifestArrayCount.value = Number(data.count) || 0;
+                manifestArrayText.value = JSON.stringify(Array.isArray(data.manifests) ? data.manifests : [], null, 2);
+            } catch (error) {
+                manifestArrayText.value = '';
+                ElMessage.error(error?.message || '读取 manifest 失败');
+            } finally {
+                manifestArrayLoading.value = false;
+            }
+        };
+
+        const copyManifestArray = async () => {
+            if (!manifestArrayText.value) return;
+            try {
+                await navigator.clipboard.writeText(manifestArrayText.value);
+                ElMessage.success(`已复制 ${manifestArrayCount.value} 条 manifest`);
+            } catch (error) {
+                ElMessage.error('复制失败，请在文本框中手动复制');
+            }
+        };
+
         const openLibraryShareDialog = () => {
-            if (libraryImages.value.length === 0) {
-                ElMessage.warning('当前目录没有可分享的图片，请进入包含图片的目录后再分享');
+            if (!isSetDirectory.value) {
+                ElMessage.warning('只能分享完整 Set');
                 return;
             }
             libraryShareForm.value = {
@@ -1988,6 +2050,12 @@ const app = createApp({
             }
         };
 
+        const applyLibrarySharePayload = (data) => {
+            shareNeedsPassword.value = false;
+            libraryShare.value = data;
+            currentView.value = 'library-share';
+        };
+
         const loadLibraryShare = async (token) => {
             currentShareToken.value = token;
             shareLoading.value = true;
@@ -1997,22 +2065,53 @@ const app = createApp({
                 const data = await response.json();
                 if (response.status === 401 && data.needs_password) {
                     shareNeedsPassword.value = true;
-                    libraryShare.value = {title: data.title || '分享相册', images: []};
+                    libraryShare.value = {title: data.title || '分享 Set', listing: {items: []}};
                     return;
                 }
                 if (!response.ok) {
                     ElMessage.error(data.error || '分享链接不可用');
-                    libraryShare.value = {title: '分享不可用', images: []};
+                    libraryShare.value = {title: '分享不可用', listing: {items: []}};
                     return;
                 }
-                shareNeedsPassword.value = false;
-                libraryShare.value = data;
+                applyLibrarySharePayload(data);
             } catch (error) {
                 ElMessage.error('加载分享失败');
+                libraryShare.value = {title: '分享不可用', listing: {items: []}};
             } finally {
                 shareLoading.value = false;
             }
         };
+
+        const loadLibraryShareDirectory = async (path) => {
+            if (!currentShareToken.value) return;
+            shareLoading.value = true;
+            try {
+                const response = await fetch(`/api/library/shares/${encodeURIComponent(currentShareToken.value)}/browse?path=${encodeURIComponent(path || '')}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '目录读取失败');
+                    return;
+                }
+                applyLibrarySharePayload(data);
+                await scrollLibraryPageTop();
+            } catch (error) {
+                ElMessage.error('目录读取失败');
+            } finally {
+                shareLoading.value = false;
+            }
+        };
+
+        const openLibraryShareDirectory = async (item) => {
+            if (!item || item.type !== 'directory') return;
+            await loadLibraryShareDirectory(item.relative_path);
+        };
+
+        const libraryShareBack = async () => {
+            const parent = libraryShare.value.listing?.parent_path;
+            if (parent === null || parent === undefined) return;
+            await loadLibraryShareDirectory(parent);
+        };
+
 
         const unlockLibraryShare = async () => {
             try {
@@ -2033,9 +2132,14 @@ const app = createApp({
             }
         };
 
+        const sharePathAssetUrl = (relativePath, variant = 'thumbnail') => {
+            if (!relativePath) return '';
+            return `/api/library/shares/${encodeURIComponent(currentShareToken.value)}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(relativePath)}`;
+        };
+
         const shareAssetUrl = (item, variant = 'thumbnail') => {
             if (!item) return '';
-            return `/api/library/shares/${encodeURIComponent(currentShareToken.value)}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(item.relative_path)}`;
+            return sharePathAssetUrl(item.relative_path, variant);
         };
 
         const toggleShareSelection = async (item) => {
@@ -2051,7 +2155,7 @@ const app = createApp({
                     ElMessage.error(data.error || '选片失败');
                     return;
                 }
-                const raw = (libraryShare.value.images || []).find(img => img.relative_path === item.relative_path);
+                const raw = (libraryShare.value.listing?.items || []).find(img => img.relative_path === item.relative_path);
                 if (raw) {
                     raw.selected = data.selected;
                     raw.is_favorited = data.selected;
@@ -2059,7 +2163,6 @@ const app = createApp({
                 if (currentImage.value && currentImage.value.source_type === 'library-share' && currentImage.value.relative_path === item.relative_path) {
                     currentImage.value.is_favorited = data.selected;
                 }
-                libraryShare.value.selected_count = data.selected_count;
                 ElMessage.success(data.selected ? '收藏成功' : '取消收藏');
             } catch (error) {
                 ElMessage.error('选片失败');
@@ -2082,10 +2185,13 @@ const app = createApp({
         };
 
         const manifestSummary = computed(() => {
-            if (!isSetDirectory.value || !currentManifestData.value) return null;
+            if (!currentManifestData.value) return null;
+            const isShareRoot = currentView.value === 'library-share' && !!libraryShare.value.listing?.is_share_root;
+            if (!isShareRoot && !isSetDirectory.value) return null;
             const data = currentManifestData.value;
+            const fallbackName = isShareRoot ? (libraryShare.value.title || '') : (libraryListing.value.name || '');
             return {
-                title: data.theme.name || libraryListing.value.name || '',
+                title: data.theme.name || fallbackName,
                 date: data.shoot.date || '',
                 model: data.model || '',
                 location: data.location.name || '',
@@ -3757,6 +3863,12 @@ const app = createApp({
             newSetForm,
             newSetModelOptions,
             setSortOrder,
+            manifestArrayVisible,
+            manifestArrayLoading,
+            manifestArrayText,
+            manifestArrayCount,
+            openManifestArray,
+            copyManifestArray,
             openNewSetDialog,
             createNewSet,
             loadLibrarySources,
@@ -3881,9 +3993,14 @@ const app = createApp({
             shareNeedsPassword,
             sharePassword,
             shareLoading,
+            shareDirectories,
             shareImages,
+            shareEmptyMessage,
             shareSelectedImages,
             unlockLibraryShare,
+            openLibraryShareDirectory,
+            libraryShareBack,
+            sharePathAssetUrl,
             shareAssetUrl,
             toggleShareSelection,
             exportShareSelection,

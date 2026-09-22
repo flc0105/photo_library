@@ -1696,6 +1696,56 @@ def _create_new_set(root, date_text, model, theme):
     }
 
 
+def _collect_manifest_array(root):
+    """Read every descendant manifest.json and return one date-sorted array.
+
+    The operation is read-only and all-or-nothing: a malformed manifest stops
+    the collection so the copied array can never silently omit a Set.
+    """
+    root = Path(root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError('Source 根目录不存在')
+
+    manifest_paths = []
+    for current_root, dir_names, file_names in os.walk(root, followlinks=False):
+        dir_names[:] = [name for name in dir_names if not name.startswith('.')]
+        if MANIFEST_FILENAME in file_names:
+            manifest_paths.append(Path(current_root) / MANIFEST_FILENAME)
+
+    manifest_paths.sort(key=lambda path: path.relative_to(root).as_posix().casefold())
+    manifests = []
+    errors = []
+    for path in manifest_paths:
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(data, dict):
+                raise ValueError('manifest 根节点必须是 JSON object')
+            manifests.append((path, data))
+        except Exception as exc:
+            errors.append({
+                'path': path.relative_to(root).as_posix(),
+                'error': str(exc),
+            })
+
+    if errors:
+        error = ValueError('存在无法解析的 manifest.json')
+        error.manifest_errors = errors
+        raise error
+
+    def sort_key(item):
+        path, data = item
+        shoot = data.get('shoot') if isinstance(data.get('shoot'), dict) else {}
+        date_text = str(shoot.get('date') or '').strip()
+        try:
+            date_value = datetime.strptime(date_text, '%Y-%m-%d').date()
+        except ValueError:
+            date_value = datetime.max.date()
+        return (date_value, path.relative_to(root).as_posix().casefold())
+
+    manifests.sort(key=sort_key)
+    return [data for _, data in manifests]
+
+
 def _library_state_map(source_id, relative_paths):
     paths = [p for p in relative_paths if p]
     if not paths:
@@ -2149,6 +2199,33 @@ def create_library_set(source_id):
         return jsonify({'error': f'创建 Set 失败: {exc}'}), 500
 
 
+@app.route('/api/library/sources/<int:source_id>/manifests', methods=['GET'])
+def collect_library_manifests(source_id):
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+    source = _get_library_source(source_id)
+    if not source:
+        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+    try:
+        root, _, _ = _resolve_library_path(source, '')
+        manifests = _collect_manifest_array(root)
+        payload = {'count': len(manifests), 'manifests': manifests}
+        # Use json.dumps directly so hand-maintained manifest key order survives
+        # the round-trip into the copyable textarea.
+        return app.response_class(
+            json.dumps(payload, ensure_ascii=False),
+            mimetype='application/json'
+        )
+    except ValueError as exc:
+        errors = getattr(exc, 'manifest_errors', None)
+        if errors:
+            return jsonify({'error': str(exc), 'errors': errors}), 400
+        return jsonify({'error': str(exc)}), 400
+    except (FileNotFoundError, OSError) as exc:
+        return jsonify({'error': str(exc)}), 400
+
+
 @app.route('/api/library/sources/<int:source_id>/asset', methods=['GET'])
 def get_library_asset(source_id):
     denied = _library_admin_guard()
@@ -2401,6 +2478,49 @@ def rename_library_image(source_id):
         return jsonify({'error': str(exc)}), 400
 
 
+def _share_contains_path(share, relative_path):
+    base = _normalize_relative_path(share['relative_path'])
+    requested = _normalize_relative_path(relative_path)
+    return requested == base or bool(base and requested.startswith(base + '/'))
+
+
+def _shared_directory_listing(share, requested_path=None):
+    """Return one browsable directory inside a Set share without leaking Source paths."""
+    source = _share_source_dict(share)
+    base = _normalize_relative_path(share['relative_path'])
+    requested = base if requested_path in (None, '') else _normalize_relative_path(requested_path)
+    if not _share_contains_path(share, requested):
+        raise ValueError('目录不属于该分享 Set')
+
+    listing = _list_library_directory(source, requested)
+    parent = listing.get('parent_path')
+    if requested == base:
+        parent = None
+    elif parent and not _share_contains_path(share, parent):
+        parent = base
+
+    # Public payload deliberately omits Source root_path. Item paths stay
+    # Source-relative because the asset endpoints already validate them against
+    # the shared Set boundary.
+    return {
+        'path': listing.get('path') or base,
+        'parent_path': parent,
+        'name': listing.get('name') or share['title'],
+        'is_share_root': requested == base,
+        'items': listing.get('items') or [],
+        'stats': listing.get('stats') or {},
+    }
+
+
+def _share_manifest_data(share):
+    source = _share_source_dict(share)
+    _, set_dir, _ = _resolve_library_path(source, share['relative_path'])
+    manifest = _read_manifest(set_dir)
+    if manifest and manifest.get('valid'):
+        return manifest.get('data')
+    return None
+
+
 @app.route('/api/library/shares', methods=['POST'])
 def create_library_share():
     denied = _library_admin_guard()
@@ -2413,11 +2533,11 @@ def create_library_share():
         return jsonify({'error': 'Source 不存在或已禁用'}), 404
     try:
         _, target, rel = _resolve_library_path(source, data.get('relative_path', ''))
-        if not target.is_dir():
-            return jsonify({'error': '只能分享目录'}), 400
-        listing = _list_library_directory(source, rel)
-        if listing.get('stats', {}).get('image_count', 0) <= 0:
-            return jsonify({'error': '当前目录没有可分享的图片，请进入包含图片的目录后再分享'}), 400
+        if not target.is_dir() or not _is_set_folder_name(target.name):
+            return jsonify({'error': '只能分享完整 Set'}), 400
+        counts = _directory_content_counts(target)
+        if counts.get('image_count', 0) <= 0:
+            return jsonify({'error': '当前 Set 没有可分享的图片'}), 400
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
     token = secrets.token_urlsafe(24)
@@ -2468,29 +2588,38 @@ def get_library_share(token):
         return jsonify({'error': '分享不存在'}), 404
     if share['password_hash'] and not _share_is_authorized(share):
         return jsonify({'error': '需要密码', 'needs_password': True, 'title': share['title']}), 401
-    source = _share_source_dict(share)
     try:
-        listing = _list_library_directory(source, share['relative_path'])
+        listing = _shared_directory_listing(share)
+        manifest_data = _share_manifest_data(share)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 404
-    images = []
-    for item in listing['items']:
-        if item['type'] == 'image':
-            item = dict(item)
-            # 分享页的“选中”就是这张本地图片本身的全局收藏状态。
-            item['selected'] = bool(item.get('is_favorited'))
-            images.append(item)
-    manifest = listing.get('manifest') or {}
-    manifest_data = manifest.get('data') if manifest.get('valid') else None
     return jsonify({
         'token': token,
         'title': share['title'],
         'allow_select': bool(share['allow_select']),
         'has_password': bool(share['password_hash']),
-        'images': images,
+        'listing': listing,
         'manifest': manifest_data,
-        'selected_count': sum(1 for item in images if item['selected'])
     })
+
+
+@app.route('/api/library/shares/<token>/browse', methods=['GET'])
+def browse_library_share(token):
+    share = _share_row(token)
+    if not share or not _share_is_authorized(share):
+        return jsonify({'error': '无权访问'}), 401
+    try:
+        listing = _shared_directory_listing(share, request.args.get('path', ''))
+        return jsonify({
+            'token': token,
+            'title': share['title'],
+            'allow_select': bool(share['allow_select']),
+            'has_password': bool(share['password_hash']),
+            'listing': listing,
+            'manifest': _share_manifest_data(share),
+        })
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 404
 
 
 @app.route('/api/library/shares/<token>/asset', methods=['GET'])
@@ -2502,11 +2631,8 @@ def get_library_share_asset(token):
     requested = request.args.get('path', '')
     try:
         requested_rel = _normalize_relative_path(requested)
-        base = _normalize_relative_path(share['relative_path'])
-        if base and not (requested_rel == base or requested_rel.startswith(base + '/')):
-            raise ValueError('资源不属于该分享')
-        if '/'.join(requested_rel.split('/')[:-1]) != base:
-            raise ValueError('资源不属于该分享目录')
+        if not _share_contains_path(share, requested_rel):
+            raise ValueError('资源不属于该分享 Set')
         file_path = _make_library_variant(source, requested_rel, request.args.get('variant', 'compressed'))
         return send_file(file_path)
     except Exception as exc:
@@ -2521,9 +2647,8 @@ def get_library_share_image_info(token):
     source = _share_source_dict(share)
     try:
         requested_rel = _normalize_relative_path(request.args.get('path', ''))
-        base = _normalize_relative_path(share['relative_path'])
-        if '/'.join(requested_rel.split('/')[:-1]) != base:
-            raise ValueError('图片不属于该分享目录')
+        if not _share_contains_path(share, requested_rel):
+            raise ValueError('图片不属于该分享 Set')
         info = _library_image_info(source, requested_rel)
         info['source_type'] = 'library-share'
         info['share_token'] = token
@@ -2541,9 +2666,8 @@ def get_library_share_exif(token):
     source = _share_source_dict(share)
     try:
         requested_rel = _normalize_relative_path(request.args.get('path', ''))
-        base = _normalize_relative_path(share['relative_path'])
-        if '/'.join(requested_rel.split('/')[:-1]) != base:
-            raise ValueError('图片不属于该分享目录')
+        if not _share_contains_path(share, requested_rel):
+            raise ValueError('图片不属于该分享 Set')
         _, target, _ = _resolve_library_path(source, requested_rel)
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
             raise FileNotFoundError('图片不存在')
@@ -2562,9 +2686,8 @@ def toggle_library_share_selection(token):
     data = request.get_json(silent=True) or {}
     try:
         requested_rel = _normalize_relative_path(data.get('relative_path', ''))
-        base = _normalize_relative_path(share['relative_path'])
-        if '/'.join(requested_rel.split('/')[:-1]) != base:
-            raise ValueError('图片不属于该分享目录')
+        if not _share_contains_path(share, requested_rel):
+            raise ValueError('图片不属于该分享 Set')
         source = _share_source_dict(share)
         _, target, _ = _resolve_library_path(source, requested_rel)
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
@@ -2572,9 +2695,7 @@ def toggle_library_share_selection(token):
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
     selected = _set_library_favorite(share['source_id'], requested_rel)
-    listing = _list_library_directory(source, base)
-    count = sum(1 for item in listing['items'] if item['type'] == 'image' and item.get('is_favorited'))
-    return jsonify({'selected': selected, 'is_favorited': selected, 'selected_count': count})
+    return jsonify({'selected': selected, 'is_favorited': selected})
 
 
 # Advanced per-Set workflow tools live in a separate module so the gallery core
