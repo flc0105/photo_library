@@ -19,8 +19,8 @@ from manifest_autofill import get_datetime_original
 
 
 _IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png')
-_IMPORT_JPEG_EXTENSIONS = {'.jpg', '.jpeg'}
-_IMPORT_RAW_EXTENSIONS = {'.cr3', '.cr2', '.nef', '.arw', '.raf', '.dng', '.rw2', '.orf', '.pef', '.3fr', '.iiq', '.rwl', '.srw'}
+_IMPORT_JPEG_EXTENSIONS = {'.jpg'}
+_IMPORT_RAW_EXTENSIONS = {'.cr3'}
 _SET_RE = __import__('re').compile(r'^\d{8}-.+-.+$')
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
@@ -232,13 +232,10 @@ def _photo_import_source_dirs(source_root, shoot_date):
     root = root.resolve()
     if not root.is_dir():
         raise FileNotFoundError(f'Source Root 不存在: {root}')
-    jpg_dir = root / 'JPG' / shoot_date
-    raw_dir = root / 'RAW' / shoot_date
-    if not jpg_dir.is_dir():
-        raise FileNotFoundError(f'找不到当天 JPG 目录: {jpg_dir}')
-    if not raw_dir.is_dir():
-        raise FileNotFoundError(f'找不到当天 RAW 目录: {raw_dir}')
-    return root, jpg_dir, raw_dir
+    date_dir = root / shoot_date
+    if not date_dir.is_dir():
+        raise FileNotFoundError(f'找不到当天导出目录: {date_dir}')
+    return root, date_dir, date_dir
 
 
 def _photo_import_sample(file_ids, records):
@@ -283,7 +280,7 @@ def _build_photo_import_plan(source_id, set_dir: Path, set_rel: str, source_root
         key=lambda path: path.name.casefold(),
     )
     if not jpg_files:
-        raise ValueError(f'当天 JPG 目录没有 JPG/JPEG: {jpg_dir}')
+        raise ValueError(f'当天导出目录没有 JPG: {jpg_dir}')
 
     records = {}
     known = []
@@ -1856,7 +1853,7 @@ def create_workflow_blueprint(admin_guard, get_source, resolve_path, get_db_conn
                 source_id,
                 set_dir,
                 set_rel,
-                data.get('source_root') or '/Users/flc/Pictures/',
+                data.get('source_root') or '/Users/flc/Pictures/Camera Exports/',
                 data.get('gap_minutes', 30),
             )
             plan_id = _remember_plan(plan)

@@ -225,12 +225,12 @@
                             <template #dropdown>
                                 <el-dropdown-menu>
                                     <el-dropdown-item @click="openPhotoImportTool">Import Photos</el-dropdown-item>
-                                    <el-dropdown-item divided @click="openImageInspectionTool">Image Check</el-dropdown-item>
+                                    <el-dropdown-item @click="openSyncJpgByRawTool">Delete Extra JPG</el-dropdown-item>
+                                    <el-dropdown-item @click="openSyncRawByJpgTool">Delete Extra RAW</el-dropdown-item>
+                                    <el-dropdown-item @click="openSelectRawTool">Pick RAW</el-dropdown-item>
                                     <el-dropdown-item divided @click="openVisualRenameTool">Match Rename</el-dropdown-item>
                                     <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
-                                    <el-dropdown-item divided @click="openSyncJpgByRawTool">Delete Extra JPG</el-dropdown-item>
-                                    <el-dropdown-item @click="openSyncRawByJpgTool">Delete Extra RAW</el-dropdown-item>
-                                    <el-dropdown-item divided @click="openSelectRawTool">Pick RAW</el-dropdown-item>
+                                    <el-dropdown-item @click="openImageInspectionTool">Image Check</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -1399,7 +1399,7 @@
                     <div class="workflow-toolbar-row">
                         <div class="workflow-toolbar-copy">
                             <strong>02_Base_Edit → 03_Model_Edit</strong>
-                            <span>保持原 Qt 逻辑：pHash 相似度、最高匹配、阈值过滤、冲突时追加 _1/_2。</span>
+                            <span>按图像相似度将 03_Model_Edit 匹配到 02_Base_Edit，并按匹配结果统一文件名；低于阈值的结果保持不动。</span>
                         </div>
                         <div class="workflow-threshold-control">
                             <span>Threshold</span>
@@ -1440,7 +1440,7 @@
                 <template v-else-if="workflowPreviewKind === 'discard_unreturned_base'">
                     <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
                         <strong>02_Base_Edit → 02_Base_Edit/discards</strong>
-                        <span>按文件 stem 对照 03_Model_Edit；Model Edit 顶层没有同 stem 的 Base 图会移入 discards。只检查两个阶段顶层的 JPG/JPEG/PNG，不扫描 Ready、discards 等子目录。建议先完成 Visual Rename。</span>
+                        <span>按文件 stem 对照 03_Model_Edit；未返图的 02_Base_Edit 顶层图片会移入 discards。只检查两个阶段顶层，不扫描 Ready、discards 等子目录；建议先完成 Match Rename。</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
@@ -1473,8 +1473,8 @@
 
                 <template v-else-if="workflowPreviewKind === 'sync_originals'">
                     <div v-if="workflowPreviewData" class="workflow-warning-box">
-                        <strong>{{ workflowPreviewData.direction === 'raw_by_jpg' ? 'RAW 以 JPG 为准' : 'JPG 以 RAW 为准' }}</strong>
-                        <span>预览中的多余文件执行时先移动到 <code>Deleted</code>，随后将整个 <code>Deleted</code> 移入系统回收站。不会永久删除。</span>
+                        <strong>{{ workflowPreviewData.direction === 'raw_by_jpg' ? 'Delete Extra RAW' : 'Delete Extra JPG' }}</strong>
+                        <span>{{ workflowPreviewData.direction === 'raw_by_jpg' ? '以 JPG 为基准，找出没有同 stem JPG 的多余 RAW。' : '以 RAW 为基准，找出没有同 stem RAW 的多余 JPG。' }}执行时先移入 <code>Deleted</code>，再将 <code>Deleted</code> 移入系统回收站，不永久删除。</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Target <strong>{{ workflowPreviewData.summary.target_count }}</strong></span>
@@ -1725,7 +1725,7 @@
                     <div style="flex:1; min-width:440px;">
                         <div style="font-size:12px; color:#606266; margin-bottom:5px;">Source Root</div>
                         <el-input v-model="photoImportForm.source_root"
-                                  placeholder="/Users/flc/Pictures/"
+                                  placeholder="/Users/flc/Pictures/Camera Exports/"
                                   @keyup.enter="previewPhotoImport"></el-input>
                     </div>
                     <div style="width:150px;">
@@ -1746,8 +1746,7 @@
                 <template v-if="photoImportPlan">
                     <div style="padding:10px 12px; background:#f5f7fa; border-radius:6px; margin-bottom:14px; font-size:12px; line-height:1.7; color:#606266;">
                         <div><strong>{{ photoImportPlan.shoot_date }}</strong> · {{ photoImportPlan.jpg_count }} JPG · Gap {{ photoImportPlan.gap_minutes }} min</div>
-                        <div>JPG: {{ photoImportPlan.jpg_dir }}</div>
-                        <div>RAW: {{ photoImportPlan.raw_dir }}</div>
+                        <div>Source: {{ photoImportPlan.jpg_dir }}</div>
                     </div>
 
                     <el-checkbox-group v-model="photoImportSelectedGroups">

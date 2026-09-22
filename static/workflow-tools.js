@@ -19,7 +19,7 @@
         const photoImportLoading = ref(false);
         const photoImportExecuting = ref(false);
         const photoImportForm = ref({
-            source_root: '/Users/flc/Pictures/',
+            source_root: '/Users/flc/Pictures/Camera Exports/',
             gap_minutes: 30
         });
         const photoImportPlan = ref(null);
@@ -124,7 +124,7 @@
 
         const openVisualRename = async () => {
             previewKind.value = 'visual_rename';
-            previewTitle.value = 'Visual Rename · Model Edit';
+            previewTitle.value = 'Match Rename';
             threshold.value = 0.8;
             previewData.value = null;
             previewVisible.value = true;
@@ -140,7 +140,7 @@
                 return;
             }
             previewKind.value = 'discard_unreturned_base';
-            previewTitle.value = 'Base 未返图 → Discards';
+            previewTitle.value = 'Discard Unreturned';
             previewData.value = null;
             previewVisible.value = true;
             previewLoading.value = true;
@@ -167,8 +167,8 @@
             }
             previewKind.value = 'sync_originals';
             previewTitle.value = direction === 'raw_by_jpg'
-                ? 'Sync RAW · 以 JPG 为准'
-                : 'Sync JPG · 以 RAW 为准';
+                ? 'Delete Extra RAW'
+                : 'Delete Extra JPG';
             previewData.value = null;
             previewVisible.value = true;
             previewLoading.value = true;
@@ -255,7 +255,7 @@
                 return;
             }
             photoImportForm.value = {
-                source_root: '/Users/flc/Pictures/',
+                source_root: '/Users/flc/Pictures/Camera Exports/',
                 gap_minutes: 30
             };
             photoImportPlan.value = null;
