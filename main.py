@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PIL import Image
-from flask import Flask, request, jsonify, send_file, session
+from flask import Flask, request, jsonify, send_file, send_from_directory, session
 from flask_cors import CORS
 
 from auth_utils import verify_auth_token, generate_auth_token, album_token_expire_minutes, generate_admin_token, \
@@ -51,12 +51,9 @@ def index():
 # 可选的：服务静态文件（如果需要额外的CSS/JS文件）
 @app.route('/<path:path>')
 def serve_static(path):
-    if os.path.exists('static/' + path):
-        # Development/local deployment: always revalidate static frontend files.
-        # This prevents index.html/app.js version skew after replacing a test build.
-        return send_file('static/' + path, max_age=0)
-    else:
-        return "File not found", 404
+    # send_from_directory performs safe path joining and rejects traversal outside
+    # the static directory (for example ../gallery.db or encoded variants).
+    return send_from_directory(app.static_folder, path, max_age=0)
 
 
 # 配置
@@ -1283,9 +1280,25 @@ def verify_admin_token_api():
 
 #config
 
+def _site_config_admin_guard():
+    # The normal browser login establishes this same-origin session.  Keep
+    # X-Admin-Token support for direct/API access as well.
+    if session.get('gallery_admin') is True:
+        return None
+
+    token = request.headers.get('X-Admin-Token')
+    if token and verify_admin_token(token):
+        return None
+
+    return jsonify({'error': '需要管理员权限'}), 401
+
 # 获取所有配置（管理员专用）
 @app.route('/api/site-config', methods=['GET'])
 def get_site_config():
+    denied = _site_config_admin_guard()
+    if denied:
+        return denied
+
     conn = get_db_connection()
     configs = conn.execute('SELECT key, value FROM site_config').fetchall()
     conn.close()
@@ -1297,6 +1310,10 @@ def get_site_config():
 # 更新配置（管理员专用）
 @app.route('/api/site-config', methods=['PUT'])
 def update_site_config():
+    denied = _site_config_admin_guard()
+    if denied:
+        return denied
+
     data = request.get_json()
     if not isinstance(data, dict):
         return jsonify({'error': '配置数据格式错误'}), 400
@@ -1337,9 +1354,13 @@ def update_site_config():
     return jsonify({'success': True, 'message': '配置更新成功'})
 
 
-# 获取特定配置（公开）
+# 获取特定配置（管理员专用）
 @app.route('/api/site-config/<string:key>', methods=['GET'])
 def get_site_config_by_key(key):
+    denied = _site_config_admin_guard()
+    if denied:
+        return denied
+
     conn = get_db_connection()
     config = conn.execute(
         'SELECT value FROM site_config WHERE key = ?',
