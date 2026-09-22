@@ -758,6 +758,70 @@ const app = createApp({
             note: ''
         });
 
+        // Only known manifest fields have a canonical order. Custom fields
+        // (for example a future `project`) are preserved in the exact slot
+        // where the user inserted them. Missing optional fields are not added.
+        const manifestKeyOrders = {
+            root: ['model', 'shoot', 'location', 'theme', 'production', 'props', 'lighting'],
+            shoot: ['date', 'start_time', 'end_time', 'environment', 'scene', 'weather', 'additional_session'],
+            additional_session: ['date', 'start_time', 'end_time', 'weather'],
+            location: ['name', 'address', 'lat', 'lng'],
+            theme: ['name', 'genre', 'source_title', 'source_type', 'character', 'variant', 'reference_type', 'reference', 'outfit'],
+            // Optional credits stay at the end when they exist.
+            production: ['collaboration_type', 'lead_photographer', 'model_fee', 'venue_fee', 'venue_fee_payer', 'primary_photographer', 'assistants'],
+            props: ['subject', 'set'],
+            lighting: ['role', 'light_type', 'fixture', 'modifier', 'count', 'position', 'note']
+        };
+
+        const orderKnownKeysPreservingUnknownPositions = (value, preferredOrder) => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+            const preferred = preferredOrder.filter(key => Object.prototype.hasOwnProperty.call(value, key));
+            const preferredSet = new Set(preferredOrder);
+            let preferredIndex = 0;
+            const result = {};
+            Object.keys(value).forEach(key => {
+                if (preferredSet.has(key)) {
+                    const orderedKey = preferred[preferredIndex++];
+                    result[orderedKey] = value[orderedKey];
+                } else {
+                    result[key] = value[key];
+                }
+            });
+            return result;
+        };
+
+        const orderManifestKeys = (payload) => {
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+            const result = {...payload};
+
+            if (result.shoot && typeof result.shoot === 'object' && !Array.isArray(result.shoot)) {
+                const shoot = {...result.shoot};
+                if (shoot.additional_session && typeof shoot.additional_session === 'object' && !Array.isArray(shoot.additional_session)) {
+                    shoot.additional_session = orderKnownKeysPreservingUnknownPositions(
+                        shoot.additional_session,
+                        manifestKeyOrders.additional_session
+                    );
+                }
+                result.shoot = orderKnownKeysPreservingUnknownPositions(shoot, manifestKeyOrders.shoot);
+            }
+
+            ['location', 'theme', 'production', 'props'].forEach(section => {
+                if (result[section] && typeof result[section] === 'object' && !Array.isArray(result[section])) {
+                    result[section] = orderKnownKeysPreservingUnknownPositions(result[section], manifestKeyOrders[section]);
+                }
+            });
+
+            if (Array.isArray(result.lighting)) {
+                result.lighting = result.lighting.map(item => (
+                    item && typeof item === 'object' && !Array.isArray(item)
+                        ? orderKnownKeysPreservingUnknownPositions(item, manifestKeyOrders.lighting)
+                        : item
+                ));
+            }
+
+            return orderKnownKeysPreservingUnknownPositions(result, manifestKeyOrders.root);
+        };
+
         const normalizeManifest = (raw = {}) => {
             const data = raw && typeof raw === 'object' ? raw : {};
             const legacyModel = Array.isArray(data.subjects)
@@ -860,7 +924,8 @@ const app = createApp({
             const lighting = Array.isArray(payload.lighting)
                 ? payload.lighting.map(light => {
                     const item = light && typeof light === 'object' && !Array.isArray(light) ? light : {};
-                    return {
+                    return orderKnownKeysPreservingUnknownPositions({
+                        ...item,
                         role: manifestOptions.role.includes(item.role) ? item.role : '',
                         light_type: item.light_type ?? '',
                         fixture: item.fixture ?? '',
@@ -868,11 +933,11 @@ const app = createApp({
                         count: item.count ?? 1,
                         position: item.position ?? '',
                         note: item.note ?? ''
-                    };
+                    }, manifestKeyOrders.lighting);
                 })
                 : payload.lighting;
 
-            return {...payload, theme, ...(Array.isArray(lighting) ? {lighting} : {})};
+            return orderManifestKeys({...payload, theme, ...(Array.isArray(lighting) ? {lighting} : {})});
         };
 
         const serializeManifestForm = () => {
@@ -915,7 +980,7 @@ const app = createApp({
                 if (form.production.assistants.length) {
                     production.assistants = [...form.production.assistants];
                 }
-            } else {
+            } else if (form.production.primary_photographer) {
                 production.primary_photographer = form.production.primary_photographer;
             }
 
@@ -1005,6 +1070,9 @@ const app = createApp({
                 }
             } else {
                 delete nextProduction.assistants;
+                if (!formPayload.production.primary_photographer) {
+                    delete nextProduction.primary_photographer;
+                }
             }
             merged.production = nextProduction;
             merged.props = {
@@ -1025,7 +1093,7 @@ const app = createApp({
                 note: light.note
             }));
 
-            return merged;
+            return orderManifestKeys(merged);
         };
 
         const syncManifestJsonFromForm = () => {
@@ -1056,7 +1124,7 @@ const app = createApp({
         const formatManifestJson = () => {
             const parsed = parseManifestJsonText();
             if (!parsed) return;
-            manifestJsonText.value = JSON.stringify(parsed, null, 2);
+            manifestJsonText.value = JSON.stringify(orderManifestKeys(parsed), null, 2);
         };
 
         const currentManifestData = computed(() => {
@@ -1693,7 +1761,7 @@ const app = createApp({
             // to the suggested object.
             manifestJsonText.value = manifest.valid && typeof manifest.raw === 'string'
                 ? manifest.raw
-                : JSON.stringify(data, null, 2);
+                : JSON.stringify(orderManifestKeys(data), null, 2);
             manifestJsonError.value = '';
             showManifestDialog.value = true;
 
@@ -1732,10 +1800,19 @@ const app = createApp({
                     ElMessage.error('JSON 格式有误，无法保存');
                     return;
                 }
-                // Raw JSON mode is intentionally pass-through: do not normalize or
-                // strip fields that are not represented by the structured Form.
+                // Raw JSON stays pass-through for values/custom fields; only the
+                // agreed known-field order is enforced.
+                payload = orderManifestKeys(payload);
             } else {
-                payload = applyManifestStorageRules(serializeManifestForm());
+                const formPayload = applyManifestStorageRules(serializeManifestForm());
+                const currentRaw = parseManifestJsonText();
+                if (!currentRaw) {
+                    ElMessage.error('当前 JSON 格式有误，不能安全保留自定义字段');
+                    return;
+                }
+                // Merge Form-owned fields back into the raw manifest so custom
+                // fields (e.g. project/workflow) survive Form saves unchanged.
+                payload = applyManifestStorageRules(mergeManifestFormIntoRaw(currentRaw, formPayload));
             }
             try {
                 const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/manifest?path=${encodeURIComponent(manifestEditPath.value || '')}`, {

@@ -1359,6 +1359,101 @@ def get_site_config_by_key(key):
 LIBRARY_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff'}
 MANIFEST_FILENAME = 'manifest.json'
 
+# Canonical manifest key order. Unknown/custom fields are deliberately NOT
+# listed here: they are preserved at their existing position while only the
+# known fields are re-ordered around them.
+_MANIFEST_KEY_ORDERS = {
+    'root': (
+        'model', 'shoot', 'location', 'theme', 'production', 'props', 'lighting'
+    ),
+    'shoot': (
+        'date', 'start_time', 'end_time', 'environment', 'scene', 'weather',
+        'additional_session'
+    ),
+    'additional_session': ('date', 'start_time', 'end_time', 'weather'),
+    'location': ('name', 'address', 'lat', 'lng'),
+    'theme': (
+        'name', 'genre', 'source_title', 'source_type', 'character', 'variant',
+        'reference_type', 'reference', 'outfit'
+    ),
+    # Credits are optional and intentionally come last when present.
+    'production': (
+        'collaboration_type', 'lead_photographer', 'model_fee', 'venue_fee',
+        'venue_fee_payer', 'primary_photographer', 'assistants'
+    ),
+    'props': ('subject', 'set'),
+    'lighting': (
+        'role', 'light_type', 'fixture', 'modifier', 'count', 'position', 'note'
+    ),
+}
+
+
+def _order_known_keys_preserving_unknown_positions(mapping, preferred_order):
+    """Re-order known keys without moving or deleting unknown/custom keys.
+
+    Example:
+        {'lighting': ..., 'project': ..., 'model': ...}
+    becomes:
+        {'model': ..., 'project': ..., 'lighting': ...}
+
+    `project` stays in the slot where the user inserted it. Missing optional
+    keys are never created.
+    """
+    if not isinstance(mapping, dict):
+        return mapping
+
+    preferred = [key for key in preferred_order if key in mapping]
+    preferred_set = set(preferred_order)
+    preferred_iter = iter(preferred)
+    result = {}
+    for key, value in mapping.items():
+        if key in preferred_set:
+            ordered_key = next(preferred_iter)
+            result[ordered_key] = mapping[ordered_key]
+        else:
+            result[key] = value
+    return result
+
+
+def _order_manifest_keys(payload):
+    """Apply canonical ordering to known manifest fields only."""
+    if not isinstance(payload, dict):
+        return payload
+
+    result = dict(payload)
+
+    shoot = result.get('shoot')
+    if isinstance(shoot, dict):
+        shoot = dict(shoot)
+        additional = shoot.get('additional_session')
+        if isinstance(additional, dict):
+            shoot['additional_session'] = _order_known_keys_preserving_unknown_positions(
+                additional, _MANIFEST_KEY_ORDERS['additional_session']
+            )
+        result['shoot'] = _order_known_keys_preserving_unknown_positions(
+            shoot, _MANIFEST_KEY_ORDERS['shoot']
+        )
+
+    for section in ('location', 'theme', 'production', 'props'):
+        value = result.get(section)
+        if isinstance(value, dict):
+            result[section] = _order_known_keys_preserving_unknown_positions(
+                value, _MANIFEST_KEY_ORDERS[section]
+            )
+
+    lighting = result.get('lighting')
+    if isinstance(lighting, list):
+        result['lighting'] = [
+            _order_known_keys_preserving_unknown_positions(
+                item, _MANIFEST_KEY_ORDERS['lighting']
+            ) if isinstance(item, dict) else item
+            for item in lighting
+        ]
+
+    return _order_known_keys_preserving_unknown_positions(
+        result, _MANIFEST_KEY_ORDERS['root']
+    )
+
 
 def _is_admin_request():
     # Library 图片会被 <img> 直接请求，所以同时支持管理员 session 与旧 X-Admin-Token。
@@ -2037,6 +2132,10 @@ def save_library_manifest(source_id):
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({'error': 'manifest 必须是 JSON object'}), 400
+    # Enforce only the agreed ordering. Custom fields stay exactly where the
+    # user inserted them relative to the available slots, and no missing
+    # optional field is synthesized.
+    payload = _order_manifest_keys(payload)
     try:
         root, target, rel = _resolve_library_path(source, request.args.get('path', ''))
         if not target.is_dir():
