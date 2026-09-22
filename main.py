@@ -137,6 +137,7 @@ def init_db():
         ('password', hashlib.md5('admin'.encode()).hexdigest()),  # 管理员密码
         ('allow_guest_upload', '0'),  # 游客是否可上传，0=否，1=是
         ('show_exif_on_hover', '1'),  # 新增：默认显示EXIF
+        ('show_library_folder_covers', '1'),  # 映射目录封面，1=显示，0=仅 Folder icon
     ]
 
     for key, value in default_configs:
@@ -1873,35 +1874,110 @@ def _library_image_info(source, relative_path):
     }
 
 
-def _directory_cover_path(root, directory, direct_manifest=None):
-    """Return a displayable cover image path relative to the Source root, or None.
+LIBRARY_COVER_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
-    Folder cards intentionally use the same cover behavior as normal albums: if a
-    cover exists, show it; otherwise the frontend shows the standard Folder icon.
-    A manifest cover is authoritative. As a small convenience, a directly-contained
-    displayable image is used when no explicit cover is configured.
+
+def _site_config_enabled(key, default=True):
+    """Read one boolean site setting without exposing it to the browser."""
+    conn = get_db_connection()
+    row = conn.execute('SELECT value FROM site_config WHERE key = ?', (key,)).fetchone()
+    conn.close()
+    if row is None:
+        return default
+    return str(row['value']).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _first_cover_image(directory, recursive=False):
+    """Return the first deterministic JPG/PNG candidate without decoding it."""
+    directory = Path(directory)
+    try:
+        if recursive:
+            candidates = (
+                path for path in directory.rglob('*')
+                if path.is_file()
+                and not any(part.startswith('.') for part in path.relative_to(directory).parts)
+                and path.suffix.lower() in LIBRARY_COVER_EXTENSIONS
+            )
+        else:
+            candidates = (
+                path for path in directory.iterdir()
+                if path.is_file() and path.suffix.lower() in LIBRARY_COVER_EXTENSIONS
+            )
+        return min(candidates, key=lambda path: path.relative_to(directory).as_posix().casefold(), default=None)
+    except OSError:
+        return None
+
+
+def _is_inside_set(root, directory):
+    """Whether a directory is a Set itself or lies below a Set folder."""
+    root = Path(root).resolve()
+    current = Path(directory).resolve()
+    while True:
+        if _is_set_folder_name(current.name):
+            return True
+        if current == root:
+            return False
+        try:
+            current.relative_to(root)
+        except ValueError:
+            return False
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
+def _directory_cover_path(root, directory, direct_manifest=None):
+    """Return a cover only for Sets and directories contained by a Set.
+
+    Explicit manifest cover stays authoritative.  A Set then prefers an edited
+    result in Revision -> Model_Edit -> Base_Edit order, falling back to the first
+    JPG/PNG anywhere in the Set.  Nested Set folders keep the existing cheap
+    behavior: only a directly-contained JPG/PNG can become their cover.
     """
+    root = Path(root).resolve()
+    directory = Path(directory).resolve()
+    is_set = _is_set_folder_name(directory.name)
+    if not is_set and not _is_inside_set(root, directory):
+        return None
+
     candidates = []
-    if direct_manifest and direct_manifest.get('valid'):
+    if is_set and direct_manifest and direct_manifest.get('valid'):
         cover = direct_manifest.get('data', {}).get('cover')
         if isinstance(cover, str) and cover.strip():
-            candidates.append(directory / _normalize_relative_path(cover))
+            try:
+                candidates.append(directory / _normalize_relative_path(cover))
+            except ValueError:
+                pass
 
-    if not candidates:
-        try:
-            candidates.extend(sorted(
-                (p for p in directory.iterdir()
-                 if p.is_file() and p.suffix.lower() in LIBRARY_IMAGE_EXTENSIONS),
-                key=lambda p: p.name.casefold()
-            )[:1])
-        except OSError:
-            pass
+    if is_set and not candidates:
+        for stage_name in ('04_Revision', '03_Model_Edit', '02_Base_Edit'):
+            stage = directory / stage_name
+            if stage.is_dir():
+                candidate = _first_cover_image(stage, recursive=True)
+                if candidate is not None:
+                    candidates.append(candidate)
+                    break
+        if not candidates:
+            original_jpg = directory / '01_Original' / 'JPG'
+            if original_jpg.is_dir():
+                candidate = _first_cover_image(original_jpg, recursive=False)
+                if candidate is not None:
+                    candidates.append(candidate)
+        if not candidates:
+            candidate = _first_cover_image(directory, recursive=True)
+            if candidate is not None:
+                candidates.append(candidate)
+    elif not is_set:
+        candidate = _first_cover_image(directory, recursive=False)
+        if candidate is not None:
+            candidates.append(candidate)
 
     for candidate in candidates:
         try:
             resolved = candidate.resolve()
             resolved.relative_to(root)
-            if resolved.is_file() and resolved.suffix.lower() in LIBRARY_IMAGE_EXTENSIONS:
+            if resolved.is_file() and resolved.suffix.lower() in LIBRARY_COVER_EXTENSIONS:
                 return resolved.relative_to(root).as_posix()
         except (OSError, ValueError):
             continue
@@ -1951,6 +2027,10 @@ def _list_library_directory(source, relative_path=''):
     if not target.is_dir():
         raise NotADirectoryError('目标不是目录')
 
+    # When disabled, skip cover discovery entirely.  This both avoids filesystem
+    # scanning and ensures the frontend never receives a thumbnail URL to request.
+    show_folder_covers = _site_config_enabled('show_library_folder_covers', True)
+
     items = []
     stats = {
         'directory_count': 0,
@@ -1983,7 +2063,7 @@ def _list_library_directory(source, relative_path=''):
                     str((direct_manifest.get('data') or {}).get('model') or '').strip()
                     if direct_manifest and direct_manifest.get('valid') else ''
                 ),
-                'cover_path': _directory_cover_path(root, child, direct_manifest),
+                'cover_path': (_directory_cover_path(root, child, direct_manifest) if show_folder_covers else None),
                 'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds'),
                 'directory_count': content_counts['directory_count'],
                 'image_count': content_counts['image_count'],
@@ -2776,4 +2856,4 @@ if __name__ == '__main__':
     worker_thread.start()
 
     # add_md5_to_existing_images()
-    app.run(debug=True, host='0.0.0.0', port=8081)
+    app.run(debug=False, host='0.0.0.0', port=8081)

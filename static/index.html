@@ -135,7 +135,7 @@
                             <div class="album-cover locked-cover library-source-cover"
                                  style="display:flex; align-items:center; justify-content:center;">
                                 <el-icon class="lock-icon"><Folder /></el-icon>
-                                <span class="lock-text">{{ source.available ? '暂无封面' : '目录不可用' }}</span>
+                                <span v-if="!source.available" class="lock-text">目录不可用</span>
                             </div>
                             <div class="album-info">
                                 <div class="album-name">{{ source.name }}</div>
@@ -276,7 +276,6 @@
                         <div v-else class="album-cover locked-cover"
                              style="display:flex; align-items:center; justify-content:center;">
                             <el-icon class="lock-icon"><Folder/></el-icon>
-                            <span class="lock-text">暂无封面</span>
                         </div>
                         <div class="album-info">
                             <div class="album-name">{{ item.name }}</div>
@@ -471,7 +470,6 @@
                                  class="album-cover">
                             <div v-else class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
                                 <el-icon class="lock-icon"><Folder/></el-icon>
-                                <span class="lock-text">暂无封面</span>
                             </div>
                             <div class="album-info">
                                 <div class="album-name">{{ item.name }}</div>
@@ -1033,6 +1031,14 @@
                     <el-radio :label="'0'">不显示</el-radio>
                 </el-radio-group>
             </el-form-item>
+
+                    <el-form-item label="映射目录封面">
+                        <el-switch
+                                v-model="siteConfig.show_library_folder_covers"
+                                active-value="1"
+                                inactive-value="0">
+                        </el-switch>
+                    </el-form-item>
 
                     <!-- 管理员密码修改 -->
                     <el-form-item label="管理员密码">
