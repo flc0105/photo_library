@@ -699,7 +699,60 @@ const app = createApp({
         const sharePassword = ref('');
         const shareLoading = ref(false);
 
-        const libraryDirectories = computed(() => (libraryListing.value.items || []).filter(item => item.type === 'directory'));
+        const setSortOrderStorageKey = 'gallery.setSortOrder';
+        let savedSetSortOrder = 'newest';
+        try {
+            const storedOrder = window.localStorage.getItem(setSortOrderStorageKey);
+            if (storedOrder === 'newest' || storedOrder === 'oldest') savedSetSortOrder = storedOrder;
+        } catch (_) {
+            // localStorage 不可用时保持默认排序，不影响目录浏览。
+        }
+        const setSortOrder = ref(savedSetSortOrder);
+        watch(setSortOrder, (order) => {
+            if (order !== 'newest' && order !== 'oldest') return;
+            try {
+                window.localStorage.setItem(setSortOrderStorageKey, order);
+            } catch (_) {
+                // 持久化失败只影响偏好记忆。
+            }
+        });
+
+        const setDirectoryDate = (item) => {
+            const match = String(item && item.name || '').match(/^(\d{8})-/);
+            return match ? Number(match[1]) : null;
+        };
+
+        const libraryDirectories = computed(() => {
+            const directories = (libraryListing.value.items || []).filter(item => item.type === 'directory');
+            // Date sorting applies only to the Set parent/root. Nested workflow
+            // folders retain the filesystem/API order they already use.
+            if ((libraryListing.value.path || '') !== '') return directories;
+
+            return [...directories].sort((a, b) => {
+                const aDate = setDirectoryDate(a);
+                const bDate = setDirectoryDate(b);
+                if (aDate !== null && bDate !== null && aDate !== bDate) {
+                    return setSortOrder.value === 'oldest' ? aDate - bDate : bDate - aDate;
+                }
+                if (aDate !== null && bDate === null) return -1;
+                if (aDate === null && bDate !== null) return 1;
+                return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN', {numeric: true, sensitivity: 'base'});
+            });
+        });
+
+        const newSetModelOptions = computed(() => {
+            const models = new Set();
+            for (const item of libraryDirectories.value) {
+                let model = String(item && item.manifest_model || '').trim();
+                if (!model) {
+                    const match = String(item && item.name || '').match(/^\d{8}-([^-]+)-/);
+                    model = match ? match[1].trim() : '';
+                }
+                if (model) models.add(model);
+            }
+            return Array.from(models).sort((a, b) => a.localeCompare(b, 'zh-CN', {numeric: true, sensitivity: 'base'}));
+        });
+
         const libraryImages = computed(() => (libraryListing.value.items || [])
             .filter(item => item.type === 'image')
             .map(item => ({
@@ -3702,6 +3755,8 @@ const app = createApp({
             showNewSetDialog,
             newSetCreating,
             newSetForm,
+            newSetModelOptions,
+            setSortOrder,
             openNewSetDialog,
             createNewSet,
             loadLibrarySources,

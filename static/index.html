@@ -183,6 +183,15 @@
                         </template>
                     </el-dropdown>
 
+                    <!-- Set 父目录排序：与目录 Display 偏好一样保存在浏览器。 -->
+                    <el-select v-if="isLibraryRoot && libraryDirectories.length > 0"
+                               v-model="setSortOrder"
+                               aria-label="Set date sort"
+                               style="width: 122px; margin-right: 10px;">
+                        <el-option label="日期：最新" value="newest"></el-option>
+                        <el-option label="日期：最旧" value="oldest"></el-option>
+                    </el-select>
+
                     <!-- 与原相册图片页一致的浏览模式切换。只在当前层有图片时显示。 -->
                     <el-dropdown v-if="libraryImages.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
                         <el-button>
@@ -1255,7 +1264,17 @@
         <el-dialog v-model="showNewSetDialog" title="New Set" width="480px">
             <el-form :model="newSetForm" label-width="72px" @submit.prevent="createNewSet">
                 <el-form-item label="Model">
-                    <el-input v-model="newSetForm.model" placeholder="模特"></el-input>
+                    <el-select v-model="newSetForm.model"
+                               filterable
+                               allow-create
+                               default-first-option
+                               placeholder="选择或输入模特"
+                               style="width: 100%;">
+                        <el-option v-for="model in newSetModelOptions"
+                                   :key="model"
+                                   :label="model"
+                                   :value="model"></el-option>
+                    </el-select>
                 </el-form-item>
                 <el-form-item label="Date">
                     <el-date-picker v-model="newSetForm.date"

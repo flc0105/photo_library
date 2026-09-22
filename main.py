@@ -1664,12 +1664,15 @@ def _create_new_set(root, date_text, model, theme):
         # which Set it belongs to.
         intermediate_root = set_path / 'Intermediates' / set_name
         directories.extend([
-            intermediate_root / 'DPP',
-            intermediate_root / 'PixCake',
-            intermediate_root / 'PSD' / 'BaseEdit',
-            intermediate_root / 'PSD' / 'Revision',
-            intermediate_root / 'Discards' / 'BaseEdit',
-            intermediate_root / 'Discards' / 'Revision',
+            # RAW development: ACR / Canon DPP / similar tools, including
+            # profile application, basic color work and RAW -> TIFF/PNG output.
+            intermediate_root / '01_Develop',
+            intermediate_root / '02_PixCake',
+            intermediate_root / '03_PSD' / 'Base_Edit',
+            intermediate_root / '03_PSD' / 'Revision',
+            intermediate_root / '90_Discards' / 'Base_Edit',
+            intermediate_root / '90_Discards' / 'Model_Edit',
+            intermediate_root / '90_Discards' / 'Revision',
         ])
 
         for directory in directories:
@@ -1905,6 +1908,10 @@ def _list_library_directory(source, relative_path=''):
                 'relative_path': child_rel,
                 'has_manifest': direct_manifest is not None,
                 'manifest_valid': bool(direct_manifest and direct_manifest.get('valid')),
+                'manifest_model': (
+                    str((direct_manifest.get('data') or {}).get('model') or '').strip()
+                    if direct_manifest and direct_manifest.get('valid') else ''
+                ),
                 'cover_path': _directory_cover_path(root, child, direct_manifest),
                 'modified_at': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds'),
                 'directory_count': content_counts['directory_count'],
