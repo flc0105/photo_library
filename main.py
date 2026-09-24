@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 from flask import Flask, request, jsonify, send_file, send_from_directory, session
 from flask_cors import CORS
 
@@ -133,7 +133,7 @@ def init_db():
 
     # 插入默认配置（如果不存在）
     default_configs = [
-        ('site_title', '我的相册'),
+        ('site_title', 'Photo Library'),
         ('password', hashlib.md5('admin'.encode()).hexdigest()),  # 管理员密码
         ('allow_guest_upload', '0'),  # 游客是否可上传，0=否，1=是
         ('show_exif_on_hover', '1'),  # 新增：默认显示EXIF
@@ -1854,6 +1854,7 @@ def _library_image_info(source, relative_path):
     width = height = None
     try:
         with Image.open(target) as img:
+            img = ImageOps.exif_transpose(img)
             width, height = img.size
     except Exception:
         pass
@@ -1931,10 +1932,10 @@ def _first_cover_image(directory, recursive=False):
 def _directory_cover_path(root, directory, direct_manifest=None):
     """Return a cover only for a Set card; every other mapped folder stays icon-only.
 
-    An explicit manifest cover remains authoritative. Otherwise Set covers follow
-    04_Revision -> 03_Model_Edit -> 02_Base_Edit, then fall back to the first
-    JPG/PNG found anywhere in the Set. Within each step, the first image is chosen
-    by natural filename order (A-Z, 1-9).
+    An explicit manifest cover remains authoritative unless it points into
+    01_Original. Otherwise Set covers follow 04_Revision -> 03_Model_Edit ->
+    02_Base_Edit and use the first direct JPG/PNG in natural filename order
+    (A-Z, 1-9). If those edited stages contain no image, the Set has no cover.
     """
     root = Path(root).resolve()
     directory = Path(directory).resolve()
@@ -1946,7 +1947,9 @@ def _directory_cover_path(root, directory, direct_manifest=None):
         cover = direct_manifest.get('data', {}).get('cover')
         if isinstance(cover, str) and cover.strip():
             try:
-                candidates.append(directory / _normalize_relative_path(cover))
+                relative_cover = _normalize_relative_path(cover)
+                if not Path(relative_cover).parts or Path(relative_cover).parts[0] != '01_Original':
+                    candidates.append(directory / relative_cover)
             except ValueError:
                 pass
 
@@ -1955,15 +1958,10 @@ def _directory_cover_path(root, directory, direct_manifest=None):
             stage = directory / stage_name
             if not stage.is_dir():
                 continue
-            candidate = _first_cover_image(stage, recursive=True)
+            candidate = _first_cover_image(stage, recursive=False)
             if candidate is not None:
                 candidates.append(candidate)
                 break
-
-    if not candidates:
-        candidate = _first_cover_image(directory, recursive=True)
-        if candidate is not None:
-            candidates.append(candidate)
 
     for candidate in candidates:
         try:
@@ -2128,7 +2126,7 @@ def _make_library_variant(source, relative_path, variant='compressed'):
         return target
 
     stat = target.stat()
-    cache_key = hashlib.sha256(f"{source['id']}|{rel}|{stat.st_mtime_ns}|{stat.st_size}|{variant}".encode()).hexdigest()
+    cache_key = hashlib.sha256(f"{source['id']}|{rel}|{stat.st_mtime_ns}|{stat.st_size}|{variant}|library-exif-orientation-v1".encode()).hexdigest()
     cache_dir = Path(LIBRARY_CACHE_FOLDER) / str(source['id'])
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f'{cache_key}.jpg'
@@ -2136,9 +2134,9 @@ def _make_library_variant(source, relative_path, variant='compressed'):
         return cache_path
 
     if variant == 'thumbnail':
-        generate_thumbnail(str(target), str(cache_path), size=(360, 360))
+        generate_thumbnail(str(target), str(cache_path), size=(360, 360), apply_exif_orientation=True)
     else:
-        generate_compressed(str(target), str(cache_path), max_size=2000)
+        generate_compressed(str(target), str(cache_path), max_size=2000, apply_exif_orientation=True)
     return cache_path
 
 

@@ -1,11 +1,13 @@
 import json
 import subprocess
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 
-def generate_thumbnail(image_path, output_path, size=(250, 250)):
+def generate_thumbnail(image_path, output_path, size=(250, 250), apply_exif_orientation=False):
     with Image.open(image_path) as img:
+        if apply_exif_orientation:
+            img = ImageOps.exif_transpose(img)
         # 转换为RGB模式
         if img.mode in ('RGBA', 'LA'):
             background = Image.new('RGB', img.size, (255, 255, 255))
@@ -30,8 +32,10 @@ def generate_thumbnail(image_path, output_path, size=(250, 250)):
 
 
 # 生成压缩图
-def generate_compressed(image_path, output_path, max_size=1200):
+def generate_compressed(image_path, output_path, max_size=1200, apply_exif_orientation=False):
     with Image.open(image_path) as img:
+        if apply_exif_orientation:
+            img = ImageOps.exif_transpose(img)
         # 转换为RGB模式
         if img.mode in ('RGBA', 'LA'):
             background = Image.new('RGB', img.size, (255, 255, 255))

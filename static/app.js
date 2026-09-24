@@ -727,11 +727,35 @@ const app = createApp({
             return match ? Number(match[1]) : null;
         };
 
+        // Set root search is intentionally local-only: it filters the directories
+        // already returned for the current root and never walks nested folders.
+        const setSearchQuery = ref('');
+        const normalizeSetSearchText = (value) => String(value || '')
+            .normalize('NFKC')
+            .toLocaleLowerCase();
+        const setSearchTerms = computed(() => normalizeSetSearchText(setSearchQuery.value)
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .map(term => term.replace(/[\s_\-–—·・.()[\]（）]+/g, '')));
+
+        const allLibraryDirectories = computed(() =>
+            (libraryListing.value.items || []).filter(item => item.type === 'directory')
+        );
+
         const libraryDirectories = computed(() => {
-            const directories = (libraryListing.value.items || []).filter(item => item.type === 'directory');
-            // Date sorting applies only to the Set parent/root. Nested workflow
-            // folders retain the filesystem/API order they already use.
+            let directories = allLibraryDirectories.value;
+            // Date sorting and Set-name search apply only to the Set parent/root.
+            // Nested workflow folders retain the filesystem/API order they already use.
             if ((libraryListing.value.path || '') !== '') return directories;
+
+            if (setSearchTerms.value.length > 0) {
+                directories = directories.filter(item => {
+                    const haystack = normalizeSetSearchText(item && item.name)
+                        .replace(/[\s_\-–—·・.()[\]（）]+/g, '');
+                    return setSearchTerms.value.every(term => haystack.includes(term));
+                });
+            }
 
             return [...directories].sort((a, b) => {
                 const aDate = setDirectoryDate(a);
@@ -747,7 +771,7 @@ const app = createApp({
 
         const newSetModelOptions = computed(() => {
             const models = new Set();
-            for (const item of libraryDirectories.value) {
+            for (const item of allLibraryDirectories.value) {
                 let model = String(item && item.manifest_model || '').trim();
                 if (!model) {
                     const match = String(item && item.name || '').match(/^\d{8}-([^-]+)-/);
@@ -805,7 +829,10 @@ const app = createApp({
         const libraryEmptyMessage = computed(() => {
             const stats = libraryStats.value;
             if (libraryImages.value.length > 0) return '';
-            if (libraryDirectories.value.length > 0) {
+            if ((libraryListing.value.path || '') === '' && setSearchTerms.value.length > 0 && allLibraryDirectories.value.length > 0 && libraryDirectories.value.length === 0) {
+                return `没有匹配“${String(setSearchQuery.value || '').trim()}”的 Set。`;
+            }
+            if (allLibraryDirectories.value.length > 0) {
                 if (stats.unsupported_file_count > 0) {
                     return `当前层没有可显示图片，请进入子文件夹；另有 ${stats.unsupported_file_count} 个不支持显示的文件。`;
                 }
@@ -3851,7 +3878,9 @@ const app = createApp({
             currentLibrarySource,
             libraryListing,
             libraryLoading,
+            allLibraryDirectories,
             libraryDirectories,
+            setSearchQuery,
             libraryImages,
             libraryStats,
             libraryFavoriteCount,

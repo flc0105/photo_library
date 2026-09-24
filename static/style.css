@@ -2946,3 +2946,50 @@ body {
         align-items: flex-start;
     }
 }
+
+/* ==================== Set root view / sort / search ==================== */
+.set-root-view-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.set-root-view-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.set-root-view-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.set-root-view-label {
+    flex: 0 0 52px;
+    color: #606266;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.set-root-search {
+    width: 220px;
+}
+
+@media (max-width: 760px) {
+    .header {
+        align-items: flex-start;
+    }
+
+    .album-actions {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .set-root-search {
+        width: min(220px, 62vw);
+    }
+}
