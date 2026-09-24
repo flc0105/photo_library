@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Create a small local portrait-library tree and optionally register it in gallery.db.
+"""Create a small local portrait-library tree and optionally register it in photo_library.db.
 
 Example:
-  python create_demo_library.py --root /tmp/gallery-demo/Completed --db gallery.db --register
+  python create_demo_library.py --root /tmp/photo-library-demo/Completed --db photo_library.db --register
 """
 import argparse
 import json
 import sqlite3
-import uuid
-from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -20,7 +18,7 @@ def create_image(path: Path, index: int, label: str, width=1200, height=800):
     img = Image.new('RGB', (width, height), (32 + index * 17 % 180, 58 + index * 29 % 160, 90 + index * 13 % 140))
     draw = ImageDraw.Draw(img)
     draw.rectangle((70, 70, width - 70, height - 70), outline=(235, 235, 235), width=5)
-    draw.text((100, 120), 'Gallery Local Source Demo', fill=(255, 255, 255))
+    draw.text((100, 120), 'Photo Library Local Source Demo', fill=(255, 255, 255))
     draw.text((100, 175), label, fill=(255, 255, 255))
     draw.text((100, 230), f'Image {index:02d}', fill=(255, 255, 255))
     draw.text((100, height - 130), path.name, fill=(255, 255, 255))
@@ -41,39 +39,38 @@ def create_set(root: Path, folder: str, date: str, model: str, theme: str, locat
         d.mkdir(parents=True, exist_ok=True)
 
     manifest = {
-        'schema_version': 1,
-        'set_id': str(uuid.uuid4()),
-        'title': theme,
+        'model': model,
         'shoot': {
             'date': date,
             'start_time': '14:00',
             'end_time': '16:30',
-            'type': 'Studio' if '室内' in theme else 'Outdoor',
-            'location': location,
-            'weather': 'Sunny'
+            'environment': 'studio' if '室内' in theme else 'outdoor',
+            'scene': 'white_studio/plain' if '室内' in theme else 'nature/park',
+            'weather': ''
         },
-        'subjects': [{'name': model, 'role': 'model'}],
+        'location': {
+            'name': location,
+            'address': '',
+            'lat': None,
+            'lng': None
+        },
         'theme': {
             'name': theme,
-            'style': 'Portrait',
-            'source_category': '',
-            'source_ip': '',
-            'character': '',
-            'clothing': ''
+            'genre': 'casual',
+            'outfit': ''
         },
         'production': {
-            'collaboration_type': 'TF',
-            'is_lead_photographer': True,
+            'collaboration_type': 'tf',
+            'lead_photographer': True,
             'model_fee': 0,
             'venue_fee': 0,
-            'fee_payer': ''
+            'venue_fee_payer': ''
         },
-        'lighting_setup': 'Demo: key light + rim light',
-        'props': [],
-        'set_props': [],
-        'cover': None,
-        'notes': '由 create_demo_library.py 自动生成，仅用于本地目录映射测试。',
-        'created_at': datetime.now().astimezone().isoformat(timespec='seconds')
+        'props': {
+            'subject': [],
+            'set': []
+        },
+        'lighting': []
     }
     (set_dir / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
@@ -112,8 +109,8 @@ def register_source(db_path: Path, root: Path, name: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', default='/tmp/gallery-demo/Completed')
-    parser.add_argument('--db', default='gallery.db')
+    parser.add_argument('--root', default='/tmp/photo-library-demo/Completed')
+    parser.add_argument('--db', default='photo_library.db')
     parser.add_argument('--name', default='Demo Completed')
     parser.add_argument('--register', action='store_true')
     args = parser.parse_args()

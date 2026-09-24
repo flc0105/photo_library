@@ -486,7 +486,7 @@ def _phash64(path: Path) -> int:
     """Compatible 8x8 perceptual hash used by the old imagehash.phash flow.
 
     It keeps the same 32x32 grayscale/Lanczos + low-frequency DCT + median rule,
-    but is implemented locally so Gallery does not need the imagehash package.
+    but is implemented locally so Photo Library does not need the imagehash package.
     """
     size = 32
     low = 8

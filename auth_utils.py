@@ -1,9 +1,4 @@
-"""Compatibility auth helpers for the original Gallery application.
-
-The old project imported these helpers from a file that was not included in the
-source bundle.  This implementation preserves the public function names and
-uses Flask's bundled itsdangerous package for signed, expiring tokens.
-"""
+"""Authentication helpers for Photo Library signed access tokens."""
 import os
 import secrets
 from functools import wraps
@@ -14,10 +9,10 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 
 def _secret():
-    env = os.environ.get('GALLERY_AUTH_SECRET')
+    env = os.environ.get('PHOTO_LIBRARY_AUTH_SECRET')
     if env:
         return env
-    p = Path('.gallery_auth_secret')
+    p = Path('.photo_library_auth_secret')
     if p.exists():
         return p.read_text(encoding='utf-8').strip()
     value = secrets.token_urlsafe(48)
@@ -25,9 +20,9 @@ def _secret():
     return value
 
 
-_serializer = URLSafeTimedSerializer(_secret(), salt='gallery-auth-v1')
-album_token_expire_minutes = int(os.environ.get('GALLERY_ALBUM_TOKEN_MINUTES', '1440'))
-admin_token_expire_seconds = int(os.environ.get('GALLERY_ADMIN_TOKEN_SECONDS', str(7 * 24 * 3600)))
+_serializer = URLSafeTimedSerializer(_secret(), salt='photo-library-auth-v1')
+album_token_expire_minutes = int(os.environ.get('PHOTO_LIBRARY_ALBUM_TOKEN_MINUTES', '1440'))
+admin_token_expire_seconds = int(os.environ.get('PHOTO_LIBRARY_ADMIN_TOKEN_SECONDS', str(7 * 24 * 3600)))
 
 
 def generate_auth_token(album_id):

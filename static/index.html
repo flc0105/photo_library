@@ -373,14 +373,14 @@
                 </div>
 
                 <div v-if="viewMode === 'waterfall'">
-                    <div class="gallery-waterfall">
+                    <div class="pl-waterfall">
                         <div v-for="image in filteredImages"
                              :key="image.id"
-                             class="gallery-item"
+                             class="pl-item"
                              @click="handleImageClick(image.id)">
                             <img :src="libraryAssetUrl(image, 'compressed')"
                                  :alt="image.original_filename"
-                                 class="w-100 shadow-1-strong rounded gallery-img" />
+                                 class="w-100 shadow-1-strong rounded pl-img" />
 
                             <div class="overlay"
                                  @mouseenter="showExifOnHover ? loadExifOnHover(image) : null"
@@ -544,11 +544,11 @@
                         </div>
                     </div>
 
-                    <div v-if="viewMode === 'waterfall'" class="gallery-waterfall">
-                        <div v-for="image in filteredImages" :key="image.id" class="gallery-item" @click="handleImageClick(image.id)">
+                    <div v-if="viewMode === 'waterfall'" class="pl-waterfall">
+                        <div v-for="image in filteredImages" :key="image.id" class="pl-item" @click="handleImageClick(image.id)">
                             <img :src="shareAssetUrl(image, 'compressed')"
                                  :alt="image.original_filename"
-                                 class="w-100 shadow-1-strong rounded gallery-img" />
+                                 class="w-100 shadow-1-strong rounded pl-img" />
                             <div class="overlay"
                                  @mouseenter="showExifOnHover ? loadExifOnHover(image) : null"
                                  @mouseleave="showExifOnHover ? clearExifTimer(image.id) : null">
@@ -693,11 +693,11 @@
                 <div v-if="images.length === 0" class="empty-state">
                     <p>这个相册还没有图片，上传一些吧！</p>
                 </div>
-                <div v-else class="gallery-waterfall">
+                <div v-else class="pl-waterfall">
                     <div
                             v-for="image in filteredImages"
                             :key="image.id"
-                            class="gallery-item"
+                            class="pl-item"
                             :class="{ 'selected': selectionMode && selectedImages.includes(image.id) }"
                             @click="handleImageClick(image.id)"
 
@@ -713,7 +713,7 @@
                         <img
                                 :src="`/api/images/${image.id}/file?type=compressed`"
                                 :alt="image.original_filename"
-                                class="w-100 shadow-1-strong rounded gallery-img"
+                                class="w-100 shadow-1-strong rounded pl-img"
 
                         />
 
@@ -1973,13 +1973,23 @@
                     </div>
                 </section>
 
-                <section v-if="currentManifestData.shoot.additional_session" class="manifest-detail-section">
-                    <h3>Additional Session</h3>
-                    <div class="manifest-detail-grid">
-                        <div class="manifest-detail-item"><span>Date</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.date) }}</strong></div>
-                        <div class="manifest-detail-item"><span>Start Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.start_time) }}</strong></div>
-                        <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(currentManifestData.shoot.additional_session.end_time) }}</strong></div>
-                        <div v-if="hasManifestValue(currentManifestData.shoot.additional_session.weather)" class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(currentManifestData.shoot.additional_session.weather) }}</strong></div>
+                <section v-if="currentManifestData.shoot.additional_session.length" class="manifest-detail-section">
+                    <div class="manifest-section-heading">
+                        <h3>Additional Sessions</h3>
+                        <span class="manifest-light-count">{{ currentManifestData.shoot.additional_session.length }}</span>
+                    </div>
+                    <div class="manifest-light-list">
+                        <div v-for="(session, index) in currentManifestData.shoot.additional_session" :key="index" class="manifest-light-card">
+                            <div class="manifest-light-header">
+                                <strong>Session {{ index + 1 }}</strong>
+                            </div>
+                            <div class="manifest-detail-grid">
+                                <div class="manifest-detail-item"><span>Date</span><strong>{{ formatManifestValue(session.date) }}</strong></div>
+                                <div class="manifest-detail-item"><span>Start Time</span><strong>{{ formatManifestValue(session.start_time) }}</strong></div>
+                                <div class="manifest-detail-item"><span>End Time</span><strong>{{ formatManifestValue(session.end_time) }}</strong></div>
+                                <div v-if="hasManifestValue(session.weather)" class="manifest-detail-item"><span>Weather</span><strong>{{ formatWeatherValue(session.weather) }}</strong></div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -2155,43 +2165,51 @@
                                 <el-input v-model="manifestForm.shoot.end_time"></el-input>
                             </el-form-item>
                             <el-form-item label="Environment" class="manifest-span-4">
-                                <el-select v-model="manifestForm.shoot.environment" clearable style="width:100%">
-                                    <el-option v-for="option in manifestOptions.environment" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                <el-select v-model="manifestForm.shoot.environment" clearable filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestHistoryOptions('environments', manifestOptions.environment)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Scene" class="manifest-span-4">
                                 <el-select v-model="manifestForm.shoot.scene" clearable filterable allow-create default-first-option style="width:100%">
-                                    <el-option v-for="option in manifestOptions.scene" :key="option" :label="formatSceneValue(option)" :value="option"></el-option>
+                                    <el-option v-for="option in manifestHistoryOptions('scenes', manifestOptions.scene)" :key="option" :label="formatSceneValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Weather" class="manifest-span-4">
-                                <el-select v-model="manifestForm.shoot.weather" clearable style="width:100%">
-                                    <el-option v-for="option in manifestOptions.weather" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                <el-select v-model="manifestForm.shoot.weather" clearable filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestHistoryOptions('weathers', manifestOptions.weather)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
-                            <div v-if="!manifestForm.shoot.additional_session" class="manifest-span-12">
-                                <el-button size="small" plain @click="addAdditionalSession">Add Additional Session</el-button>
+                            <div class="manifest-span-12 manifest-section-heading">
+                                <strong>Additional Sessions</strong>
+                                <el-button size="small" plain @click="addAdditionalSession">Add Session</el-button>
                             </div>
-                            <template v-else>
-                                <div class="manifest-span-12 manifest-section-heading">
-                                    <strong>Additional Session</strong>
-                                    <el-button text type="danger" @click="removeAdditionalSession">Remove</el-button>
+                            <div v-if="manifestForm.shoot.additional_session.length" class="manifest-span-12 manifest-light-list">
+                                <div v-for="(session, index) in manifestForm.shoot.additional_session" :key="index" class="manifest-light-card manifest-light-editor">
+                                    <div class="manifest-light-header">
+                                        <div class="manifest-light-title">
+                                            <span class="manifest-light-index">{{ index + 1 }}</span>
+                                            <strong>Session {{ index + 1 }}</strong>
+                                        </div>
+                                        <el-button text type="danger" @click="removeAdditionalSession(index)">Remove</el-button>
+                                    </div>
+                                    <div class="manifest-form-grid">
+                                        <el-form-item label="Date" class="manifest-span-4">
+                                            <el-input v-model="session.date"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="Start Time" class="manifest-span-4">
+                                            <el-input v-model="session.start_time"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="End Time" class="manifest-span-4">
+                                            <el-input v-model="session.end_time"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="Weather" class="manifest-span-6">
+                                            <el-select v-model="session.weather" clearable filterable allow-create default-first-option style="width:100%">
+                                                <el-option v-for="option in manifestHistoryOptions('weathers', manifestOptions.weather)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                            </el-select>
+                                        </el-form-item>
+                                    </div>
                                 </div>
-                                <el-form-item label="Date" class="manifest-span-4">
-                                    <el-input v-model="manifestForm.shoot.additional_session.date"></el-input>
-                                </el-form-item>
-                                <el-form-item label="Start Time" class="manifest-span-4">
-                                    <el-input v-model="manifestForm.shoot.additional_session.start_time"></el-input>
-                                </el-form-item>
-                                <el-form-item label="End Time" class="manifest-span-4">
-                                    <el-input v-model="manifestForm.shoot.additional_session.end_time"></el-input>
-                                </el-form-item>
-                                <el-form-item label="Weather" class="manifest-span-6">
-                                    <el-select v-model="manifestForm.shoot.additional_session.weather" clearable style="width:100%">
-                                        <el-option v-for="option in manifestOptions.weather" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
-                                    </el-select>
-                                </el-form-item>
-                            </template>
+                            </div>
                         </div>
                     </section>
 
@@ -2244,8 +2262,8 @@
                                                  style="width:100%"></el-autocomplete>
                             </el-form-item>
                             <el-form-item label="Genre" class="manifest-span-6">
-                                <el-select v-model="manifestForm.theme.genre" clearable style="width:100%">
-                                    <el-option v-for="option in manifestOptions.genre" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                <el-select v-model="manifestForm.theme.genre" clearable filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestHistoryOptions('genres', manifestOptions.genre)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <template v-if="manifestForm.theme.genre === 'cosplay'">
@@ -2258,8 +2276,8 @@
                                                      @change="syncKnownSource"></el-autocomplete>
                                 </el-form-item>
                                 <el-form-item label="Source Type" class="manifest-span-6">
-                                    <el-select v-model="manifestForm.theme.source_type" clearable style="width:100%">
-                                        <el-option v-for="option in manifestOptions.source_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                    <el-select v-model="manifestForm.theme.source_type" clearable filterable allow-create default-first-option style="width:100%">
+                                        <el-option v-for="option in manifestHistoryOptions('source_types', manifestOptions.source_type)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                     </el-select>
                                 </el-form-item>
                                 <el-form-item label="Character" class="manifest-span-6">
@@ -2275,8 +2293,8 @@
                                                      style="width:100%"></el-autocomplete>
                                 </el-form-item>
                                 <el-form-item label="Reference Type" class="manifest-span-6">
-                                    <el-select v-model="manifestForm.theme.reference_type" clearable style="width:100%">
-                                        <el-option v-for="option in manifestOptions.reference_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                    <el-select v-model="manifestForm.theme.reference_type" clearable filterable allow-create default-first-option style="width:100%">
+                                        <el-option v-for="option in manifestHistoryOptions('reference_types', manifestOptions.reference_type)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                     </el-select>
                                 </el-form-item>
                                 <el-form-item label="Reference" class="manifest-span-6">
@@ -2301,13 +2319,13 @@
                         </div>
                         <div class="manifest-form-grid">
                             <el-form-item label="Collaboration Type" class="manifest-span-6">
-                                <el-select v-model="manifestForm.production.collaboration_type" clearable style="width:100%">
-                                    <el-option v-for="option in manifestOptions.collaboration_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                <el-select v-model="manifestForm.production.collaboration_type" clearable filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestHistoryOptions('collaboration_types', manifestOptions.collaboration_type)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Venue Fee Payer" class="manifest-span-6">
-                                <el-select v-model="manifestForm.production.venue_fee_payer" :disabled="manifestForm.production.venue_fee === 0" clearable style="width:100%">
-                                    <el-option v-for="option in manifestOptions.venue_fee_payer" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                <el-select v-model="manifestForm.production.venue_fee_payer" :disabled="manifestForm.production.venue_fee === 0" clearable filterable allow-create default-first-option style="width:100%">
+                                    <el-option v-for="option in manifestHistoryOptions('venue_fee_payers', manifestOptions.venue_fee_payer)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                 </el-select>
                             </el-form-item>
                             <el-form-item label="Model Fee" class="manifest-span-4">
@@ -2374,13 +2392,13 @@
                                 </div>
                                 <div class="manifest-form-grid manifest-light-grid">
                                     <el-form-item label="Role" class="manifest-span-4">
-                                        <el-select v-model="light.role" clearable style="width:100%">
-                                            <el-option v-for="option in manifestOptions.role" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                        <el-select v-model="light.role" clearable filterable allow-create default-first-option style="width:100%">
+                                            <el-option v-for="option in manifestHistoryOptions('roles', manifestOptions.role)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Light Type" class="manifest-span-4">
-                                        <el-select v-model="light.light_type" clearable style="width:100%">
-                                            <el-option v-for="option in manifestOptions.light_type" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                        <el-select v-model="light.light_type" clearable filterable allow-create default-first-option style="width:100%">
+                                            <el-option v-for="option in manifestHistoryOptions('light_types', manifestOptions.light_type)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Count" class="manifest-span-4">
@@ -2399,7 +2417,7 @@
                                     </el-form-item>
                                     <el-form-item label="Position" class="manifest-span-4">
                                         <el-select v-model="light.position" filterable allow-create default-first-option clearable style="width:100%">
-                                            <el-option v-for="option in manifestOptions.position" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
+                                            <el-option v-for="option in manifestHistoryOptions('positions', manifestOptions.position)" :key="option" :label="formatEnumValue(option)" :value="option"></el-option>
                                         </el-select>
                                     </el-form-item>
                                     <el-form-item label="Note" class="manifest-span-12">
@@ -2419,7 +2437,7 @@
                     <div class="manifest-json-editor-head">
                         <div>
                             <strong>Raw JSON</strong>
-                            <span>Edit the manifest directly. Save writes this JSON as-is.</span>
+                            <span>Edit the manifest directly. Save preserves custom fields and applies current storage rules.</span>
                         </div>
                         <el-button size="small" plain @click="formatManifestJson">Format</el-button>
                     </div>

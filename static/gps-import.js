@@ -94,14 +94,14 @@
                 body
             });
         } catch (_) {
-            throw new Error('无法连接 GPS 读取接口，请确认 Gallery 后端正在运行');
+            throw new Error('无法连接 GPS 读取接口，请确认 Photo Library 后端正在运行');
         }
 
         const data = await readResponse(response);
 
         if (!response.ok) {
             if (response.status === 404) {
-                throw new Error('GPS 读取接口不存在，请确认 main.py 已更新并重启 Gallery');
+                throw new Error('GPS 读取接口不存在，请确认 main.py 已更新并重启 Photo Library');
             }
             if (response.status === 401 || response.status === 403) {
                 throw new Error('GPS 读取需要管理员权限，请重新登录管理员模式');

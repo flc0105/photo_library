@@ -27,8 +27,8 @@ app = Flask(__name__)
 
 
 def _load_or_create_session_secret():
-    secret_file = Path('.gallery_session_secret')
-    env_secret = os.environ.get('GALLERY_SESSION_SECRET')
+    secret_file = Path('.photo_library_session_secret')
+    env_secret = os.environ.get('PHOTO_LIBRARY_SESSION_SECRET')
     if env_secret:
         return env_secret
     if secret_file.exists():
@@ -52,7 +52,7 @@ def index():
 @app.route('/<path:path>')
 def serve_static(path):
     # send_from_directory performs safe path joining and rejects traversal outside
-    # the static directory (for example ../gallery.db or encoded variants).
+    # the static directory (for example ../photo_library.db or encoded variants).
     return send_from_directory(app.static_folder, path, max_age=0)
 
 
@@ -61,7 +61,7 @@ UPLOAD_FOLDER = 'uploads'
 THUMBNAIL_FOLDER = 'thumbnails'
 COMPRESSED_FOLDER = 'compressed'
 LIBRARY_CACHE_FOLDER = 'library_cache'
-DATABASE = 'gallery.db'
+DATABASE = 'photo_library.db'
 
 image_processing_queue = queue.Queue()
 processing_lock = threading.Lock()
@@ -1250,7 +1250,7 @@ def verify_admin_password():
     if password_hash == admin['value']:
         # 生成管理员token，并建立同源 session 供本地目录图片直接请求使用。
         token = generate_admin_token()
-        session['gallery_admin'] = True
+        session['photo_library_admin'] = True
         session.modified = True
         return jsonify({
             'success': True,
@@ -1272,7 +1272,7 @@ def verify_admin_token_api():
         return jsonify({'valid': False, 'error': 'Token不能为空'}), 400
 
     if verify_admin_token(token):
-        session['gallery_admin'] = True
+        session['photo_library_admin'] = True
         session.modified = True
         return jsonify({'valid': True, 'message': 'Token有效'})
     else:
@@ -1284,7 +1284,7 @@ def verify_admin_token_api():
 def _site_config_admin_guard():
     # The normal browser login establishes this same-origin session.  Keep
     # X-Admin-Token support for direct/API access as well.
-    if session.get('gallery_admin') is True:
+    if session.get('photo_library_admin') is True:
         return None
 
     token = request.headers.get('X-Admin-Token')
@@ -1448,10 +1448,13 @@ def _order_manifest_keys(payload):
     if isinstance(shoot, dict):
         shoot = dict(shoot)
         additional = shoot.get('additional_session')
-        if isinstance(additional, dict):
-            shoot['additional_session'] = _order_known_keys_preserving_unknown_positions(
-                additional, _MANIFEST_KEY_ORDERS['additional_session']
-            )
+        if isinstance(additional, list):
+            shoot['additional_session'] = [
+                _order_known_keys_preserving_unknown_positions(
+                    item, _MANIFEST_KEY_ORDERS['additional_session']
+                ) if isinstance(item, dict) else item
+                for item in additional
+            ]
         result['shoot'] = _order_known_keys_preserving_unknown_positions(
             shoot, _MANIFEST_KEY_ORDERS['shoot']
         )
@@ -1479,7 +1482,7 @@ def _order_manifest_keys(payload):
 
 def _is_admin_request():
     # Library 图片会被 <img> 直接请求，所以同时支持管理员 session 与旧 X-Admin-Token。
-    if session.get('gallery_admin') is True:
+    if session.get('photo_library_admin') is True:
         return True
     token = request.headers.get('X-Admin-Token')
     return bool(token and verify_admin_token(token))
@@ -1758,11 +1761,20 @@ def _collect_manifest_array(root):
         path, data = item
         shoot = data.get('shoot') if isinstance(data.get('shoot'), dict) else {}
         date_text = str(shoot.get('date') or '').strip()
+        start_text = str(shoot.get('start_time') or '').strip()
         try:
             date_value = datetime.strptime(date_text, '%Y-%m-%d').date()
         except ValueError:
             date_value = datetime.max.date()
-        return (date_value, path.relative_to(root).as_posix().casefold())
+        try:
+            start_value = datetime.strptime(start_text, '%H:%M').time()
+        except ValueError:
+            start_value = datetime.max.time()
+        return (
+            date_value,
+            start_value,
+            path.relative_to(root).as_posix().casefold(),
+        )
 
     manifests.sort(key=sort_key)
     return [data for _, data in manifests]
@@ -1978,7 +1990,7 @@ def _directory_content_counts(directory):
     """Return recursive, metadata-only counts for a folder card.
 
     This deliberately never opens/decodes image files. Hidden/control files are
-    ignored so the numbers describe the actual photo tree rather than Gallery
+    ignored so the numbers describe the actual photo tree rather than Photo Library
     bookkeeping. Symlinked directories are not traversed.
     """
     counts = {
@@ -2067,7 +2079,7 @@ def _list_library_directory(source, relative_path=''):
         stats['total_file_count'] += 1
         suffix = child.suffix.lower()
         if suffix not in LIBRARY_IMAGE_EXTENSIONS:
-            # RAW/PSD/etc. are deliberately invisible in the gallery. Keep only a
+            # RAW/PSD/etc. are deliberately invisible in Photo Library. Keep only a
             # count so the UI can distinguish an empty directory from one that has
             # files but no displayable images.
             stats['unsupported_file_count'] += 1
@@ -2397,7 +2409,7 @@ def extract_gps_from_uploaded_photo():
 
     temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(prefix='gallery-gps-', suffix=suffix, delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(prefix='photo-library-gps-', suffix=suffix, delete=False) as temp_file:
             temp_path = temp_file.name
             photo.save(temp_file)
 
@@ -2789,7 +2801,7 @@ def toggle_library_share_selection(token):
     return jsonify({'selected': selected, 'is_favorited': selected})
 
 
-# Advanced per-Set workflow tools live in a separate module so the gallery core
+# Advanced per-Set workflow tools live in a separate module so the Photo Library core
 # remains focused on browsing/state management.
 app.register_blueprint(create_workflow_blueprint(
     _library_admin_guard,
@@ -2810,7 +2822,7 @@ app.register_blueprint(create_set_insights_blueprint(
 
 @app.route('/api/admin/logout', methods=['POST'])
 def admin_logout_server():
-    session.pop('gallery_admin', None)
+    session.pop('photo_library_admin', None)
     return jsonify({'success': True})
 
 

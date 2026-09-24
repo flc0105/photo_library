@@ -148,7 +148,7 @@ def extract_gps_from_image(path, precision=5):
     result = _extract_with_exiftool(path) or _extract_with_pillow(path)
     if not result:
         if path.suffix.lower() in {'.heic', '.heif'} and not shutil.which('exiftool'):
-            raise ValueError('未读取到 GPS。HEIC/HEIF 建议在运行 Gallery 的 Mac 上安装 ExifTool，或上传带 GPS 的 JPEG。')
+            raise ValueError('未读取到 GPS。HEIC/HEIF 建议在运行 Photo Library 的 Mac 上安装 ExifTool，或上传带 GPS 的 JPEG。')
         raise ValueError('照片中未读取到 GPS 经纬度。请确认照片保留了定位信息。')
 
     return {

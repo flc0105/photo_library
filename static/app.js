@@ -661,23 +661,24 @@ const app = createApp({
             getSetPath: () => libraryListing.value && libraryListing.value.path
         });
 
-        // Controlled vocabularies. The first six lists are migrated from the
-        // legacy photo-metadata system and normalized to lowercase machine values.
+        // Baseline select candidates. Values found in existing manifests are
+        // merged at runtime so newly saved values become reusable automatically.
         const manifestOptions = {
             environment: ['studio', 'outdoor', 'indoor'],
             weather: ['sunny', 'cloudy', 'overcast', 'rainy', 'snowy'],
-            genre: ['cosplay', 'jk', 'lolita', 'casual', 'jirai'],
+            genre: ['cosplay', 'jk', 'lolita', 'casual', 'jirai', 'kimono'],
             scene: [
                 'white_studio/plain', 'white_studio/diorama', 'white_studio/scenic',
                 'themed_studio/european', 'themed_studio/gothic', 'themed_studio/japanese',
                 'themed_studio/chinese', 'themed_studio/bar', 'themed_studio/office',
                 'themed_studio/hospital', 'themed_studio/church', 'themed_studio/cyber',
+                'themed_studio/christmas',
                 'school/classroom', 'school/equipment_room', 'school/campus',
                 'home/living_room', 'home/bedroom', 'home/kitchen',
-                'sports/gym', 'sports/pool',
-                'urban/street', 'urban/cafe', 'urban/transit', 'urban/industrial', 'urban/rooftop', 'urban/ruins',
-                'nature/grassland', 'nature/wheatfield', 'nature/flower_tree', 'nature/forest', 'nature/countryside',
-                'coastal/beach', 'coastal/harbor',
+                'sports/gym', 'sports/pool', 'sports/tennis',
+                'urban/street', 'urban/cafe', 'urban/transit', 'urban/industrial', 'urban/rooftop', 'urban/ruins', 'urban/plaza',
+                'nature/grassland', 'nature/wheatfield', 'nature/flower_tree', 'nature/forest', 'nature/countryside', 'nature/park',
+                'coastal/beach', 'coastal/harbor', 'coastal/shore',
                 'traditional/chinese', 'traditional/japanese'
             ],
             source_type: ['mobile_game', 'galgame', 'anime', 'comic', 'original', 'vtuber', 'other'],
@@ -686,8 +687,25 @@ const app = createApp({
             venue_fee_payer: ['model', 'photographer', 'split'],
             light_type: ['strobe', 'continuous', 'natural'],
             role: ['key', 'fill', 'separation', 'set'],
-            modifier: ['bare_bulb', 'deep_parabolic', 'standard_reflector'],
-            position: ['front', 'overhead', 'high_rear_right', 'high_rear_left', 'rear_right', 'rear_left', 'side_right', 'side_left', 'ceiling']
+            modifier: [
+                'standard reflector', 'deep parabolic softbox', 'snoot', 'Fresnel',
+                '50cm octabox', '90cm deep parabolic softbox', '30×120cm strip softbox',
+                '40×40cm softbox', '90cm octabox', '90cm deep parabolic umbrella',
+                '105cm reflective umbrella', 'shoot-through umbrella', 'deep parabolic umbrella',
+                'softbox', 'beauty dish', '120cm octabox', 'diffusion frame',
+                '130cm reflective umbrella + diffusion fabric', '165cm reflective umbrella',
+                'frosted blinds', 'reflective umbrella + diffusion frame', '100×100cm softbox',
+                'octabox', 'strip softbox', 'octabox + diffusion frame', 'rectangular softbox',
+                'NANLUX FE30 Parallel Beam Reflector + 25×25cm reflector panel',
+                'Godox P88 parabolic reflector', 'Nanlite PJ-FMM Projection Attachment',
+                'bare bulb', 'parallel reflector', 'honeycomb grid', 'optical snoot',
+                '55cm octabox', 'venetian blinds'
+            ],
+            position: [
+                'front', 'overhead', 'high_rear_right', 'high_rear_left', 'high_rear_side',
+                'rear', 'rear_right', 'rear_left', 'rear_side',
+                'front_right', 'front_left', 'front_side', 'side_right', 'side_left'
+            ]
         };
 
         const showLibraryShareDialog = ref(false);
@@ -704,7 +722,7 @@ const app = createApp({
         const manifestArrayText = ref('');
         const manifestArrayCount = ref(0);
 
-        const setSortOrderStorageKey = 'gallery.setSortOrder';
+        const setSortOrderStorageKey = 'photo_library.setSortOrder';
         let savedSetSortOrder = 'newest';
         try {
             const storedOrder = window.localStorage.getItem(setSortOrderStorageKey);
@@ -951,11 +969,12 @@ const app = createApp({
 
             if (result.shoot && typeof result.shoot === 'object' && !Array.isArray(result.shoot)) {
                 const shoot = {...result.shoot};
-                if (shoot.additional_session && typeof shoot.additional_session === 'object' && !Array.isArray(shoot.additional_session)) {
-                    shoot.additional_session = orderKnownKeysPreservingUnknownPositions(
-                        shoot.additional_session,
-                        manifestKeyOrders.additional_session
-                    );
+                if (Array.isArray(shoot.additional_session)) {
+                    shoot.additional_session = shoot.additional_session.map(item => (
+                        item && typeof item === 'object' && !Array.isArray(item)
+                            ? orderKnownKeysPreservingUnknownPositions(item, manifestKeyOrders.additional_session)
+                            : item
+                    ));
                 }
                 result.shoot = orderKnownKeysPreservingUnknownPositions(shoot, manifestKeyOrders.shoot);
             }
@@ -978,68 +997,65 @@ const app = createApp({
         };
 
         const normalizeManifest = (raw = {}) => {
-            const data = raw && typeof raw === 'object' ? raw : {};
-            const legacyModel = Array.isArray(data.subjects)
-                ? (data.subjects.find(item => item && item.role === 'model')?.name || data.subjects[0]?.name || '')
-                : '';
-            const shoot = data.shoot && typeof data.shoot === 'object' ? data.shoot : {};
-            const location = data.location && typeof data.location === 'object' ? data.location : {};
-            const theme = data.theme && typeof data.theme === 'object' ? data.theme : {};
-            const production = data.production && typeof data.production === 'object' ? data.production : {};
+            const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+            const shoot = data.shoot && typeof data.shoot === 'object' && !Array.isArray(data.shoot) ? data.shoot : {};
+            const location = data.location && typeof data.location === 'object' && !Array.isArray(data.location) ? data.location : {};
+            const theme = data.theme && typeof data.theme === 'object' && !Array.isArray(data.theme) ? data.theme : {};
+            const production = data.production && typeof data.production === 'object' && !Array.isArray(data.production) ? data.production : {};
             const props = data.props && typeof data.props === 'object' && !Array.isArray(data.props) ? data.props : {};
             const lights = Array.isArray(data.lighting) ? data.lighting : [];
-            const additionalSession = shoot.additional_session && typeof shoot.additional_session === 'object' && !Array.isArray(shoot.additional_session)
-                ? shoot.additional_session
-                : null;
+            const additionalSessions = Array.isArray(shoot.additional_session)
+                ? shoot.additional_session.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+                : [];
 
             return {
-                model: data.model ?? legacyModel ?? '',
+                model: data.model ?? '',
                 shoot: {
                     date: shoot.date ?? '',
                     start_time: shoot.start_time ?? '',
                     end_time: shoot.end_time ?? '',
-                    environment: shoot.environment ?? shoot.type ?? '',
+                    environment: shoot.environment ?? '',
                     scene: shoot.scene ?? '',
                     weather: shoot.weather ?? '',
-                    additional_session: additionalSession ? {
-                        date: additionalSession.date ?? '',
-                        start_time: additionalSession.start_time ?? '',
-                        end_time: additionalSession.end_time ?? '',
-                        weather: additionalSession.weather ?? ''
-                    } : null
+                    additional_session: additionalSessions.map(item => ({
+                        date: item.date ?? '',
+                        start_time: item.start_time ?? '',
+                        end_time: item.end_time ?? '',
+                        weather: item.weather ?? ''
+                    }))
                 },
                 location: {
-                    name: location.name ?? shoot.location ?? '',
+                    name: location.name ?? '',
                     address: location.address ?? '',
                     lat: location.lat ?? null,
                     lng: location.lng ?? null
                 },
                 theme: {
-                    name: theme.name ?? data.title ?? '',
-                    genre: theme.genre ?? theme.style ?? 'cosplay',
-                    source_title: theme.source_title ?? theme.source_ip ?? '',
-                    source_type: theme.source_type ?? theme.source_category ?? '',
+                    name: theme.name ?? '',
+                    genre: theme.genre ?? '',
+                    source_title: theme.source_title ?? '',
+                    source_type: theme.source_type ?? '',
                     character: theme.character ?? '',
                     variant: theme.variant ?? '',
                     reference_type: theme.reference_type ?? '',
                     reference: theme.reference ?? '',
-                    outfit: theme.outfit ?? theme.clothing ?? data.clothing_name ?? ''
+                    outfit: theme.outfit ?? ''
                 },
                 production: {
                     collaboration_type: production.collaboration_type ?? '',
-                    lead_photographer: production.lead_photographer ?? production.is_lead_photographer ?? true,
+                    lead_photographer: production.lead_photographer ?? true,
                     primary_photographer: production.primary_photographer ?? '',
                     assistants: Array.isArray(production.assistants) ? [...production.assistants] : [],
                     model_fee: production.model_fee ?? 0,
                     venue_fee: production.venue_fee !== undefined ? production.venue_fee : null,
-                    venue_fee_payer: production.venue_fee_payer ?? production.fee_payer ?? ''
+                    venue_fee_payer: production.venue_fee_payer ?? ''
                 },
                 props: {
                     subject: Array.isArray(props.subject) ? [...props.subject] : [],
                     set: Array.isArray(props.set) ? [...props.set] : []
                 },
                 lighting: lights.map(light => ({
-                    role: manifestOptions.role.includes(light?.role) ? light.role : '',
+                    role: light?.role ?? '',
                     light_type: light?.light_type ?? '',
                     fixture: light?.fixture ?? '',
                     modifier: light?.modifier ?? '',
@@ -1050,7 +1066,32 @@ const app = createApp({
             };
         };
 
+        const applyManifestCommonStorageRules = (payload) => {
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+
+            let production = payload.production;
+            if (production && typeof production === 'object' && !Array.isArray(production)) {
+                production = {...production};
+                if (Object.prototype.hasOwnProperty.call(production, 'primary_photographer')) {
+                    const primaryPhotographer = typeof production.primary_photographer === 'string'
+                        ? production.primary_photographer.trim()
+                        : production.primary_photographer;
+                    if (primaryPhotographer === '' || primaryPhotographer === null || primaryPhotographer === undefined) {
+                        delete production.primary_photographer;
+                    } else {
+                        production.primary_photographer = primaryPhotographer;
+                    }
+                }
+            }
+
+            return orderManifestKeys({
+                ...payload,
+                ...(production && typeof production === 'object' && !Array.isArray(production) ? {production} : {})
+            });
+        };
+
         const applyManifestStorageRules = (payload) => {
+            payload = applyManifestCommonStorageRules(payload);
             if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
 
             const theme = payload.theme && typeof payload.theme === 'object' && !Array.isArray(payload.theme)
@@ -1081,7 +1122,7 @@ const app = createApp({
                     const item = light && typeof light === 'object' && !Array.isArray(light) ? light : {};
                     return orderKnownKeysPreservingUnknownPositions({
                         ...item,
-                        role: manifestOptions.role.includes(item.role) ? item.role : '',
+                        role: item.role ?? '',
                         light_type: item.light_type ?? '',
                         fixture: item.fixture ?? '',
                         modifier: item.modifier ?? '',
@@ -1092,7 +1133,22 @@ const app = createApp({
                 })
                 : payload.lighting;
 
-            return orderManifestKeys({...payload, theme, ...(Array.isArray(lighting) ? {lighting} : {})});
+            return orderManifestKeys({
+                ...payload,
+                theme,
+                ...(Array.isArray(lighting) ? {lighting} : {})
+            });
+        };
+
+        const trimManifestFormStrings = (value) => {
+            if (typeof value === 'string') return value.trim();
+            if (Array.isArray(value)) return value.map(item => trimManifestFormStrings(item));
+            if (value && typeof value === 'object') {
+                return Object.fromEntries(
+                    Object.entries(value).map(([key, item]) => [key, trimManifestFormStrings(item)])
+                );
+            }
+            return value;
         };
 
         const serializeManifestForm = () => {
@@ -1105,8 +1161,8 @@ const app = createApp({
                 scene: form.shoot.scene,
                 weather: form.shoot.weather
             };
-            if (form.shoot.additional_session) {
-                shoot.additional_session = {...form.shoot.additional_session};
+            if (form.shoot.additional_session.length) {
+                shoot.additional_session = form.shoot.additional_session.map(item => ({...item}));
             }
 
             const theme = {
@@ -1257,7 +1313,8 @@ const app = createApp({
                 ElMessage.error('当前 JSON 格式有误，不能安全地从 Form 同步');
                 return;
             }
-            const merged = mergeManifestFormIntoRaw(currentRaw, serializeManifestForm());
+            const formPayload = applyManifestStorageRules(trimManifestFormStrings(serializeManifestForm()));
+            const merged = mergeManifestFormIntoRaw(currentRaw, formPayload);
             manifestJsonText.value = JSON.stringify(merged, null, 2);
             manifestJsonError.value = '';
         };
@@ -1434,17 +1491,20 @@ const app = createApp({
 
         const addAdditionalSession = () => {
             if (!manifestForm.value.shoot) manifestForm.value.shoot = {};
-            manifestForm.value.shoot.additional_session = {
+            if (!Array.isArray(manifestForm.value.shoot.additional_session)) {
+                manifestForm.value.shoot.additional_session = [];
+            }
+            manifestForm.value.shoot.additional_session.push({
                 date: '',
                 start_time: '',
                 end_time: '',
                 weather: ''
-            };
+            });
         };
 
-        const removeAdditionalSession = () => {
-            if (!manifestForm.value.shoot) return;
-            manifestForm.value.shoot.additional_session = null;
+        const removeAdditionalSession = (index) => {
+            if (!manifestForm.value.shoot || !Array.isArray(manifestForm.value.shoot.additional_session)) return;
+            manifestForm.value.shoot.additional_session.splice(index, 1);
         };
 
         const loadLibrarySources = async () => {
@@ -1961,11 +2021,11 @@ const app = createApp({
                     ElMessage.error('JSON 格式有误，无法保存');
                     return;
                 }
-                // Raw JSON stays pass-through for values/custom fields; only the
-                // agreed known-field order is enforced.
-                payload = orderManifestKeys(payload);
+                // Raw JSON keeps values/custom fields pass-through; only common
+                // storage cleanup and known-field ordering are applied.
+                payload = applyManifestCommonStorageRules(payload);
             } else {
-                const formPayload = applyManifestStorageRules(serializeManifestForm());
+                const formPayload = applyManifestStorageRules(trimManifestFormStrings(serializeManifestForm()));
                 const currentRaw = parseManifestJsonText();
                 if (!currentRaw) {
                     ElMessage.error('当前 JSON 格式有误，不能安全保留自定义字段');
@@ -3671,7 +3731,7 @@ const app = createApp({
 
         // 图片浏览模式与文件夹浏览模式彼此独立。
         const viewMode = ref('grid'); // 'grid' 或 'waterfall'
-        const folderViewModeStorageKey = 'gallery.folderViewMode';
+        const folderViewModeStorageKey = 'photo_library.folderViewMode';
         let savedFolderViewMode = 'grid';
         try {
             const storedMode = window.localStorage.getItem(folderViewModeStorageKey);

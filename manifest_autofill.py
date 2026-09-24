@@ -123,11 +123,10 @@ def _manifest_paths(root):
 
 
 def build_manifest_reference_index(roots):
-    """Build reusable location/source mappings from one or more library roots.
+    """Build reusable manifest suggestions by scanning enabled library roots.
 
-    Newer manifests win on conflicts. Older records may fill individual fields
-    that are blank in the newer record. Passing all enabled roots lets Completed
-    teach Inbox (and vice versa) without a separate metadata database.
+    The filesystem manifests remain the only source of these candidates; no
+    separate candidate table is created or maintained.
     """
     if isinstance(roots, (str, Path)):
         roots = [roots]
@@ -153,24 +152,32 @@ def build_manifest_reference_index(roots):
     locations = {}
     sources = {}
 
-    # Free-text values that benefit from historical suggestions in the editor.
-    # Manifests are processed newest-first, so the first occurrence of a value
-    # becomes the canonical display spelling and the resulting suggestion list
-    # naturally favors recently used values without inventing a new metadata
-    # database.
+    # Newer manifests determine display spelling while every distinct value is
+    # retained as an editor candidate for later reuse.
     value_keys = (
         'models',
+        'environments',
+        'weathers',
+        'scenes',
         'theme_names',
+        'genres',
+        'source_types',
         'characters',
         'variants',
+        'reference_types',
         'references',
         'outfits',
+        'collaboration_types',
+        'venue_fee_payers',
         'assistants',
         'primary_photographers',
         'subject_props',
         'set_props',
+        'light_types',
+        'roles',
         'fixtures',
         'modifiers',
+        'positions',
         'lighting_notes',
     )
     values = {key: [] for key in value_keys}
@@ -203,15 +210,16 @@ def build_manifest_reference_index(roots):
         if not isinstance(data, dict):
             continue
 
-        legacy_model = ''
-        if isinstance(data.get('subjects'), list):
-            subjects = [item for item in data['subjects'] if isinstance(item, dict)]
-            model_subject = next((item for item in subjects if item.get('role') == 'model'), None)
-            if model_subject:
-                legacy_model = model_subject.get('name') or ''
-            elif subjects:
-                legacy_model = subjects[0].get('name') or ''
-        add_value('models', data.get('model') or legacy_model)
+        add_value('models', data.get('model'))
+
+        shoot = data.get('shoot') if isinstance(data.get('shoot'), dict) else {}
+        add_value('environments', shoot.get('environment'))
+        add_value('weathers', shoot.get('weather'))
+        add_value('scenes', shoot.get('scene'))
+        additional_sessions = shoot.get('additional_session') if isinstance(shoot.get('additional_session'), list) else []
+        for additional in additional_sessions:
+            if isinstance(additional, dict):
+                add_value('weathers', additional.get('weather'))
 
         location = data.get('location') if isinstance(data.get('location'), dict) else {}
         location_name = str(location.get('name') or '').strip()
@@ -228,14 +236,17 @@ def build_manifest_reference_index(roots):
                     entry[field] = location.get(field)
 
         theme = data.get('theme') if isinstance(data.get('theme'), dict) else {}
-        add_value('theme_names', theme.get('name') or data.get('title'))
+        add_value('theme_names', theme.get('name'))
+        add_value('genres', theme.get('genre'))
+        add_value('source_types', theme.get('source_type'))
         add_value('characters', theme.get('character'))
         add_value('variants', theme.get('variant'))
+        add_value('reference_types', theme.get('reference_type'))
         add_value('references', theme.get('reference'))
-        add_value('outfits', theme.get('outfit') or theme.get('clothing') or data.get('clothing_name'))
+        add_value('outfits', theme.get('outfit'))
 
-        source_title = str(theme.get('source_title') or theme.get('source_ip') or '').strip()
-        source_type = theme.get('source_type') or theme.get('source_category') or ''
+        source_title = str(theme.get('source_title') or '').strip()
+        source_type = theme.get('source_type') or ''
         if source_title:
             key = source_title.casefold()
             entry = sources.setdefault(key, {
@@ -246,6 +257,8 @@ def build_manifest_reference_index(roots):
                 entry['source_type'] = source_type
 
         production = data.get('production') if isinstance(data.get('production'), dict) else {}
+        add_value('collaboration_types', production.get('collaboration_type'))
+        add_value('venue_fee_payers', production.get('venue_fee_payer'))
         add_value('assistants', production.get('assistants'))
         add_value('primary_photographers', production.get('primary_photographer'))
 
@@ -257,8 +270,11 @@ def build_manifest_reference_index(roots):
         for light in lighting:
             if not isinstance(light, dict):
                 continue
+            add_value('roles', light.get('role'))
+            add_value('light_types', light.get('light_type'))
             add_value('fixtures', light.get('fixture'))
             add_value('modifiers', light.get('modifier'))
+            add_value('positions', light.get('position'))
             add_value('lighting_notes', light.get('note'))
 
     return {
