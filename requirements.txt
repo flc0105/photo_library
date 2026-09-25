@@ -2,4 +2,3 @@ Flask
 Pillow
 Flask-CORS
 pyvips==3.2.0
-pyvips-binary==8.18.6

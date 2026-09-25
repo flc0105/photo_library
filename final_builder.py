@@ -36,7 +36,7 @@ _FINAL_PROFILE = {
     'progressive': False,
     'dct': 'accurate integer',
     'icc': 'fixed sRGB',
-    'source_color_contract': 'embedded ICC must confirm sRGB; untagged accepted as sRGB',
+    'source_color_contract': 'verify sRGB from ICC / PNG signals / EXIF; otherwise use project sRGB assumption',
     'output_icc': 'sRGB IEC61966-2.1 · ICC v2.1 · HP/IEC 1998 fixed profile',
     'icc_sha256': _FINAL_SRGB_ICC_SHA256,
 }
@@ -160,7 +160,12 @@ def _top_level_images(directory: Path):
     if not directory.is_dir():
         return []
     return sorted(
-        [path for path in directory.iterdir() if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS],
+        [
+            path for path in directory.iterdir()
+            if path.is_file()
+            and not path.name.startswith('._')
+            and path.suffix.lower() in _IMAGE_EXTENSIONS
+        ],
         key=lambda item: item.name.casefold(),
     )
 
@@ -234,7 +239,7 @@ def _source_icc_info(image):
     if not icc_blob:
         return {
             'status': 'untagged',
-            'description': 'No embedded ICC; accepted as sRGB by library rule',
+            'description': 'No embedded ICC',
             'sha256': '',
         }
 
@@ -269,6 +274,133 @@ def _source_icc_info(image):
         }
 
 
+def _exif_color_space(image):
+    try:
+        exif = image.getexif()
+        value = exif.get(0xA001)
+        if value is None:
+            try:
+                value = exif.get_ifd(0x8769).get(0xA001)
+            except Exception:
+                value = None
+        return int(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _png_srgb_chromaticity_matches(image):
+    gamma = image.info.get('gamma')
+    chromaticity = image.info.get('chromaticity')
+    if gamma is None or not isinstance(chromaticity, (tuple, list)) or len(chromaticity) != 8:
+        return None
+
+    expected_gamma = 0.45455
+    expected_chromaticity = (
+        0.31270, 0.32900,
+        0.64000, 0.33000,
+        0.30000, 0.60000,
+        0.15000, 0.06000,
+    )
+    tolerance = 0.00001
+    gamma_matches = abs(float(gamma) - expected_gamma) <= tolerance
+    chromaticity_matches = all(
+        abs(float(actual) - expected) <= tolerance
+        for actual, expected in zip(chromaticity, expected_chromaticity)
+    )
+    return gamma_matches and chromaticity_matches
+
+
+def _source_color_info(image):
+    icc = _source_icc_info(image)
+    if icc['status'] == 'srgb':
+        return {
+            'status': 'confirmed_srgb',
+            'evidence': 'icc',
+            'label': 'sRGB · ICC',
+            'description': icc['description'],
+            'icc_status': icc['status'],
+            'icc_description': icc['description'],
+            'icc_sha256': icc['sha256'],
+        }
+    if icc['status'] == 'non_srgb':
+        return {
+            'status': 'non_srgb',
+            'evidence': 'icc',
+            'label': 'Non-sRGB ICC',
+            'description': icc['description'],
+            'icc_status': icc['status'],
+            'icc_description': icc['description'],
+            'icc_sha256': icc['sha256'],
+        }
+    if icc['status'] == 'invalid':
+        return {
+            'status': 'invalid',
+            'evidence': 'icc',
+            'label': 'ICC invalid',
+            'description': icc['description'],
+            'icc_status': icc['status'],
+            'icc_description': icc['description'],
+            'icc_sha256': icc['sha256'],
+        }
+
+    # With no embedded ICC, prefer explicit standard declarations before the
+    # project-level fallback that all library sources are known to be sRGB.
+    if image.format == 'PNG':
+        if 'srgb' in image.info:
+            return {
+                'status': 'confirmed_srgb',
+                'evidence': 'png_srgb',
+                'label': 'sRGB · PNG sRGB',
+                'description': 'PNG sRGB chunk declares sRGB',
+                'icc_status': icc['status'],
+                'icc_description': icc['description'],
+                'icc_sha256': icc['sha256'],
+            }
+
+        chromaticity_match = _png_srgb_chromaticity_matches(image)
+        if chromaticity_match is True:
+            return {
+                'status': 'confirmed_srgb',
+                'evidence': 'png_chrm_gama',
+                'label': 'sRGB · cHRM+gAMA',
+                'description': 'PNG cHRM + gAMA match the standard sRGB values',
+                'icc_status': icc['status'],
+                'icc_description': icc['description'],
+                'icc_sha256': icc['sha256'],
+            }
+        if chromaticity_match is False:
+            return {
+                'status': 'non_srgb',
+                'evidence': 'png_chrm_gama',
+                'label': 'Non-sRGB PNG signal',
+                'description': 'PNG cHRM + gAMA are present but do not match the standard sRGB values',
+                'icc_status': icc['status'],
+                'icc_description': icc['description'],
+                'icc_sha256': icc['sha256'],
+            }
+
+    if _exif_color_space(image) == 1:
+        return {
+            'status': 'confirmed_srgb',
+            'evidence': 'exif',
+            'label': 'sRGB · EXIF',
+            'description': 'EXIF ColorSpace=1 declares sRGB',
+            'icc_status': icc['status'],
+            'icc_description': icc['description'],
+            'icc_sha256': icc['sha256'],
+        }
+
+    return {
+        'status': 'assumed_srgb',
+        'evidence': 'project_assumption',
+        'label': 'sRGB · assumed',
+        'description': 'No independent color-space declaration found; accepted by the project sRGB input rule',
+        'icc_status': icc['status'],
+        'icc_description': icc['description'],
+        'icc_sha256': icc['sha256'],
+    }
+
+
 def _fixed_srgb_icc_path():
     path = Path(__file__).with_name(_FINAL_SRGB_ICC_FILENAME)
     if not path.is_file():
@@ -291,16 +423,20 @@ def _read_image_info(path: Path):
             alpha_min, _ = image.convert('RGBA').getchannel('A').getextrema()
             alpha_has_transparency = int(alpha_min) < 255
 
-        icc = _source_icc_info(image)
+        color = _source_color_info(image)
         return {
             'width': int(width),
             'height': int(height),
             'mode': image.mode,
             'has_alpha': has_alpha,
             'alpha_has_transparency': alpha_has_transparency,
-            'icc_status': icc['status'],
-            'icc_description': icc['description'],
-            'icc_sha256': icc['sha256'],
+            'color_status': color['status'],
+            'color_evidence': color['evidence'],
+            'color_label': color['label'],
+            'color_description': color['description'],
+            'icc_status': color['icc_status'],
+            'icc_description': color['icc_description'],
+            'icc_sha256': color['icc_sha256'],
         }
 
 
@@ -497,10 +633,10 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
 
         if info and info['mode'] == 'CMYK':
             errors.append('Final v1 的输入契约是 sRGB；CMYK 不允许按 sRGB 直接解释')
-        if info and info['icc_status'] == 'non_srgb':
-            errors.append(f'嵌入 ICC 无法确认是 sRGB：{info["icc_description"]}')
-        elif info and info['icc_status'] == 'invalid':
-            errors.append(f'嵌入 ICC 无法解析，不能确认 sRGB：{info["icc_description"]}')
+        if info and info['color_status'] == 'non_srgb':
+            errors.append(f'sRGB 预检未通过：{info["color_description"]}')
+        elif info and info['color_status'] == 'invalid':
+            errors.append(f'sRGB 预检无法完成：{info["color_description"]}')
         if geometry and geometry['pixel_insufficient']:
             errors.append('Center Crop 后像素不足目标尺寸；请先手动 AI SR')
         if geometry and geometry['crop_warning']:
@@ -524,10 +660,14 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
             'source_mode': info['mode'] if info else '',
             'has_alpha': info['has_alpha'] if info else False,
             'alpha_has_transparency': info['alpha_has_transparency'] if info else False,
+            'source_color_status': info['color_status'] if info else '',
+            'source_color_evidence': info['color_evidence'] if info else '',
+            'source_color_label': info['color_label'] if info else '',
+            'source_color_description': info['color_description'] if info else '',
             'source_icc_status': info['icc_status'] if info else '',
             'source_icc_description': info['icc_description'] if info else '',
             'source_icc_sha256': info['icc_sha256'] if info else '',
-            'color_policy': 'verify_embedded_srgb_accept_untagged',
+            'color_policy': 'verify_srgb_then_project_assumption',
             'geometry': geometry,
             'errors': errors,
             'warnings': warnings,
@@ -553,9 +693,9 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
     crop_warning_count = sum(1 for item in items if item['geometry'] and item['geometry']['crop_warning'])
     insufficient_count = sum(1 for item in items if item['geometry'] and item['geometry']['pixel_insufficient'])
     existing_count = sum(1 for item in items if Path(item['output_path']).exists())
-    icc_srgb_count = sum(1 for item in items if item.get('source_icc_status') == 'srgb')
-    icc_untagged_count = sum(1 for item in items if item.get('source_icc_status') == 'untagged')
-    icc_rejected_count = sum(1 for item in items if item.get('source_icc_status') in {'non_srgb', 'invalid'})
+    color_confirmed_count = sum(1 for item in items if item.get('source_color_status') == 'confirmed_srgb')
+    color_assumed_count = sum(1 for item in items if item.get('source_color_status') == 'assumed_srgb')
+    color_rejected_count = sum(1 for item in items if item.get('source_color_status') in {'non_srgb', 'invalid'})
 
     return {
         'kind': 'final_build',
@@ -576,9 +716,9 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
             'pixel_insufficient_count': insufficient_count,
             'output_exists_count': existing_count,
             'conflict_count': conflict_count,
-            'icc_srgb_count': icc_srgb_count,
-            'icc_untagged_count': icc_untagged_count,
-            'icc_rejected_count': icc_rejected_count,
+            'color_confirmed_count': color_confirmed_count,
+            'color_assumed_count': color_assumed_count,
+            'color_rejected_count': color_rejected_count,
         },
         'can_execute': len(items) > 0 and blocked_count == 0 and dependency['ready'],
     }
@@ -598,14 +738,14 @@ def _verify_srgb_inputs(items):
                 if image.mode == 'CMYK':
                     failures.append(f'{item["source_name"]}: CMYK')
                     continue
-                icc = _source_icc_info(image)
+                color = _source_color_info(image)
         except Exception as exc:
-            failures.append(f'{item["source_name"]}: ICC 检查失败：{exc}')
+            failures.append(f'{item["source_name"]}: sRGB 预检失败：{exc}')
             continue
 
-        if icc['status'] == 'non_srgb':
-            failures.append(f'{item["source_name"]}: 非 sRGB ICC · {icc["description"]}')
-        elif icc['status'] == 'invalid':
+        if color['status'] == 'non_srgb':
+            failures.append(f'{item["source_name"]}: 非 sRGB · {color["description"]}')
+        elif color['status'] == 'invalid':
             failures.append(f'{item["source_name"]}: ICC 无法解析')
 
     if failures:
@@ -633,8 +773,9 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
         # Alpha is known to be fully opaque, so dropping it cannot alter visible pixels.
         image = image.flatten()
 
-    # Final v1 contract: source pixels are sRGB. Embedded ICC has already been
-    # verified as sRGB when present; untagged files are accepted by library rule.
+    # Final v1 contract: source pixels are sRGB. The preflight verifies standard
+    # color declarations where available; files with no declaration use the
+    # project-level rule that this library's source pixels are already sRGB.
     # Source profile bytes are not propagated. Every Final gets the same ICC.
     if item.get('source_mode') == 'CMYK':
         raise RuntimeError('CMYK 不符合 Final v1 的 sRGB 输入契约')
@@ -864,7 +1005,10 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                 buffer = io.BytesIO()
                 image.save(buffer, 'JPEG', quality=85, optimize=True)
                 buffer.seek(0)
-                return send_file(buffer, mimetype='image/jpeg', max_age=120)
+                response = send_file(buffer, mimetype='image/jpeg', max_age=0)
+                response.cache_control.no_store = True
+                response.cache_control.max_age = 0
+                return response
         except Exception as exc:
             return jsonify({'error': str(exc)}), 404
 

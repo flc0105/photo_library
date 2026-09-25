@@ -259,6 +259,7 @@
                                     <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
                                     <el-dropdown-item @click="openImageInspectionTool">Image Check</el-dropdown-item>
                                     <el-dropdown-item divided @click="openFinalBuilder">Build Final</el-dropdown-item>
+                                    <el-dropdown-item @click="openFinalMetadata">Write Metadata</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -1850,9 +1851,14 @@
                         </el-table-column>
                         <el-table-column label="Color" width="170">
                             <template #default="scope">
-                                <el-tag v-if="scope.row.source_icc_status === 'srgb'" size="small" type="success">sRGB · embedded</el-tag>
-                                <el-tag v-else-if="scope.row.source_icc_status === 'untagged'" size="small" type="info">sRGB · no ICC</el-tag>
-                                <el-tag v-else size="small" type="danger">ICC rejected</el-tag>
+                                <el-tag v-if="scope.row.source_color_status === 'confirmed_srgb'"
+                                        size="small" type="success"
+                                        :title="scope.row.source_color_description">{{ scope.row.source_color_label }}</el-tag>
+                                <el-tag v-else-if="scope.row.source_color_status === 'assumed_srgb'"
+                                        size="small" type="info"
+                                        :title="scope.row.source_color_description">sRGB · assumed</el-tag>
+                                <el-tag v-else size="small" type="danger"
+                                        :title="scope.row.source_color_description">Color rejected</el-tag>
                             </template>
                         </el-table-column>
                         <el-table-column label="Status" min-width="250">
@@ -1879,7 +1885,7 @@
                         </div>
                         <div v-if="finalBuilderTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
                             <strong>Source Safety</strong>
-                            <span>本次 Build 仅读取上游文件；所有临时 PPM/JPEG 已随临时目录清理，最终只发布到 05_Final。</span>
+                            <span>本次 Build 仅读取上游文件；所有临时文件已随临时目录清理，最终只发布到 05_Final。</span>
                         </div>
                     </div>
                 </template>
@@ -1899,6 +1905,180 @@
                                @click="closeFinalBuilder"
                                :disabled="['queued','running'].includes(finalBuilderTask.status)">关闭</el-button>
                 </template>
+            </template>
+        </el-dialog>
+
+        <!-- Final metadata rebuild: Final-driven donor mapping -> preview -> staged ExifTool write. -->
+        <el-dialog v-model="finalMetadataVisible"
+                   title="Write Final Metadata"
+                   width="1180px"
+                   top="4vh"
+                   :close-on-click-modal="false"
+                   :close-on-press-escape="finalMetadataStep !== 1 || !['queued','running'].includes(finalMetadataTask.status)"
+                   :show-close="finalMetadataStep !== 1 || !['queued','running'].includes(finalMetadataTask.status)">
+            <div v-loading="finalMetadataLoading" style="min-height:220px;">
+                <el-steps :active="finalMetadataStep" finish-status="success" simple style="margin-bottom:16px;">
+                    <el-step title="Preview Plan"></el-step>
+                    <el-step title="Write Metadata"></el-step>
+                </el-steps>
+
+                <template v-if="finalMetadataStep === 0 && finalMetadataPlan">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                        <div class="workflow-summary-strip" style="margin-bottom:0; flex:1;">
+                            <span>Final <strong>{{ finalMetadataPlan.summary.final_count }}</strong></span>
+                            <span>Original donor <strong>{{ finalMetadataPlan.summary.original_source_count }}</strong></span>
+                            <span>Base fallback <strong>{{ finalMetadataPlan.summary.base_source_count }}</strong></span>
+                            <span>Fields <strong>{{ finalMetadataPlan.summary.field_count }}</strong></span>
+                            <span :class="{'is-danger': finalMetadataPlan.summary.blocked_count}">Blocked <strong>{{ finalMetadataPlan.summary.blocked_count }}</strong></span>
+                        </div>
+                        <el-button @click="openFinalMetadataSettings">字段设置</el-button>
+                    </div>
+
+                    <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
+                        <strong>Final Metadata Profile · {{ finalMetadataPlan.profile.name }}</strong>
+                        <span>Final 驱动 · donor: Original/JPG → Base Edit → Block · 清理 {{ finalMetadataPlan.profile.clear }} · JFIF / ICC 原样保留 · 只写当前白名单字段</span>
+                    </div>
+
+                    <div class="workflow-warning-box" :class="finalMetadataPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
+                        <strong>Runtime</strong>
+                        <span>ExifTool {{ finalMetadataPlan.dependency.exiftool_version || 'missing' }} / {{ finalMetadataPlan.dependency.exiftool_required }}</span>
+                        <div v-for="(message, index) in finalMetadataPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
+                    </div>
+
+                    <el-table :data="finalMetadataPlan.rows" border size="small" row-key="id" style="width:100%;">
+                        <el-table-column type="expand" width="44">
+                            <template #default="scope">
+                                <div style="padding:8px 18px 14px;">
+                                    <div style="display:grid; grid-template-columns:190px minmax(0,1fr) minmax(0,1fr); gap:0; border:1px solid #ebeef5; border-radius:6px; overflow:hidden;">
+                                        <div style="padding:8px 10px; font-weight:600; background:#f5f7fa;">Field</div>
+                                        <div style="padding:8px 10px; font-weight:600; background:#f5f7fa; border-left:1px solid #ebeef5;">Final 当前值</div>
+                                        <div style="padding:8px 10px; font-weight:600; background:#f5f7fa; border-left:1px solid #ebeef5;">Metadata Source</div>
+                                        <template v-for="field in scope.row.fields" :key="field.key">
+                                            <div style="padding:7px 10px; border-top:1px solid #ebeef5;">
+                                                <code>{{ field.label }}</code>
+                                                <div style="font-size:10px; color:#c0c4cc; margin-top:2px;">{{ field.group }}</div>
+                                            </div>
+                                            <div style="padding:7px 10px; border-top:1px solid #ebeef5; border-left:1px solid #ebeef5; overflow-wrap:anywhere;">
+                                                {{ field.final_value || '—' }}
+                                                <div v-if="field.final_source_tag" style="font-size:10px; color:#c0c4cc; margin-top:2px;">{{ field.final_source_tag }}</div>
+                                            </div>
+                                            <div style="padding:7px 10px; border-top:1px solid #ebeef5; border-left:1px solid #ebeef5; overflow-wrap:anywhere;">
+                                                <template v-if="field.output_fixed">
+                                                    <span>{{ field.output_fixed }} <small style="color:#909399;">(fixed output)</small></span>
+                                                </template>
+                                                <template v-else>{{ field.source_value || '—' }}</template>
+                                                <div v-if="field.source_tag" style="font-size:10px; color:#c0c4cc; margin-top:2px;">{{ field.source_tag }}</div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </el-table-column>
+
+                        <el-table-column label="Final" min-width="430">
+                            <template #default="scope">
+                                <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+                                    <el-image :src="finalMetadataThumbnailUrl(scope.row, 'final')"
+                                              fit="cover"
+                                              style="width:72px; height:72px; flex:0 0 72px; border-radius:5px; background:#f5f7fa;"></el-image>
+                                    <div style="min-width:0;">
+                                        <code style="display:block; overflow-wrap:anywhere;">{{ scope.row.final_name }}</code>
+                                        <div style="font-size:11px; color:#a8abb2; margin-top:4px; overflow-wrap:anywhere;">{{ scope.row.final_relative_path }}</div>
+                                        <div style="font-size:11px; color:#909399; margin-top:4px;">当前字段 {{ scope.row.final_present }}/{{ scope.row.field_count }}</div>
+                                    </div>
+                                </div>
+                            </template>
+                        </el-table-column>
+
+                        <el-table-column label="Metadata Source" min-width="500">
+                            <template #default="scope">
+                                <div v-if="scope.row.donor_name" style="display:flex; align-items:center; gap:12px; min-width:0;">
+                                    <el-image :src="finalMetadataThumbnailUrl(scope.row, 'source')"
+                                              fit="cover"
+                                              style="width:72px; height:72px; flex:0 0 72px; border-radius:5px; background:#f5f7fa;"></el-image>
+                                    <div style="min-width:0; flex:1;">
+                                        <div><el-tag size="small" type="info">{{ scope.row.donor_stage }}</el-tag> <code>{{ scope.row.donor_name }}</code></div>
+                                        <div style="font-size:11px; color:#a8abb2; margin-top:4px; overflow-wrap:anywhere;">{{ scope.row.donor_relative_path }}</div>
+                                        <div style="font-size:11px; color:#909399; margin-top:4px;">可提供字段 {{ scope.row.source_present }}/{{ scope.row.field_count }}</div>
+                                    </div>
+                                </div>
+                                <div v-else>
+                                    <el-tag size="small" type="danger">Blocked</el-tag>
+                                </div>
+                                <div v-for="(error, index) in scope.row.errors" :key="index" style="font-size:12px; color:#f56c6c; margin-top:5px;">{{ error }}</div>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+
+                    <div v-if="finalMetadataPlan.summary.final_count === 0" class="workflow-empty-result">05_Final 中没有找到 JPG/JPEG。</div>
+                </template>
+
+                <template v-else-if="finalMetadataStep === 1">
+                    <div style="padding:20px 4px;">
+                        <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                            <strong>{{ finalMetadataTask.message || '处理中…' }}</strong>
+                            <span v-if="finalMetadataTask.total">{{ finalMetadataTask.completed }} / {{ finalMetadataTask.total }}</span>
+                        </div>
+                        <el-progress :percentage="finalMetadataTask.percent || 0"
+                                     :status="finalMetadataTask.status === 'error' ? 'exception' : (finalMetadataTask.status === 'done' ? 'success' : '')"></el-progress>
+                        <div v-if="finalMetadataTask.error" class="workflow-task-error" style="margin-top:12px;">{{ finalMetadataTask.error }}</div>
+                        <div v-if="finalMetadataTask.logs && finalMetadataTask.logs.length" class="workflow-progress-log" style="margin-top:12px;">
+                            <div v-for="(line, index) in finalMetadataTask.logs.slice(-14)" :key="index">{{ line }}</div>
+                        </div>
+                        <div v-if="finalMetadataTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
+                            <strong>Verified</strong>
+                            <span>metadata 在临时副本上重建；JFIF APP0 与 canonical ICC 必须原字节保持不变；JPEG ImageDataMD5 与解码后的显示像素必须保持不变；XMP / IPTC / Photoshop / Adobe / MakerNotes / Thumbnail / Preview / Comment 不得残留。</span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <template #footer>
+                <template v-if="finalMetadataStep === 0">
+                    <el-button @click="closeFinalMetadata" :disabled="finalMetadataLoading">关闭</el-button>
+                    <el-button @click="refreshFinalMetadataPlan" :disabled="finalMetadataLoading">重新 Preview</el-button>
+                    <el-button type="primary" @click="executeFinalMetadata" :disabled="!finalMetadataCanExecute">Write Metadata</el-button>
+                </template>
+                <template v-else>
+                    <el-button type="primary"
+                               @click="closeFinalMetadata"
+                               :disabled="['queued','running'].includes(finalMetadataTask.status)">关闭</el-button>
+                </template>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="finalMetadataSettingsVisible"
+                   title="Final Metadata 字段设置"
+                   width="760px"
+                   append-to-body
+                   :close-on-click-modal="!finalMetadataSettingsSaving">
+            <div class="workflow-warning-box neutral" style="margin-bottom:14px;">
+                <strong>全局偏好</strong>
+                <span>这里只维护 curated 白名单，不列出文件里所有 XMP/LR/应用私有 metadata。保存后对所有 Set 生效。</span>
+            </div>
+            <el-checkbox-group v-model="finalMetadataSettingsDraft.selected_fields"
+                               style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 14px;">
+                <el-checkbox v-for="field in finalMetadataSettingsFields"
+                             :key="field.key"
+                             :label="field.key"
+                             style="margin-right:0; min-width:0;">
+                    <span>{{ field.label }}</span>
+                    <small style="color:#a8abb2; margin-left:4px;">{{ field.group }}</small>
+                </el-checkbox>
+            </el-checkbox-group>
+            <div style="margin-top:16px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Additional tags</div>
+                <el-input v-model="finalMetadataAdditionalTagsText"
+                          type="textarea"
+                          :rows="3"
+                          placeholder="可选，例如 Artist, Copyright。逗号或换行分隔；不允许 All / ICC_Profile / Adobe / MakerNotes 等破坏 canonical 边界的 group/tag。"></el-input>
+            </div>
+            <div v-for="field in finalMetadataSettingsFields.filter(item => item.note)" :key="`note-${field.key}`" style="font-size:11px; color:#909399; margin-top:8px;">
+                {{ field.label }}：{{ field.note }}
+            </div>
+            <template #footer>
+                <el-button @click="finalMetadataSettingsVisible = false" :disabled="finalMetadataSettingsSaving">取消</el-button>
+                <el-button type="primary" @click="saveFinalMetadataSettings" :loading="finalMetadataSettingsSaving">保存设置</el-button>
             </template>
         </el-dialog>
 
@@ -2720,7 +2900,8 @@
 <script src="manifest-autofill.js?v=20260924-01"></script>
 <script src="workflow-tools.js?v=20260921-04"></script>
 <script src="final-builder.js?v=20260925-01"></script>
+<script src="final-metadata.js?v=20260925-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260925-02"></script>
+<script type="module" src="app.js?v=20260925-03"></script>
 </body>
 </html>

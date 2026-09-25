@@ -666,6 +666,16 @@ const app = createApp({
             }
         });
 
+        const finalMetadata = window.FinalMetadata.createController({
+            getSource: () => currentLibrarySource.value,
+            getSetPath: () => libraryListing.value && libraryListing.value.path,
+            refreshCurrent: async () => {
+                if (currentLibrarySource.value && libraryListing.value && libraryListing.value.path !== null && libraryListing.value.path !== undefined) {
+                    await loadLibraryDirectory(libraryListing.value.path || '');
+                }
+            }
+        });
+
         const setInsights = window.SetInsights.createController({
             getSource: () => currentLibrarySource.value,
             getSetPath: () => libraryListing.value && libraryListing.value.path
@@ -4088,6 +4098,24 @@ const app = createApp({
             executeFinalBuilder: finalBuilder.execute,
             finalBuilderStatusType: finalBuilder.statusType,
             finalBuilderStatusText: finalBuilder.statusText,
+            finalMetadataVisible: finalMetadata.visible,
+            finalMetadataLoading: finalMetadata.loading,
+            finalMetadataStep: finalMetadata.step,
+            finalMetadataPlan: finalMetadata.plan,
+            finalMetadataTask: finalMetadata.task,
+            finalMetadataCanExecute: finalMetadata.canExecute,
+            finalMetadataSettingsVisible: finalMetadata.settingsVisible,
+            finalMetadataSettingsSaving: finalMetadata.settingsSaving,
+            finalMetadataSettingsDraft: finalMetadata.settingsDraft,
+            finalMetadataSettingsFields: finalMetadata.settingsFields,
+            finalMetadataAdditionalTagsText: finalMetadata.additionalTagsText,
+            openFinalMetadata: finalMetadata.open,
+            closeFinalMetadata: finalMetadata.close,
+            refreshFinalMetadataPlan: finalMetadata.refreshPlan,
+            finalMetadataThumbnailUrl: finalMetadata.thumbnailUrl,
+            openFinalMetadataSettings: finalMetadata.openSettings,
+            saveFinalMetadataSettings: finalMetadata.saveSettings,
+            executeFinalMetadata: finalMetadata.execute,
             currentManifestData,
             formatEnumValue,
             formatManifestValue,
