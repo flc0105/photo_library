@@ -619,7 +619,6 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
     pyvips = _load_pyvips()
     source_path = Path(item['source_path'])
     geometry = item['geometry']
-    ppm_path = temp_dir / f'{uuid.uuid4().hex}.ppm'
     icc_path = _fixed_srgb_icc_path()
     jpeg_path = temp_dir / f'{uuid.uuid4().hex}.jpg'
 
@@ -670,9 +669,18 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
     if image.format != 'uchar':
         image = image.cast('uchar', shift=True)
 
-    # PPM contains only normalized pixels. It prevents source ICC/EXIF/XMP/
-    # thumbnails or application markers from leaking into the canonical JPEG.
-    image.write_to_file(str(ppm_path))
+    # Feed a minimal binary PPM stream to cjpeg through stdin instead of asking
+    # libvips to save a .ppm file. The pyvips binary runtime does not guarantee
+    # that the PNM/PPM saver is compiled in. Building the P6 header ourselves
+    # keeps the bridge deterministic and still carries only normalized RGB
+    # pixels, so source ICC/EXIF/XMP/application markers cannot leak through.
+    pixels = image.write_to_memory()
+    expected_bytes = image.width * image.height * 3
+    if len(pixels) != expected_bytes:
+        raise RuntimeError(
+            f'libvips RGB 像素缓冲区大小异常：{len(pixels)} bytes，期望 {expected_bytes} bytes'
+        )
+    ppm_header = f'P6\n{image.width} {image.height}\n255\n'.encode('ascii')
 
     command = [
         cjpeg_path,
@@ -682,15 +690,34 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
         '-dct', 'int',
         '-icc', str(icc_path),
         '-outfile', str(jpeg_path),
-        str(ppm_path),
     ]
-    result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=300)
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    stderr = b''
     try:
-        ppm_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-    if result.returncode != 0 or not jpeg_path.is_file():
-        detail = (result.stderr or result.stdout or '').strip()
+        if process.stdin is None:
+            raise RuntimeError('无法打开 cjpeg stdin')
+        process.stdin.write(ppm_header)
+        process.stdin.write(pixels)
+        process.stdin.close()
+        process.stdin = None
+        _, stderr = process.communicate(timeout=300)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _, stderr = process.communicate()
+        raise RuntimeError('libjpeg-turbo 编码超时（300 秒）')
+    except BrokenPipeError:
+        process.stdin = None
+        _, stderr = process.communicate()
+    finally:
+        del pixels
+
+    if process.returncode != 0 or not jpeg_path.is_file():
+        detail = (stderr or b'').decode('utf-8', errors='replace').strip()
         raise RuntimeError(f'libjpeg-turbo 编码失败：{detail or "cjpeg returned non-zero"}')
 
     return jpeg_path
@@ -719,24 +746,49 @@ def _validate_output(path: Path, item):
 
 
 def _publish_staged(staged, final_dir: Path):
+    """Publish a validated batch without overwriting existing Final files.
+
+    External/removable filesystems such as exFAT may not support hard links.
+    Reserve every destination first with O_EXCL, then atomically replace only
+    those reservations with the already-validated staged JPEGs. If anything
+    fails, remove both published files and remaining reservations from this run.
+    Source images are never touched.
+    """
+    reservations = []
     published = []
     final_dir.mkdir(parents=True, exist_ok=True)
+
     try:
+        # Reserve the whole batch before moving any JPEG. O_EXCL guarantees that
+        # an existing Final is never silently overwritten, including files that
+        # appeared after Preview but before publication.
+        for _staged_path, item in staged:
+            destination = final_dir / item['output_name']
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            fd = os.open(destination, flags, 0o644)
+            os.close(fd)
+            reservations.append(destination)
+
+        # staged_path and final_dir live inside the same Set, so os.replace() is
+        # a same-filesystem atomic rename. It replaces only our own reservation.
         for staged_path, item in staged:
             destination = final_dir / item['output_name']
-            if destination.exists():
-                raise FileExistsError(f'发布前发现同名 Final：{destination.name}')
-            # Hard-link publication is atomic on the same filesystem and never overwrites.
-            os.link(staged_path, destination)
+            os.replace(staged_path, destination)
             published.append(destination)
+
         return published
-    except Exception:
-        for destination in published:
-            try:
-                destination.unlink()
-            except OSError:
-                pass
-        raise
+    except FileExistsError as exc:
+        raise FileExistsError(f'发布前发现同名 Final；禁止覆盖：{Path(exc.filename).name if exc.filename else exc}') from exc
+    finally:
+        if len(published) != len(staged):
+            # Roll back any files/reservations created by this publication attempt.
+            for destination in reversed(reservations):
+                try:
+                    destination.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
 
 
 def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
@@ -800,9 +852,17 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                         image = background
                     else:
                         image = image.convert('RGB')
-                image.thumbnail((240, 180), Image.Resampling.LANCZOS)
+                # UI-only preview: generate a Retina-friendly square thumbnail so the
+                # source-card grid does not upscale a small 4:3 preview. This never
+                # writes back to the source image and is unrelated to Final JPEG output.
+                image = ImageOps.fit(
+                    image,
+                    (512, 512),
+                    method=Image.Resampling.LANCZOS,
+                    centering=(0.5, 0.5),
+                )
                 buffer = io.BytesIO()
-                image.save(buffer, 'JPEG', quality=75, optimize=True)
+                image.save(buffer, 'JPEG', quality=85, optimize=True)
                 buffer.seek(0)
                 return send_file(buffer, mimetype='image/jpeg', max_age=120)
         except Exception as exc:

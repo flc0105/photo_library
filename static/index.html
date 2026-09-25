@@ -1753,44 +1753,48 @@
                         <span>Selected <strong>{{ finalBuilderSelectedCount }}</strong></span>
                     </div>
 
-                    <div v-for="group in finalBuilderSelection.groups" :key="group.stage" style="margin-bottom:18px;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                            <div><strong>{{ group.label }}</strong> <span style="color:#909399; font-size:12px;">{{ group.items.length }} files</span></div>
+                    <div v-for="group in finalBuilderSelection.groups" :key="group.stage" style="margin-bottom:20px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:12px;">
                             <div>
+                                <strong>{{ group.label }}</strong>
+                                <span style="color:#909399; font-size:12px; margin-left:6px;">{{ group.items.length }} files</span>
+                            </div>
+                            <div style="white-space:nowrap;">
                                 <el-button size="small" plain @click="selectFinalBuilderGroup(group, true)" :disabled="!group.items.length">全选</el-button>
                                 <el-button size="small" plain @click="selectFinalBuilderGroup(group, false)" :disabled="!group.items.length">全不选</el-button>
                             </div>
                         </div>
-                        <el-table :data="group.items" border size="small" empty-text="No files">
-                            <el-table-column label="Use" width="64" align="center">
-                                <template #default="scope">
-                                    <el-checkbox :model-value="finalBuilderIsSelected(scope.row.id)"
-                                                 @change="setFinalBuilderSelected(scope.row.id, $event)"></el-checkbox>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="Preview" width="132">
-                                <template #default="scope">
-                                    <el-image :src="finalBuilderThumbnailUrl(scope.row)"
+
+                        <div v-if="group.items.length"
+                             style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 220px)); gap:12px; align-items:start;">
+                            <el-card v-for="item in group.items"
+                                     :key="item.id"
+                                     shadow="hover"
+                                     :body-style="{padding: '8px'}"
+                                     :style="{
+                                         borderColor: finalBuilderIsSelected(item.id) ? '#409eff' : '#e4e7ed',
+                                         backgroundColor: finalBuilderIsSelected(item.id) ? '#f5f9ff' : '#ffffff'
+                                     }">
+                                <div style="position:relative; width:100%; aspect-ratio:1 / 1; border-radius:6px; overflow:hidden; background:#f5f7fa;">
+                                    <el-image :src="finalBuilderThumbnailUrl(item)"
                                               fit="cover"
-                                              style="width:108px; height:78px; border-radius:4px; background:#f5f7fa;"></el-image>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="File" min-width="360">
-                                <template #default="scope">
-                                    <div><code>{{ scope.row.name }}</code></div>
-                                    <div style="font-size:12px; color:#909399; margin-top:4px;">{{ scope.row.relative_path }}</div>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="Logical ID" width="170">
-                                <template #default="scope"><code>{{ scope.row.logical_id }}</code></template>
-                            </el-table-column>
-                            <el-table-column label="Default" min-width="180">
-                                <template #default="scope">
-                                    <el-tag size="small" :type="scope.row.default_selected ? 'success' : 'info'">{{ scope.row.default_selected ? 'Selected' : 'Not selected' }}</el-tag>
-                                    <div style="font-size:12px; color:#909399; margin-top:4px;">{{ scope.row.default_reason }}</div>
-                                </template>
-                            </el-table-column>
-                        </el-table>
+                                              style="width:100%; height:100%; display:block;"></el-image>
+                                    <div style="position:absolute; top:9px; right:9px; line-height:1;">
+                                        <el-checkbox :model-value="finalBuilderIsSelected(item.id)"
+                                                     aria-label="选择此图片"
+                                                     @change="setFinalBuilderSelected(item.id, $event)"></el-checkbox>
+                                    </div>
+                                </div>
+                                <div style="min-width:0; padding:8px 2px 1px;">
+                                    <code style="display:block; font-size:12px; line-height:1.35; overflow-wrap:anywhere;">{{ item.name }}</code>
+                                    <div style="margin-top:4px; font-size:11px; color:#a8abb2; line-height:1.3;">
+                                        默认{{ item.default_selected ? '选中' : '未选' }} · {{ item.default_reason }}
+                                    </div>
+                                    <div style="margin-top:4px; font-size:10px; color:#c0c4cc; line-height:1.25; overflow-wrap:anywhere;">{{ item.relative_path }}</div>
+                                </div>
+                            </el-card>
+                        </div>
+                        <div v-else style="padding:16px; border:1px dashed #dcdfe6; border-radius:6px; color:#909399; text-align:center;">No files</div>
                     </div>
                 </template>
 
@@ -1801,13 +1805,11 @@
                         <span :class="{'is-danger': finalBuilderPlan.summary.blocked_count}">Blocked <strong>{{ finalBuilderPlan.summary.blocked_count }}</strong></span>
                         <span>Crop &gt;3% <strong>{{ finalBuilderPlan.summary.crop_warning_count }}</strong></span>
                         <span>AI SR <strong>{{ finalBuilderPlan.summary.pixel_insufficient_count }}</strong></span>
-                        <span>ICC sRGB <strong>{{ finalBuilderPlan.summary.icc_srgb_count }}</strong></span>
-                        <span>Untagged sRGB <strong>{{ finalBuilderPlan.summary.icc_untagged_count }}</strong></span>
                     </div>
 
                     <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
                         <strong>Final JPEG Profile · {{ finalBuilderPlan.profile.name }}</strong>
-                        <span>libvips {{ finalBuilderPlan.profile.libvips }} · Lanczos3 · 3200×4800 / 4800×3200 · libjpeg-turbo {{ finalBuilderPlan.profile.libjpeg_turbo }} · Q95 · 4:4:4 · Huffman optimize · Sequential JPEG · embedded ICC must confirm sRGB · untagged accepted as sRGB · fixed ICC sRGB IEC61966-2.1 profile</span>
+                        <span>libvips {{ finalBuilderPlan.profile.libvips }} · Lanczos3 · 3200×4800 / 4800×3200 · libjpeg-turbo {{ finalBuilderPlan.profile.libjpeg_turbo }} · Q95 · 4:4:4 · Huffman optimize · Sequential JPEG · sRGB IEC61966-2.1 ICC</span>
                     </div>
 
                     <div class="workflow-warning-box" :class="finalBuilderPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
@@ -1817,11 +1819,11 @@
                     </div>
 
                     <el-table :data="finalBuilderPlan.items" border size="small" style="width:100%;">
-                        <el-table-column label="Preview" width="128">
+                        <el-table-column label="Preview" width="88">
                             <template #default="scope">
                                 <el-image :src="finalBuilderThumbnailUrl({id: scope.row.source_item_id})"
                                           fit="cover"
-                                          style="width:104px; height:74px; border-radius:4px; background:#f5f7fa;"></el-image>
+                                          style="width:64px; height:64px; border-radius:4px; background:#f5f7fa; display:block;"></el-image>
                             </template>
                         </el-table-column>
                         <el-table-column label="Source → Final" min-width="330">
@@ -1846,13 +1848,11 @@
                                 <span v-else>—</span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="Color" width="220">
+                        <el-table-column label="Color" width="170">
                             <template #default="scope">
-                                <el-tag v-if="scope.row.source_icc_status === 'srgb'" size="small" type="success">Embedded sRGB confirmed</el-tag>
-                                <el-tag v-else-if="scope.row.source_icc_status === 'untagged'" size="small" type="info">No ICC · accept as sRGB</el-tag>
+                                <el-tag v-if="scope.row.source_icc_status === 'srgb'" size="small" type="success">sRGB · embedded</el-tag>
+                                <el-tag v-else-if="scope.row.source_icc_status === 'untagged'" size="small" type="info">sRGB · no ICC</el-tag>
                                 <el-tag v-else size="small" type="danger">ICC rejected</el-tag>
-                                <div v-if="scope.row.source_icc_status === 'srgb'" style="font-size:11px; color:#909399; margin-top:4px; word-break:break-word;">{{ scope.row.source_icc_description }}</div>
-                                <div style="font-size:11px; color:#909399; margin-top:4px;">Output: fixed ICC sRGB IEC61966-2.1 profile</div>
                             </template>
                         </el-table-column>
                         <el-table-column label="Status" min-width="250">
