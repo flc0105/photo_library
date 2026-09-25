@@ -261,7 +261,8 @@
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
-                        <el-button :disabled="libraryFavoriteCount === 0" @click="exportLibraryFavorites">
+                        <el-button v-if="libraryImages.length > 0 && libraryFavoriteCount > 1"
+                                   @click="exportLibraryFavorites">
                             选图{{ libraryFavoriteCount > 0 ? `(${libraryFavoriteCount})` : '' }}
                         </el-button>
                         <el-button v-if="isSetDirectory" type="primary"

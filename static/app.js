@@ -1838,19 +1838,44 @@ const app = createApp({
             }
         };
 
-        const exportLibraryFavorites = async () => {
+        const exportLibraryFavorites = () => {
             const names = libraryImages.value.filter(item => item.is_favorited).map(item => item.original_filename);
             if (!names.length) {
                 ElMessage.warning('当前目录没有收藏的图片');
                 return;
             }
             const text = names.map((name, index) => `${index + 1}. ${name}`).join('\n');
-            try {
-                await navigator.clipboard.writeText(text);
-                ElMessage.success(`已复制 ${names.length} 个文件名`);
-            } catch (error) {
-                ElMessageBox.alert(text, '收藏图片列表', {confirmButtonText: '关闭'});
-            }
+
+            // 与 uploaded album 的选图交互保持一致：先预览文件名，再由用户确认复制。
+            ElMessageBox({
+                title: `目录: ${libraryListing.value.name || currentLibrarySource.value?.name || ''}`,
+                message: `收藏图片列表 (${names.length}张):\n\n${text}`,
+                showConfirmButton: true,
+                showCancelButton: true,
+                confirmButtonText: '复制到剪贴板',
+                cancelButtonText: '关闭',
+                customClass: 'favorite-list-box',
+                beforeClose: async (action, instance, done) => {
+                    if (action === 'confirm') {
+                        try {
+                            await navigator.clipboard.writeText(text);
+                            ElMessage.success('已复制到剪贴板');
+                            done();
+                        } catch (err) {
+                            const textArea = document.createElement('textarea');
+                            textArea.value = text;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            ElMessage.success('已复制到剪贴板');
+                            done();
+                        }
+                    } else {
+                        done();
+                    }
+                }
+            });
         };
 
         const renameLibraryImageFile = async (image, newFilename) => {
