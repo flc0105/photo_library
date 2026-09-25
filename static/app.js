@@ -656,6 +656,16 @@ const app = createApp({
             }
         });
 
+        const finalBuilder = window.FinalBuilder.createController({
+            getSource: () => currentLibrarySource.value,
+            getSetPath: () => libraryListing.value && libraryListing.value.path,
+            refreshCurrent: async () => {
+                if (currentLibrarySource.value && libraryListing.value && libraryListing.value.path !== null && libraryListing.value.path !== undefined) {
+                    await loadLibraryDirectory(libraryListing.value.path || '');
+                }
+            }
+        });
+
         const setInsights = window.SetInsights.createController({
             getSource: () => currentLibrarySource.value,
             getSetPath: () => libraryListing.value && libraryListing.value.path
@@ -4057,6 +4067,27 @@ const app = createApp({
             workflowStatusLabel: workflowTools.statusLabel,
             workflowStatusType: workflowTools.statusType,
             workflowFormatSize: workflowTools.formatSize,
+            finalBuilderVisible: finalBuilder.visible,
+            finalBuilderLoading: finalBuilder.loading,
+            finalBuilderStep: finalBuilder.step,
+            finalBuilderSelection: finalBuilder.selection,
+            finalBuilderSelectedIds: finalBuilder.selectedIds,
+            finalBuilderSelectedCount: finalBuilder.selectedCount,
+            finalBuilderPlan: finalBuilder.plan,
+            finalBuilderTask: finalBuilder.task,
+            finalBuilderCanPreview: finalBuilder.canPreview,
+            finalBuilderCanExecute: finalBuilder.canExecute,
+            openFinalBuilder: finalBuilder.open,
+            closeFinalBuilder: finalBuilder.close,
+            finalBuilderIsSelected: finalBuilder.isSelected,
+            setFinalBuilderSelected: finalBuilder.setSelected,
+            selectFinalBuilderGroup: finalBuilder.selectGroup,
+            finalBuilderThumbnailUrl: finalBuilder.thumbnailUrl,
+            previewFinalBuilder: finalBuilder.preview,
+            backFinalBuilderSelection: finalBuilder.backToSelection,
+            executeFinalBuilder: finalBuilder.execute,
+            finalBuilderStatusType: finalBuilder.statusType,
+            finalBuilderStatusText: finalBuilder.statusText,
             currentManifestData,
             formatEnumValue,
             formatManifestValue,

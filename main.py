@@ -21,6 +21,7 @@ from image_utils import generate_thumbnail, generate_compressed, get_image_exif_
 from gps_utils import extract_gps_from_image
 from manifest_autofill import build_manifest_reference_index, get_original_jpg_time_range
 from workflow_tools import create_workflow_blueprint
+from final_builder import create_final_builder_blueprint
 from set_insights import create_set_insights_blueprint
 
 app = Flask(__name__)
@@ -2808,6 +2809,14 @@ app.register_blueprint(create_workflow_blueprint(
     _get_library_source,
     _resolve_library_path,
     get_db_connection,
+))
+
+# Final JPEG generation is isolated from the general workflow module so it can
+# be removed without touching the existing rename/sync/import tools.
+app.register_blueprint(create_final_builder_blueprint(
+    _library_admin_guard,
+    _get_library_source,
+    _resolve_library_path,
 ))
 
 # Detail-only derived statistics/equipment scan and Source-root validation live

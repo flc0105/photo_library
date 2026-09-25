@@ -258,6 +258,7 @@
                                     <el-dropdown-item divided @click="openVisualRenameTool">Match Rename</el-dropdown-item>
                                     <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
                                     <el-dropdown-item @click="openImageInspectionTool">Image Check</el-dropdown-item>
+                                    <el-dropdown-item divided @click="openFinalBuilder">Build Final</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -1725,6 +1726,182 @@
             </template>
         </el-dialog>
 
+        <!-- Canonical Final JPEG builder: source selection -> build plan -> execution. -->
+        <el-dialog v-model="finalBuilderVisible"
+                   title="Build Final"
+                   width="1180px"
+                   top="4vh"
+                   :close-on-click-modal="false"
+                   :close-on-press-escape="finalBuilderStep !== 2 || !['queued','running'].includes(finalBuilderTask.status)"
+                   :show-close="finalBuilderStep !== 2 || !['queued','running'].includes(finalBuilderTask.status)">
+            <div v-loading="finalBuilderLoading" style="min-height:220px;">
+                <el-steps :active="finalBuilderStep" finish-status="success" simple style="margin-bottom:16px;">
+                    <el-step title="Select Sources"></el-step>
+                    <el-step title="Build Plan"></el-step>
+                    <el-step title="Build"></el-step>
+                </el-steps>
+
+                <template v-if="finalBuilderStep === 0 && finalBuilderSelection">
+                    <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
+                        <strong>默认选择规则</strong>
+                        <span>Revision 默认优先；Model Edit 只默认选择未被同 logical ID Revision 覆盖的图；只有 Model Edit 与 Revision 整组都为空时，Base Edit 才默认全选。最终以本页复选框为准。</span>
+                    </div>
+                    <div class="workflow-summary-strip" style="margin-bottom:12px;">
+                        <span>Revision <strong>{{ finalBuilderSelection.summary.revision_count }}</strong></span>
+                        <span>Model <strong>{{ finalBuilderSelection.summary.model_count }}</strong></span>
+                        <span>Base <strong>{{ finalBuilderSelection.summary.base_count }}</strong></span>
+                        <span>Selected <strong>{{ finalBuilderSelectedCount }}</strong></span>
+                    </div>
+
+                    <div v-for="group in finalBuilderSelection.groups" :key="group.stage" style="margin-bottom:18px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                            <div><strong>{{ group.label }}</strong> <span style="color:#909399; font-size:12px;">{{ group.items.length }} files</span></div>
+                            <div>
+                                <el-button size="small" plain @click="selectFinalBuilderGroup(group, true)" :disabled="!group.items.length">全选</el-button>
+                                <el-button size="small" plain @click="selectFinalBuilderGroup(group, false)" :disabled="!group.items.length">全不选</el-button>
+                            </div>
+                        </div>
+                        <el-table :data="group.items" border size="small" empty-text="No files">
+                            <el-table-column label="Use" width="64" align="center">
+                                <template #default="scope">
+                                    <el-checkbox :model-value="finalBuilderIsSelected(scope.row.id)"
+                                                 @change="setFinalBuilderSelected(scope.row.id, $event)"></el-checkbox>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="Preview" width="132">
+                                <template #default="scope">
+                                    <el-image :src="finalBuilderThumbnailUrl(scope.row)"
+                                              fit="cover"
+                                              style="width:108px; height:78px; border-radius:4px; background:#f5f7fa;"></el-image>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="File" min-width="360">
+                                <template #default="scope">
+                                    <div><code>{{ scope.row.name }}</code></div>
+                                    <div style="font-size:12px; color:#909399; margin-top:4px;">{{ scope.row.relative_path }}</div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="Logical ID" width="170">
+                                <template #default="scope"><code>{{ scope.row.logical_id }}</code></template>
+                            </el-table-column>
+                            <el-table-column label="Default" min-width="180">
+                                <template #default="scope">
+                                    <el-tag size="small" :type="scope.row.default_selected ? 'success' : 'info'">{{ scope.row.default_selected ? 'Selected' : 'Not selected' }}</el-tag>
+                                    <div style="font-size:12px; color:#909399; margin-top:4px;">{{ scope.row.default_reason }}</div>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+                </template>
+
+                <template v-else-if="finalBuilderStep === 1 && finalBuilderPlan">
+                    <div class="workflow-summary-strip" style="margin-bottom:12px;">
+                        <span>Selected <strong>{{ finalBuilderPlan.summary.selected_count }}</strong></span>
+                        <span>Warnings <strong>{{ finalBuilderPlan.summary.warning_count }}</strong></span>
+                        <span :class="{'is-danger': finalBuilderPlan.summary.blocked_count}">Blocked <strong>{{ finalBuilderPlan.summary.blocked_count }}</strong></span>
+                        <span>Crop &gt;3% <strong>{{ finalBuilderPlan.summary.crop_warning_count }}</strong></span>
+                        <span>AI SR <strong>{{ finalBuilderPlan.summary.pixel_insufficient_count }}</strong></span>
+                        <span>ICC sRGB <strong>{{ finalBuilderPlan.summary.icc_srgb_count }}</strong></span>
+                        <span>Untagged sRGB <strong>{{ finalBuilderPlan.summary.icc_untagged_count }}</strong></span>
+                    </div>
+
+                    <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
+                        <strong>Final JPEG Profile · {{ finalBuilderPlan.profile.name }}</strong>
+                        <span>libvips {{ finalBuilderPlan.profile.libvips }} · Lanczos3 · 3200×4800 / 4800×3200 · libjpeg-turbo {{ finalBuilderPlan.profile.libjpeg_turbo }} · Q95 · 4:4:4 · Huffman optimize · Sequential JPEG · embedded ICC must confirm sRGB · untagged accepted as sRGB · fixed ICC sRGB IEC61966-2.1 profile</span>
+                    </div>
+
+                    <div class="workflow-warning-box" :class="finalBuilderPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
+                        <strong>Runtime</strong>
+                        <span>pyvips {{ finalBuilderPlan.dependency.pyvips_version || 'missing' }} / {{ finalBuilderPlan.dependency.pyvips_required }} · libvips {{ finalBuilderPlan.dependency.libvips_version || 'missing' }} / {{ finalBuilderPlan.dependency.libvips_required }} · libjpeg-turbo {{ finalBuilderPlan.dependency.libjpeg_turbo_version || 'missing' }} / {{ finalBuilderPlan.dependency.libjpeg_turbo_required }}</span>
+                        <div v-for="(message, index) in finalBuilderPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
+                    </div>
+
+                    <el-table :data="finalBuilderPlan.items" border size="small" style="width:100%;">
+                        <el-table-column label="Preview" width="128">
+                            <template #default="scope">
+                                <el-image :src="finalBuilderThumbnailUrl({id: scope.row.source_item_id})"
+                                          fit="cover"
+                                          style="width:104px; height:74px; border-radius:4px; background:#f5f7fa;"></el-image>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Source → Final" min-width="330">
+                            <template #default="scope">
+                                <div><el-tag size="small" type="info">{{ scope.row.stage_label }}</el-tag> <code>{{ scope.row.source_name }}</code></div>
+                                <div style="margin-top:5px;">→ <code>{{ scope.row.output_relative_path }}</code></div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Crop / Resize" min-width="310">
+                            <template #default="scope">
+                                <template v-if="scope.row.geometry">
+                                    <div>{{ scope.row.source_width }}×{{ scope.row.source_height }} → {{ scope.row.geometry.crop_width }}×{{ scope.row.geometry.crop_height }} → {{ scope.row.geometry.target_width }}×{{ scope.row.geometry.target_height }}</div>
+                                    <div v-if="scope.row.geometry.crop_required" style="font-size:12px; margin-top:4px;"
+                                         :style="{color: scope.row.geometry.crop_warning ? '#f56c6c' : '#909399'}">
+                                        Center Crop {{ Number(scope.row.geometry.crop_percent).toFixed(2) }}% · L {{ scope.row.geometry.crop_left }} / R {{ scope.row.geometry.crop_right }} / T {{ scope.row.geometry.crop_top }} / B {{ scope.row.geometry.crop_bottom }} px
+                                    </div>
+                                    <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Crop skipped · already exact {{ scope.row.geometry.target_ratio }}</div>
+                                    <div v-if="scope.row.geometry.pixel_insufficient" style="font-size:12px; color:#f56c6c; margin-top:4px;">Crop 后像素不足：请先手动 AI SR</div>
+                                    <div v-else-if="scope.row.geometry.resize_required" style="font-size:12px; color:#909399; margin-top:4px;">Resize: Lanczos3 → {{ scope.row.geometry.target_width }}×{{ scope.row.geometry.target_height }}</div>
+                                    <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Resize skipped · already target size</div>
+                                </template>
+                                <span v-else>—</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Color" width="220">
+                            <template #default="scope">
+                                <el-tag v-if="scope.row.source_icc_status === 'srgb'" size="small" type="success">Embedded sRGB confirmed</el-tag>
+                                <el-tag v-else-if="scope.row.source_icc_status === 'untagged'" size="small" type="info">No ICC · accept as sRGB</el-tag>
+                                <el-tag v-else size="small" type="danger">ICC rejected</el-tag>
+                                <div v-if="scope.row.source_icc_status === 'srgb'" style="font-size:11px; color:#909399; margin-top:4px; word-break:break-word;">{{ scope.row.source_icc_description }}</div>
+                                <div style="font-size:11px; color:#909399; margin-top:4px;">Output: fixed ICC sRGB IEC61966-2.1 profile</div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Status" min-width="250">
+                            <template #default="scope">
+                                <el-tag size="small" :type="finalBuilderStatusType(scope.row.status)">{{ finalBuilderStatusText(scope.row.status) }}</el-tag>
+                                <div v-for="(error, index) in scope.row.errors" :key="`e-${index}`" style="font-size:12px; color:#f56c6c; margin-top:4px;">{{ error }}</div>
+                                <div v-for="(warning, index) in scope.row.warnings" :key="`w-${index}`" style="font-size:12px; color:#e6a23c; margin-top:4px;">{{ warning }}</div>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </template>
+
+                <template v-else-if="finalBuilderStep === 2">
+                    <div style="padding:20px 4px;">
+                        <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                            <strong>{{ finalBuilderTask.message || '处理中…' }}</strong>
+                            <span v-if="finalBuilderTask.total">{{ finalBuilderTask.completed }} / {{ finalBuilderTask.total }}</span>
+                        </div>
+                        <el-progress :percentage="finalBuilderTask.percent || 0"
+                                     :status="finalBuilderTask.status === 'error' ? 'exception' : (finalBuilderTask.status === 'done' ? 'success' : '')"></el-progress>
+                        <div v-if="finalBuilderTask.error" class="workflow-task-error" style="margin-top:12px;">{{ finalBuilderTask.error }}</div>
+                        <div v-if="finalBuilderTask.logs && finalBuilderTask.logs.length" class="workflow-progress-log" style="margin-top:12px;">
+                            <div v-for="(line, index) in finalBuilderTask.logs.slice(-12)" :key="index">{{ line }}</div>
+                        </div>
+                        <div v-if="finalBuilderTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
+                            <strong>Source Safety</strong>
+                            <span>本次 Build 仅读取上游文件；所有临时 PPM/JPEG 已随临时目录清理，最终只发布到 05_Final。</span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <template #footer>
+                <template v-if="finalBuilderStep === 0">
+                    <el-button @click="closeFinalBuilder" :disabled="finalBuilderLoading">关闭</el-button>
+                    <el-button type="primary" @click="previewFinalBuilder" :disabled="!finalBuilderCanPreview">Preview Build Plan</el-button>
+                </template>
+                <template v-else-if="finalBuilderStep === 1">
+                    <el-button @click="backFinalBuilderSelection" :disabled="finalBuilderLoading">返回选择</el-button>
+                    <el-button type="primary" @click="executeFinalBuilder" :disabled="!finalBuilderCanExecute">Build Final</el-button>
+                </template>
+                <template v-else>
+                    <el-button type="primary"
+                               @click="closeFinalBuilder"
+                               :disabled="['queued','running'].includes(finalBuilderTask.status)">关闭</el-button>
+                </template>
+            </template>
+        </el-dialog>
+
         <!-- First version uses a blocking progress dialog intentionally: file operations stay visible. -->
         <el-dialog v-model="workflowProgressVisible"
                    title="Workflow Progress"
@@ -2542,7 +2719,8 @@
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260924-01"></script>
 <script src="workflow-tools.js?v=20260921-04"></script>
+<script src="final-builder.js?v=20260925-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260924-01"></script>
+<script type="module" src="app.js?v=20260925-02"></script>
 </body>
 </html>
