@@ -231,6 +231,14 @@
             visible.value = false;
         };
 
+        const continueToMetadata = async () => {
+            if (task.value.status !== 'done' || !options.openMetadata) return;
+            stopPolling();
+            step.value = 3;
+            visible.value = false;
+            await options.openMetadata();
+        };
+
         const selectedCount = computed(() => selectedIds.value.length);
         const canPreview = computed(() => !loading.value && selectedIds.value.length > 0);
         const canExecute = computed(() => !!(plan.value && plan.value.can_execute && !loading.value));
@@ -249,7 +257,7 @@
 
         return {
             visible, loading, step, selection, selectedIds, selectedCount, plan, task,
-            canPreview, canExecute, open, close, isSelected, setSelected, selectGroup,
+            canPreview, canExecute, open, close, continueToMetadata, isSelected, setSelected, selectGroup,
             thumbnailUrl, preview, backToSelection, execute, statusType, statusText
         };
     }

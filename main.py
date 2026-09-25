@@ -1574,9 +1574,11 @@ def _is_library_deleted_path(root, target):
 def _soft_delete_library_image(source, relative_path):
     """Move one mapped image to Set/Deleted while preserving its stage path.
 
-    This is the only web deletion path for Library images.  Existing files in
-    Deleted are never overwritten, and Deleted itself is inaccessible through
-    the Library API so permanent removal remains a local-only operation.
+    This is the only web deletion path for Library images.  The first deletion
+    keeps the original filename.  If that exact Deleted path already exists, a
+    deletion timestamp is appended so repeated soft deletes never overwrite an
+    earlier archived copy.  Deleted itself remains inaccessible through the
+    Library API so permanent removal remains a local-only operation.
     """
     root, target, rel = _resolve_library_path(source, relative_path)
     if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
@@ -1595,13 +1597,25 @@ def _soft_delete_library_image(source, relative_path):
 
     reserved = False
     try:
-        fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        os.close(fd)
-        reserved = True
+        candidate = destination
+        collision_index = 0
+        while True:
+            try:
+                fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
+                destination = candidate
+                reserved = True
+                break
+            except FileExistsError:
+                timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+                collision_index += 1
+                suffix = '' if collision_index == 1 else f'_{collision_index}'
+                candidate = destination.with_name(
+                    f'{destination.stem}__deleted_{timestamp}{suffix}{destination.suffix}'
+                )
+
         os.replace(target, destination)
         reserved = False
-    except FileExistsError as exc:
-        raise FileExistsError('Deleted 中已存在同路径文件，未覆盖任何文件') from exc
     except Exception:
         if reserved and destination.exists() and target.exists():
             try:

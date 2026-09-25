@@ -663,6 +663,9 @@ const app = createApp({
                 if (currentLibrarySource.value && libraryListing.value && libraryListing.value.path !== null && libraryListing.value.path !== undefined) {
                     await loadLibraryDirectory(libraryListing.value.path || '');
                 }
+            },
+            openMetadata: async () => {
+                await finalMetadata.open();
             }
         });
 
@@ -4159,6 +4162,7 @@ const app = createApp({
             previewFinalBuilder: finalBuilder.preview,
             backFinalBuilderSelection: finalBuilder.backToSelection,
             executeFinalBuilder: finalBuilder.execute,
+            continueFinalBuilderMetadata: finalBuilder.continueToMetadata,
             finalBuilderStatusType: finalBuilder.statusType,
             finalBuilderStatusText: finalBuilder.statusText,
             finalMetadataVisible: finalMetadata.visible,

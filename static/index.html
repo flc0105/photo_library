@@ -1894,10 +1894,11 @@
                    :close-on-press-escape="finalBuilderStep !== 2 || !['queued','running'].includes(finalBuilderTask.status)"
                    :show-close="finalBuilderStep !== 2 || !['queued','running'].includes(finalBuilderTask.status)">
             <div v-loading="finalBuilderLoading" style="min-height:220px;">
-                <el-steps :active="finalBuilderStep" finish-status="success" simple style="margin-bottom:16px;">
+                <el-steps :active="finalBuilderStep === 2 && finalBuilderTask.status === 'done' ? 3 : finalBuilderStep" finish-status="success" simple style="margin-bottom:16px;">
                     <el-step title="Select Sources"></el-step>
                     <el-step title="Build Plan"></el-step>
                     <el-step title="Build"></el-step>
+                    <el-step title="Metadata (Optional)"></el-step>
                 </el-steps>
 
                 <template v-if="finalBuilderStep === 0 && finalBuilderSelection">
@@ -1925,12 +1926,13 @@
                         </div>
 
                         <div v-if="group.items.length"
-                             style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 220px)); gap:12px; align-items:start;">
+                             style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 220px)); gap:12px; align-items:stretch;">
                             <el-card v-for="item in group.items"
                                      :key="item.id"
                                      shadow="hover"
                                      :body-style="{padding: '8px'}"
                                      :style="{
+                                         height: '100%',
                                          borderColor: finalBuilderIsSelected(item.id) ? '#409eff' : '#e4e7ed',
                                          backgroundColor: finalBuilderIsSelected(item.id) ? '#f5f9ff' : '#ffffff'
                                      }">
@@ -1945,11 +1947,14 @@
                                     </div>
                                 </div>
                                 <div style="min-width:0; padding:8px 2px 1px;">
-                                    <code style="display:block; font-size:12px; line-height:1.35; overflow-wrap:anywhere;">{{ item.name }}</code>
-                                    <div style="margin-top:4px; font-size:11px; color:#a8abb2; line-height:1.3;">
+                                    <code :title="item.name"
+                                          style="display:block; min-width:0; font-size:12px; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ item.name }}</code>
+                                    <div :title="`默认${item.default_selected ? '选中' : '未选'} · ${item.default_reason}`"
+                                         style="min-width:0; margin-top:4px; font-size:11px; color:#a8abb2; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                                         默认{{ item.default_selected ? '选中' : '未选' }} · {{ item.default_reason }}
                                     </div>
-                                    <div style="margin-top:4px; font-size:10px; color:#c0c4cc; line-height:1.25; overflow-wrap:anywhere;">{{ item.relative_path }}</div>
+                                    <div :title="item.relative_path"
+                                         style="min-width:0; margin-top:4px; font-size:10px; color:#c0c4cc; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ item.relative_path }}</div>
                                 </div>
                             </el-card>
                         </div>
@@ -2057,6 +2062,10 @@
                 <template v-else-if="finalBuilderStep === 1">
                     <el-button @click="backFinalBuilderSelection" :disabled="finalBuilderLoading">返回选择</el-button>
                     <el-button type="primary" @click="executeFinalBuilder" :disabled="!finalBuilderCanExecute">Build Final</el-button>
+                </template>
+                <template v-else-if="finalBuilderStep === 2 && finalBuilderTask.status === 'done'">
+                    <el-button @click="closeFinalBuilder">Skip Metadata</el-button>
+                    <el-button type="primary" @click="continueFinalBuilderMetadata">Continue to Metadata</el-button>
                 </template>
                 <template v-else>
                     <el-button type="primary"
