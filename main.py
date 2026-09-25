@@ -15,15 +15,15 @@ from PIL import Image, ImageOps
 from flask import Flask, request, jsonify, send_file, send_from_directory, session
 from flask_cors import CORS
 
-from auth_utils import verify_auth_token, generate_auth_token, album_token_expire_minutes, generate_admin_token, \
+from core.auth_utils import verify_auth_token, generate_auth_token, album_token_expire_minutes, generate_admin_token, \
     verify_admin_token, admin_required
-from image_utils import generate_thumbnail, generate_compressed, get_image_exif_simple
-from gps_utils import extract_gps_from_image
-from manifest_autofill import build_manifest_reference_index, get_original_jpg_time_range
-from workflow_tools import create_workflow_blueprint
-from final_builder import create_final_builder_blueprint
-from final_metadata import create_final_metadata_blueprint
-from set_insights import create_set_insights_blueprint
+from core.image_utils import generate_thumbnail, generate_compressed, get_image_exif_simple
+from core.gps_utils import extract_gps_from_image
+from core.manifest_autofill import build_manifest_reference_index, get_original_jpg_time_range
+from core.workflow_tools import create_workflow_blueprint
+from core.final_builder import create_final_builder_blueprint
+from core.final_metadata import create_final_metadata_blueprint
+from core.set_insights import create_set_insights_blueprint
 
 app = Flask(__name__)
 
@@ -54,16 +54,18 @@ def index():
 @app.route('/<path:path>')
 def serve_static(path):
     # send_from_directory performs safe path joining and rejects traversal outside
-    # the static directory (for example ../photo_library.db or encoded variants).
+    # the static directory (for example ../data/photo_library.db or encoded variants).
     return send_from_directory(app.static_folder, path, max_age=0)
 
 
 # 配置
-UPLOAD_FOLDER = 'uploads'
-THUMBNAIL_FOLDER = 'thumbnails'
-COMPRESSED_FOLDER = 'compressed'
-LIBRARY_CACHE_FOLDER = 'library_cache'
-DATABASE = 'photo_library.db'
+PROJECT_ROOT = Path(__file__).resolve().parent
+STORAGE_FOLDER = PROJECT_ROOT / 'storage'
+UPLOAD_FOLDER = str(STORAGE_FOLDER / 'uploads')
+THUMBNAIL_FOLDER = str(STORAGE_FOLDER / 'thumbnails')
+COMPRESSED_FOLDER = str(STORAGE_FOLDER / 'compressed')
+LIBRARY_CACHE_FOLDER = str(STORAGE_FOLDER / 'library_cache')
+DATABASE = str(PROJECT_ROOT / 'data' / 'photo_library.db')
 
 image_processing_queue = queue.Queue()
 processing_lock = threading.Lock()
@@ -1524,9 +1526,108 @@ def _resolve_library_path(source, relative_path='', require_exists=True):
         target.relative_to(root)
     except ValueError:
         raise ValueError('路径超出 Source 根目录')
+    if _is_library_deleted_path(root, target):
+        raise FileNotFoundError('Deleted 目录仅供本地恢复或清理，网页端不可访问')
     if require_exists and not target.exists():
         raise FileNotFoundError('路径不存在')
     return root, target, rel
+
+
+def _find_library_set_root(root, target):
+    """Return the outermost Set ancestor for one mapped path.
+
+    Intermediates intentionally mirrors the Set name, so choosing the nearest
+    matching folder can point at Intermediates/<Set>.  The canonical Set root is
+    the outermost matching ancestor that still lives below the mapped Source.
+    """
+    root = Path(root).resolve()
+    target = Path(target).resolve()
+    current = target if target.is_dir() else target.parent
+    matches = []
+
+    while True:
+        try:
+            current.relative_to(root)
+        except ValueError:
+            break
+        if _is_set_folder_name(current.name):
+            matches.append(current)
+        if current == root:
+            break
+        current = current.parent
+
+    return matches[-1] if matches else None
+
+
+def _is_library_deleted_path(root, target):
+    """Hide every Set/Deleted subtree from all web Library endpoints."""
+    set_root = _find_library_set_root(root, target)
+    if set_root is None:
+        return False
+    try:
+        relative = Path(target).resolve().relative_to(set_root)
+    except ValueError:
+        return False
+    return bool(relative.parts and relative.parts[0].casefold() == 'deleted')
+
+
+def _soft_delete_library_image(source, relative_path):
+    """Move one mapped image to Set/Deleted while preserving its stage path.
+
+    This is the only web deletion path for Library images.  Existing files in
+    Deleted are never overwritten, and Deleted itself is inaccessible through
+    the Library API so permanent removal remains a local-only operation.
+    """
+    root, target, rel = _resolve_library_path(source, relative_path)
+    if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
+        raise FileNotFoundError('图片不存在或格式不支持')
+
+    set_root = _find_library_set_root(root, target)
+    if set_root is None:
+        raise ValueError('只能软删除 Set 目录内的图片')
+
+    source_relative_to_set = target.relative_to(set_root)
+    if not source_relative_to_set.parts or source_relative_to_set.parts[0].casefold() == 'deleted':
+        raise ValueError('Deleted 目录中的文件不能通过网页删除')
+
+    destination = set_root / 'Deleted' / source_relative_to_set
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    reserved = False
+    try:
+        fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+        reserved = True
+        os.replace(target, destination)
+        reserved = False
+    except FileExistsError as exc:
+        raise FileExistsError('Deleted 中已存在同路径文件，未覆盖任何文件') from exc
+    except Exception:
+        if reserved and destination.exists() and target.exists():
+            try:
+                destination.unlink()
+            except OSError:
+                pass
+        raise
+
+    # A new file restored later to the same source path must not inherit stale
+    # favorite/description state from the soft-deleted file.  File movement is
+    # already complete, so DB cleanup is deliberately best-effort.
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            'DELETE FROM library_image_states WHERE source_id=? AND relative_path=?',
+            (source['id'], rel)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        app.logger.warning('soft delete succeeded but library state cleanup failed: %s', exc)
+
+    return {
+        'relative_path': rel,
+        'deleted_relative_path': destination.relative_to(root).as_posix(),
+    }
 
 
 def _read_manifest(path):
@@ -2012,8 +2113,11 @@ def _directory_content_counts(directory):
                         continue
                     try:
                         if entry.is_dir(follow_symlinks=False):
+                            entry_path = Path(entry.path)
+                            if entry.name.casefold() == 'deleted' and _is_set_folder_name(entry_path.parent.name):
+                                continue
                             counts['directory_count'] += 1
-                            stack.append(Path(entry.path))
+                            stack.append(entry_path)
                         elif entry.is_file(follow_symlinks=False):
                             counts['file_count'] += 1
                             if Path(entry.name).suffix.lower() in LIBRARY_IMAGE_EXTENSIONS:
@@ -2045,6 +2149,8 @@ def _list_library_directory(source, relative_path=''):
 
     for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.casefold())):
         if child.name.startswith('.') or child.name in {MANIFEST_FILENAME, MANIFEST_FILENAME + '.bak', MANIFEST_FILENAME + '.tmp'}:
+            continue
+        if child.is_dir() and child.name.casefold() == 'deleted' and _is_set_folder_name(target.name):
             continue
         child_rel = child.relative_to(root).as_posix()
         try:
@@ -2520,6 +2626,24 @@ def toggle_library_image_favorite(source_id):
         favorited = _set_library_favorite(source_id, rel, value)
         return jsonify({'is_favorited': favorited})
     except Exception as exc:
+        return jsonify({'error': str(exc)}), 400
+
+
+@app.route('/api/library/sources/<int:source_id>/soft-delete', methods=['POST'])
+def soft_delete_library_image(source_id):
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+    source = _get_library_source(source_id)
+    if not source:
+        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        result = _soft_delete_library_image(source, data.get('relative_path', ''))
+        return jsonify({'success': True, **result})
+    except FileExistsError as exc:
+        return jsonify({'error': str(exc)}), 409
+    except (ValueError, FileNotFoundError, OSError) as exc:
         return jsonify({'error': str(exc)}), 400
 
 

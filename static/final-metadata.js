@@ -12,6 +12,7 @@
             percent: 0, message: '', logs: [], result: null, error: null
         });
         const settingsVisible = ref(false);
+        const selectedRowIds = ref([]);
         const settingsSaving = ref(false);
         const settingsDraft = ref({selected_fields: [], additional_tags: []});
         const settingsFields = ref([]);
@@ -69,6 +70,9 @@
                     {path: ctx.path}
                 );
                 settingsFields.value = plan.value.fields || [];
+                selectedRowIds.value = (plan.value.rows || [])
+                    .filter(row => row.default_selected)
+                    .map(row => row.id);
             } finally {
                 loading.value = false;
             }
@@ -112,6 +116,27 @@
             }
             if (!plan.value || !plan.value.plan_id || !row || !row.id) return '';
             return `/api/library/final-metadata/sources/${ctx.sourceId}/thumbnail/${encodeURIComponent(plan.value.plan_id)}/${encodeURIComponent(row.id)}/${encodeURIComponent(side)}`;
+        };
+
+        const isRowSelected = (row) => selectedRowIds.value.includes(row.id);
+
+        const setRowSelected = (row, checked) => {
+            if (!row || row.status === 'blocked') return;
+            const next = new Set(selectedRowIds.value);
+            if (checked) next.add(row.id);
+            else next.delete(row.id);
+            selectedRowIds.value = [...next];
+        };
+
+        const selectableRows = computed(() => (plan.value && plan.value.rows ? plan.value.rows : [])
+            .filter(row => row.status !== 'blocked'));
+        const selectedCount = computed(() => selectedRowIds.value.length);
+        const allRowsSelected = computed(() => selectableRows.value.length > 0
+            && selectableRows.value.every(row => selectedRowIds.value.includes(row.id)));
+        const someRowsSelected = computed(() => selectedRowIds.value.length > 0 && !allRowsSelected.value);
+
+        const setAllRowsSelected = (checked) => {
+            selectedRowIds.value = checked ? selectableRows.value.map(row => row.id) : [];
         };
 
         const openSettings = async () => {
@@ -194,7 +219,7 @@
             }
             try {
                 await ElMessageBox.confirm(
-                    `将重建 ${plan.value.summary.final_count} 张 05_Final JPEG 的 metadata：使用 -all= 清空来源 metadata，但明确保留现有 JFIF 与 ICC，并删除 Adobe APP14；随后优先从 Original/JPG（缺失时 Base Edit）写入当前白名单字段。JFIF、ICC、JPEG 图像数据和解码后的显示像素都必须保持不变，否则整批拒绝发布。`,
+                    `将重建 ${selectedRowIds.value.length} 张已选择的 05_Final JPEG metadata：使用 -all= 清空来源 metadata，但明确保留现有 JFIF 与 ICC，并删除 Adobe APP14；随后优先从 Original/JPG（缺失时 Base Edit）写入当前白名单字段。JFIF、ICC、JPEG 图像数据和解码后的显示像素都必须保持不变，否则整批拒绝发布。`,
                     'Write Final Metadata',
                     {confirmButtonText: '开始写入', cancelButtonText: '取消', type: 'warning'}
                 );
@@ -206,13 +231,13 @@
             try {
                 const data = await postJson(
                     `/api/library/final-metadata/sources/${ctx.sourceId}/start`,
-                    {path: ctx.path, plan_id: plan.value.plan_id}
+                    {path: ctx.path, plan_id: plan.value.plan_id, row_ids: selectedRowIds.value}
                 );
                 resetTask();
                 task.value.id = data.task_id;
                 task.value.status = 'queued';
                 task.value.message = '等待开始…';
-                task.value.total = plan.value.summary.final_count;
+                task.value.total = selectedRowIds.value.length;
                 step.value = 1;
                 stopPolling();
                 pollTimer = setTimeout(pollTask, 150);
@@ -229,10 +254,21 @@
             visible.value = false;
         };
 
-        const canExecute = computed(() => !!(plan.value && plan.value.can_execute && !loading.value));
+        const canExecute = computed(() => !!(
+            plan.value
+            && plan.value.can_execute
+            && selectedRowIds.value.length > 0
+            && selectedRowIds.value.every(rowId => {
+                const row = (plan.value.rows || []).find(item => item.id === rowId);
+                return row && row.status !== 'blocked';
+            })
+            && !loading.value
+        ));
 
         return {
             visible, loading, step, plan, task, canExecute,
+            selectedRowIds, selectedCount, allRowsSelected, someRowsSelected,
+            isRowSelected, setRowSelected, setAllRowsSelected,
             settingsVisible, settingsSaving, settingsDraft, settingsFields, additionalTagsText,
             open, close, refreshPlan, thumbnailUrl, openSettings, saveSettings, execute
         };

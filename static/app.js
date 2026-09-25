@@ -1837,6 +1837,63 @@ const app = createApp({
             }
         };
 
+        const softDeleteCurrentLibraryImage = async () => {
+            const image = currentImage.value;
+            if (!isAdmin.value || !image || image.source_type !== 'library') return;
+
+            const oldIndex = currentImageIndex.value;
+            const filename = image.original_filename || image.name || '当前图片';
+            try {
+                await ElMessageBox.confirm(
+                    `将 “${filename}” 移动到当前 Set 的 Deleted，并保留原目录层级。\n\nDeleted 不会在网页图库中显示，也不能通过网页再次删除；如需永久删除或恢复，请在本地文件系统操作。`,
+                    '移动到 Deleted',
+                    {
+                        confirmButtonText: '移动到 Deleted',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }
+                );
+
+                const response = await fetch(`/api/library/sources/${image.source_id}/soft-delete`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({relative_path: image.relative_path})
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || '移动失败');
+
+                detailImageInfoCache.delete(image.id);
+                if (exifCache.value && Object.prototype.hasOwnProperty.call(exifCache.value, image.id)) {
+                    delete exifCache.value[image.id];
+                }
+
+                const listingItems = libraryListing.value.items || [];
+                const listingIndex = listingItems.findIndex(item => item.relative_path === image.relative_path);
+                if (listingIndex !== -1) listingItems.splice(listingIndex, 1);
+
+                if (libraryListing.value.stats) {
+                    libraryListing.value.stats.image_count = Math.max(0, (Number(libraryListing.value.stats.image_count) || 0) - 1);
+                    libraryListing.value.stats.total_file_count = Math.max(0, (Number(libraryListing.value.stats.total_file_count) || 0) - 1);
+                }
+
+                ElMessage.success(`已移动到 ${data.deleted_relative_path || 'Deleted'}`);
+
+                const remaining = detailImageList.value;
+                if (!remaining.length) {
+                    currentImage.value = {};
+                    currentView.value = 'library';
+                    return;
+                }
+
+                const nextIndex = Math.min(Math.max(oldIndex, 0), remaining.length - 1);
+                await viewLibraryImage(remaining[nextIndex], false);
+            } catch (error) {
+                if (error !== 'cancel' && error !== 'close') {
+                    ElMessage.error(error?.message || '移动到 Deleted 失败');
+                }
+            }
+        };
+
         const toggleCurrentFavorite = async () => {
             if (currentImage.value && currentImage.value.source_type === 'library-share') {
                 if (libraryShare.value.allow_select) await toggleShareSelection(currentImage.value);
@@ -4016,6 +4073,7 @@ const app = createApp({
             detailImageUrl,
             viewLibraryImage,
             toggleCurrentFavorite,
+            softDeleteCurrentLibraryImage,
             toggleImageFavorite,
             exportLibraryFavorites,
             manifestSummary,
@@ -4051,6 +4109,10 @@ const app = createApp({
             imageInspectionLoading: workflowTools.inspectionLoading,
             imageInspectionData: workflowTools.inspectionData,
             imageInspectionError: workflowTools.inspectionError,
+            inspectionMetadataVisible: workflowTools.inspectionMetadataVisible,
+            inspectionMetadataLoading: workflowTools.inspectionMetadataLoading,
+            inspectionMetadataData: workflowTools.inspectionMetadataData,
+            inspectionMetadataError: workflowTools.inspectionMetadataError,
             photoImportVisible: workflowTools.photoImportVisible,
             photoImportLoading: workflowTools.photoImportLoading,
             photoImportExecuting: workflowTools.photoImportExecuting,
@@ -4066,6 +4128,7 @@ const app = createApp({
             workflowTask: workflowTools.task,
             workflowCanExecute: workflowTools.canExecute,
             openImageInspectionTool: workflowTools.openImageInspection,
+            openInspectionMetadata: workflowTools.openInspectionMetadata,
             openVisualRenameTool: workflowTools.openVisualRename,
             rerunVisualRenamePreview: workflowTools.analyzeVisualRename,
             openDiscardUnreturnedBaseTool: workflowTools.openDiscardUnreturnedBase,
@@ -4104,6 +4167,13 @@ const app = createApp({
             finalMetadataPlan: finalMetadata.plan,
             finalMetadataTask: finalMetadata.task,
             finalMetadataCanExecute: finalMetadata.canExecute,
+            finalMetadataSelectedRowIds: finalMetadata.selectedRowIds,
+            finalMetadataSelectedCount: finalMetadata.selectedCount,
+            finalMetadataAllRowsSelected: finalMetadata.allRowsSelected,
+            finalMetadataSomeRowsSelected: finalMetadata.someRowsSelected,
+            finalMetadataIsRowSelected: finalMetadata.isRowSelected,
+            setFinalMetadataRowSelected: finalMetadata.setRowSelected,
+            setAllFinalMetadataRowsSelected: finalMetadata.setAllRowsSelected,
             finalMetadataSettingsVisible: finalMetadata.settingsVisible,
             finalMetadataSettingsSaving: finalMetadata.settingsSaving,
             finalMetadataSettingsDraft: finalMetadata.settingsDraft,

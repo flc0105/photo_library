@@ -14,6 +14,10 @@
         const inspectionLoading = ref(false);
         const inspectionData = ref(null);
         const inspectionError = ref('');
+        const inspectionMetadataVisible = ref(false);
+        const inspectionMetadataLoading = ref(false);
+        const inspectionMetadataData = ref(null);
+        const inspectionMetadataError = ref('');
 
         const photoImportVisible = ref(false);
         const photoImportLoading = ref(false);
@@ -91,6 +95,34 @@
                 ElMessage.error(inspectionError.value);
             } finally {
                 inspectionLoading.value = false;
+            }
+        };
+
+
+        const openInspectionMetadata = async (item) => {
+            if (!item || !item.relative_path) return;
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+
+            inspectionMetadataData.value = null;
+            inspectionMetadataError.value = '';
+            inspectionMetadataVisible.value = true;
+            inspectionMetadataLoading.value = true;
+            try {
+                inspectionMetadataData.value = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/image-inspection/metadata`,
+                    {path: ctx.path, relative_path: item.relative_path}
+                );
+            } catch (error) {
+                inspectionMetadataError.value = error.message || '全部元数据读取失败';
+                ElMessage.error(inspectionMetadataError.value);
+            } finally {
+                inspectionMetadataLoading.value = false;
             }
         };
 
@@ -517,6 +549,10 @@
             inspectionLoading,
             inspectionData,
             inspectionError,
+            inspectionMetadataVisible,
+            inspectionMetadataLoading,
+            inspectionMetadataData,
+            inspectionMetadataError,
             photoImportVisible,
             photoImportLoading,
             photoImportExecuting,
@@ -532,6 +568,7 @@
             task,
             canExecute,
             openImageInspection,
+            openInspectionMetadata,
             openVisualRename,
             analyzeVisualRename,
             openDiscardUnreturnedBase,
