@@ -2084,7 +2084,7 @@
                    :close-on-press-escape="finalMetadataStep !== 1 || !['queued','running'].includes(finalMetadataTask.status)"
                    :show-close="finalMetadataStep !== 1 || !['queued','running'].includes(finalMetadataTask.status)">
             <div v-loading="finalMetadataLoading" style="min-height:220px;">
-                <el-steps :active="finalMetadataStep" finish-status="success" simple style="margin-bottom:16px;">
+                <el-steps class="final-metadata-steps" :active="finalMetadataStep" finish-status="success" simple style="margin-bottom:16px;">
                     <el-step title="Preview Plan"></el-step>
                     <el-step title="Write Metadata"></el-step>
                 </el-steps>

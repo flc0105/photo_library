@@ -3295,3 +3295,44 @@ body {
         width: min(220px, 62vw);
     }
 }
+
+
+/* Final Metadata uses a two-step simple stepper. Element Plus lets the
+   simple-step main/arrow flex consume the row, which visually pushes the
+   labels toward the outer edges. Keep each half independently centered and
+   pin one lightweight arrow on the 50% boundary. */
+.final-metadata-steps.el-steps--simple .el-step.is-simple {
+    position: relative;
+    flex: 1 1 0 !important;
+    min-width: 0;
+    justify-content: center;
+}
+
+.final-metadata-steps.el-steps--simple .el-step.is-simple .el-step__head {
+    flex: 0 0 auto;
+}
+
+.final-metadata-steps.el-steps--simple .el-step.is-simple .el-step__main {
+    flex: 0 0 auto;
+}
+
+.final-metadata-steps.el-steps--simple .el-step.is-simple:not(:last-of-type) .el-step__title {
+    max-width: none;
+}
+
+.final-metadata-steps.el-steps--simple .el-step.is-simple .el-step__arrow {
+    display: none;
+}
+
+.final-metadata-steps.el-steps--simple .el-step.is-simple:first-child::after {
+    content: '›';
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translate(50%, -52%);
+    color: #a8abb2;
+    font-size: 34px;
+    font-weight: 300;
+    line-height: 1;
+    pointer-events: none;
+}
