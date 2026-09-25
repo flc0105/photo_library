@@ -1390,9 +1390,9 @@ _MANIFEST_KEY_ORDERS = {
     ),
     'shoot': (
         'date', 'start_time', 'end_time', 'environment', 'scene', 'weather',
-        'additional_session'
+        'additional_sessions'
     ),
-    'additional_session': ('date', 'start_time', 'end_time', 'weather'),
+    'additional_sessions': ('date', 'start_time', 'end_time', 'weather'),
     'location': ('name', 'address', 'lat', 'lng'),
     'theme': (
         'name', 'genre', 'source_title', 'source_type', 'character', 'variant',
@@ -1447,11 +1447,11 @@ def _order_manifest_keys(payload):
     shoot = result.get('shoot')
     if isinstance(shoot, dict):
         shoot = dict(shoot)
-        additional = shoot.get('additional_session')
+        additional = shoot.get('additional_sessions')
         if isinstance(additional, list):
-            shoot['additional_session'] = [
+            shoot['additional_sessions'] = [
                 _order_known_keys_preserving_unknown_positions(
-                    item, _MANIFEST_KEY_ORDERS['additional_session']
+                    item, _MANIFEST_KEY_ORDERS['additional_sessions']
                 ) if isinstance(item, dict) else item
                 for item in additional
             ]

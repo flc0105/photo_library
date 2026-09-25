@@ -151,6 +151,11 @@ def build_manifest_reference_index(roots):
 
     locations = {}
     sources = {}
+    # Frequency and source-to-character candidates are derived per scan;
+    # manifests remain the only stored source of truth.
+    source_counts = {}
+    source_characters = {}
+    source_character_seen = {}
 
     # Newer manifests determine display spelling while every distinct value is
     # retained as an editor candidate for later reuse.
@@ -216,7 +221,7 @@ def build_manifest_reference_index(roots):
         add_value('environments', shoot.get('environment'))
         add_value('weathers', shoot.get('weather'))
         add_value('scenes', shoot.get('scene'))
-        additional_sessions = shoot.get('additional_session') if isinstance(shoot.get('additional_session'), list) else []
+        additional_sessions = shoot.get('additional_sessions') if isinstance(shoot.get('additional_sessions'), list) else []
         for additional in additional_sessions:
             if isinstance(additional, dict):
                 add_value('weathers', additional.get('weather'))
@@ -247,6 +252,7 @@ def build_manifest_reference_index(roots):
 
         source_title = str(theme.get('source_title') or '').strip()
         source_type = theme.get('source_type') or ''
+        character = str(theme.get('character') or '').strip()
         if source_title:
             key = source_title.casefold()
             entry = sources.setdefault(key, {
@@ -255,6 +261,14 @@ def build_manifest_reference_index(roots):
             })
             if not entry.get('source_type') and source_type:
                 entry['source_type'] = source_type
+
+            source_counts[key] = source_counts.get(key, 0) + 1
+            if character:
+                seen = source_character_seen.setdefault(key, set())
+                folded_character = character.casefold()
+                if folded_character not in seen:
+                    seen.add(folded_character)
+                    source_characters.setdefault(key, []).append(character)
 
         production = data.get('production') if isinstance(data.get('production'), dict) else {}
         add_value('collaboration_types', production.get('collaboration_type'))
@@ -277,8 +291,20 @@ def build_manifest_reference_index(roots):
             add_value('positions', light.get('position'))
             add_value('lighting_notes', light.get('note'))
 
+    ordered_source_keys = sorted(
+        sources,
+        key=lambda key: (-source_counts.get(key, 0), sources[key]['title'].casefold()),
+    )
+    source_items = [
+        {
+            **sources[key],
+            'characters': source_characters.get(key, []),
+        }
+        for key in ordered_source_keys
+    ]
+
     return {
         'locations': sorted(locations.values(), key=lambda item: item['name'].casefold()),
-        'sources': sorted(sources.values(), key=lambda item: item['title'].casefold()),
+        'sources': source_items,
         'values': values,
     }

@@ -1597,6 +1597,26 @@ body {
     margin-bottom: 0;
 }
 
+.manifest-form-section-title.manifest-form-section-title-compact {
+    margin-bottom: 8px;
+}
+
+.manifest-additional-sessions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.manifest-additional-sessions-heading {
+    margin-bottom: 0;
+}
+
+.manifest-add-session-empty {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
 .manifest-form-grid {
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));

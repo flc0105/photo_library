@@ -936,8 +936,8 @@ const app = createApp({
         // where the user inserted them. Missing optional fields are not added.
         const manifestKeyOrders = {
             root: ['model', 'shoot', 'location', 'theme', 'production', 'props', 'lighting'],
-            shoot: ['date', 'start_time', 'end_time', 'environment', 'scene', 'weather', 'additional_session'],
-            additional_session: ['date', 'start_time', 'end_time', 'weather'],
+            shoot: ['date', 'start_time', 'end_time', 'environment', 'scene', 'weather', 'additional_sessions'],
+            additional_sessions: ['date', 'start_time', 'end_time', 'weather'],
             location: ['name', 'address', 'lat', 'lng'],
             theme: ['name', 'genre', 'source_title', 'source_type', 'character', 'variant', 'reference_type', 'reference', 'outfit'],
             // Optional credits stay at the end when they exist.
@@ -969,10 +969,10 @@ const app = createApp({
 
             if (result.shoot && typeof result.shoot === 'object' && !Array.isArray(result.shoot)) {
                 const shoot = {...result.shoot};
-                if (Array.isArray(shoot.additional_session)) {
-                    shoot.additional_session = shoot.additional_session.map(item => (
+                if (Array.isArray(shoot.additional_sessions)) {
+                    shoot.additional_sessions = shoot.additional_sessions.map(item => (
                         item && typeof item === 'object' && !Array.isArray(item)
-                            ? orderKnownKeysPreservingUnknownPositions(item, manifestKeyOrders.additional_session)
+                            ? orderKnownKeysPreservingUnknownPositions(item, manifestKeyOrders.additional_sessions)
                             : item
                     ));
                 }
@@ -1004,8 +1004,8 @@ const app = createApp({
             const production = data.production && typeof data.production === 'object' && !Array.isArray(data.production) ? data.production : {};
             const props = data.props && typeof data.props === 'object' && !Array.isArray(data.props) ? data.props : {};
             const lights = Array.isArray(data.lighting) ? data.lighting : [];
-            const additionalSessions = Array.isArray(shoot.additional_session)
-                ? shoot.additional_session.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+            const additionalSessions = Array.isArray(shoot.additional_sessions)
+                ? shoot.additional_sessions.filter(item => item && typeof item === 'object' && !Array.isArray(item))
                 : [];
 
             return {
@@ -1017,7 +1017,7 @@ const app = createApp({
                     environment: shoot.environment ?? '',
                     scene: shoot.scene ?? '',
                     weather: shoot.weather ?? '',
-                    additional_session: additionalSessions.map(item => ({
+                    additional_sessions: additionalSessions.map(item => ({
                         date: item.date ?? '',
                         start_time: item.start_time ?? '',
                         end_time: item.end_time ?? '',
@@ -1042,7 +1042,7 @@ const app = createApp({
                     outfit: theme.outfit ?? ''
                 },
                 production: {
-                    collaboration_type: production.collaboration_type ?? '',
+                    collaboration_type: String(production.collaboration_type ?? '').trim() || 'tf',
                     lead_photographer: production.lead_photographer ?? true,
                     primary_photographer: production.primary_photographer ?? '',
                     assistants: Array.isArray(production.assistants) ? [...production.assistants] : [],
@@ -1161,8 +1161,8 @@ const app = createApp({
                 scene: form.shoot.scene,
                 weather: form.shoot.weather
             };
-            if (form.shoot.additional_session.length) {
-                shoot.additional_session = form.shoot.additional_session.map(item => ({...item}));
+            if (form.shoot.additional_sessions.length) {
+                shoot.additional_sessions = form.shoot.additional_sessions.map(item => ({...item}));
             }
 
             const theme = {
@@ -1240,8 +1240,8 @@ const app = createApp({
                 ...(source.shoot && typeof source.shoot === 'object' && !Array.isArray(source.shoot) ? source.shoot : {}),
                 ...formPayload.shoot
             };
-            if (!Object.prototype.hasOwnProperty.call(formPayload.shoot, 'additional_session')) {
-                delete nextShoot.additional_session;
+            if (!Object.prototype.hasOwnProperty.call(formPayload.shoot, 'additional_sessions')) {
+                delete nextShoot.additional_sessions;
             }
             merged.shoot = nextShoot;
             merged.location = {
@@ -1491,10 +1491,10 @@ const app = createApp({
 
         const addAdditionalSession = () => {
             if (!manifestForm.value.shoot) manifestForm.value.shoot = {};
-            if (!Array.isArray(manifestForm.value.shoot.additional_session)) {
-                manifestForm.value.shoot.additional_session = [];
+            if (!Array.isArray(manifestForm.value.shoot.additional_sessions)) {
+                manifestForm.value.shoot.additional_sessions = [];
             }
-            manifestForm.value.shoot.additional_session.push({
+            manifestForm.value.shoot.additional_sessions.push({
                 date: '',
                 start_time: '',
                 end_time: '',
@@ -1503,8 +1503,8 @@ const app = createApp({
         };
 
         const removeAdditionalSession = (index) => {
-            if (!manifestForm.value.shoot || !Array.isArray(manifestForm.value.shoot.additional_session)) return;
-            manifestForm.value.shoot.additional_session.splice(index, 1);
+            if (!manifestForm.value.shoot || !Array.isArray(manifestForm.value.shoot.additional_sessions)) return;
+            manifestForm.value.shoot.additional_sessions.splice(index, 1);
         };
 
         const loadLibrarySources = async () => {
@@ -1912,7 +1912,7 @@ const app = createApp({
         const queryKnownManifestValue = (kind, query, callback) => manifestAutofill.queryValues(kind, query, callback);
         const queryKnownModels = (query, callback) => queryKnownManifestValue('models', query, callback);
         const queryKnownThemeNames = (query, callback) => queryKnownManifestValue('theme_names', query, callback);
-        const queryKnownCharacters = (query, callback) => queryKnownManifestValue('characters', query, callback);
+        const queryKnownCharacters = (query, callback) => manifestAutofill.queryCharacters(query, callback);
         const queryKnownVariants = (query, callback) => queryKnownManifestValue('variants', query, callback);
         const queryKnownReferences = (query, callback) => queryKnownManifestValue('references', query, callback);
         const queryKnownOutfits = (query, callback) => queryKnownManifestValue('outfits', query, callback);

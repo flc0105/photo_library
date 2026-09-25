@@ -109,6 +109,19 @@
             callback(result);
         };
 
+        const queryCharacters = async (query, callback) => {
+            await load();
+            const form = getManifestForm && getManifestForm();
+            const source = form?.theme?.source_title ? sourceMatch(form.theme.source_title) : null;
+            const options = Array.isArray(source?.characters) ? source.characters : [];
+            const needle = keyOf(query);
+            const result = options
+                .filter(value => !needle || keyOf(value).includes(needle))
+                .slice(0, 50)
+                .map(value => ({ value }));
+            callback(result);
+        };
+
         const queryValues = async (kind, query, callback) => {
             await load();
             const needle = keyOf(query);
@@ -145,6 +158,7 @@
             invalidate: reset,
             queryLocations,
             querySources,
+            queryCharacters,
             queryValues,
             getValues,
             selectLocation,
