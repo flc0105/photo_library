@@ -24,6 +24,7 @@ from core.workflow_tools import create_workflow_blueprint
 from core.final_builder import create_final_builder_blueprint
 from core.final_metadata import create_final_metadata_blueprint
 from core.set_insights import create_set_insights_blueprint
+from tools.folder_compare import create_folder_compare_blueprint
 
 app = Flask(__name__)
 
@@ -3027,6 +3028,11 @@ app.register_blueprint(create_set_insights_blueprint(
     _resolve_library_path,
     get_db_connection,
 ))
+
+
+# Arbitrary folder comparison is a removable local utility. It does not depend
+# on Source/Set paths and never mutates files.
+app.register_blueprint(create_folder_compare_blueprint(_library_admin_guard))
 
 
 @app.route('/api/admin/logout', methods=['POST'])

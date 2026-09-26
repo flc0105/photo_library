@@ -3349,9 +3349,17 @@ body {
 
 .validation-rules-button {
     width: 22px;
+    min-width: 22px;
     height: 22px;
     min-height: 22px;
     padding: 0;
+    border-radius: 50%;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    line-height: 1;
     font-size: 12px;
     font-weight: 600;
 }

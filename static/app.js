@@ -2188,6 +2188,14 @@ const app = createApp({
             }
         };
 
+        const openFolderCompareTool = () => {
+            if (!isLibraryRoot.value) {
+                ElMessage.warning('Compare Folders 只能在 Set 父目录使用');
+                return;
+            }
+            window.open('/folder-compare.html', '_blank', 'noopener');
+        };
+
         const removeLibraryDotfiles = async () => {
             if (!isLibraryRoot.value || !currentLibrarySource.value) {
                 ElMessage.warning('Remove Dotfiles 只能在 Set 父目录使用');
@@ -4104,6 +4112,7 @@ const app = createApp({
             manifestArrayCount,
             openManifestArray,
             removeLibraryDotfiles,
+            openFolderCompareTool,
             copyManifestArray,
             openNewSetDialog,
             createNewSet,
