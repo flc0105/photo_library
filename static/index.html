@@ -1603,13 +1603,10 @@
 
                 <template v-if="imageInspectionData">
                     <div class="workflow-summary-strip image-inspection-summary">
-                        <span>文件 <strong>{{ imageInspectionData.summary.file_count }}</strong></span>
-                        <span class="is-success">精准比例 <strong>{{ imageInspectionData.summary.exact_ratio_count }}</strong></span>
-                        <span class="is-danger">比例不对 <strong>{{ imageInspectionData.summary.ratio_wrong_count }}</strong></span>
-                        <span class="is-danger">像素不足 <strong>{{ imageInspectionData.summary.pixel_insufficient_count }}</strong></span>
-                        <span class="is-success">Key EXIF 完整 <strong>{{ imageInspectionData.summary.metadata_complete_count }}</strong></span>
-                        <span v-if="imageInspectionData.summary.final_file_count"
-                              :class="imageInspectionData.summary.final_qc_pass_count === imageInspectionData.summary.final_file_count ? 'is-success' : 'is-danger'">Final QC <strong>{{ imageInspectionData.summary.final_qc_pass_count }}/{{ imageInspectionData.summary.final_file_count }}</strong></span>
+                        <span>总文件 <strong>{{ imageInspectionData.summary.file_count }}</strong></span>
+                        <span class="is-success">Perfect <strong>{{ imageInspectionData.summary.perfect_count }}</strong></span>
+                        <span class="is-danger">Ratio Error <strong>{{ imageInspectionData.summary.ratio_error_count }}</strong></span>
+                        <span class="is-danger">Low Res <strong>{{ imageInspectionData.summary.pixel_insufficient_count }}</strong></span>
                     </div>
 
                     <el-table :data="imageInspectionData.rows"
@@ -1647,18 +1644,13 @@
                                                               :closable="false"
                                                               show-icon></el-alert>
                                                     <div class="image-inspection-focus-grid">
-                                                        <div v-for="fieldName in [
-                                                                'ColorSpace', 'DateTimeOriginal', 'Make', 'Model', 'LensModel',
-                                                                'SerialNumber', 'FocalLength', 'FNumber', 'ExposureTime', 'ISO',
-                                                                'ExposureCompensation', 'ExposureProgram', 'Flash', 'MeteringMode',
-                                                                'WhiteBalance'
-                                                             ]"
-                                                             :key="fieldName"
+                                                        <div v-for="field in (imageInspectionData.key_exif_fields || [])"
+                                                             :key="field.key"
                                                              class="image-inspection-focus-item"
-                                                             :class="{'is-missing': !scope.row[stage.key].focus_field_map[fieldName]?.present}"
-                                                             :title="`${fieldName}: ${scope.row[stage.key].focus_field_map[fieldName]?.present ? scope.row[stage.key].focus_field_map[fieldName].value : 'Missing'}`">
-                                                            <span>{{ fieldName }}</span>
-                                                            <strong>{{ scope.row[stage.key].focus_field_map[fieldName]?.present ? scope.row[stage.key].focus_field_map[fieldName].value : 'Missing' }}</strong>
+                                                             :class="{'is-missing': !scope.row[stage.key].focus_field_map[field.key]?.present}"
+                                                             :title="`${field.label}: ${scope.row[stage.key].focus_field_map[field.key]?.present ? scope.row[stage.key].focus_field_map[field.key].value : 'Missing'}`">
+                                                            <span>{{ field.label }}</span>
+                                                            <strong>{{ scope.row[stage.key].focus_field_map[field.key]?.present ? scope.row[stage.key].focus_field_map[field.key].value : 'Missing' }}</strong>
                                                         </div>
                                                     </div>
                                                 </template>
@@ -1691,7 +1683,8 @@
                                                             <span>Current ratio</span>
                                                             <strong>{{ scope.row[stage.key].ratio_display }}</strong>
                                                         </div>
-                                                        <div :title="`Target ratio: ${scope.row[stage.key].target_ratio}`">
+                                                        <div v-if="!scope.row[stage.key].exact_ratio"
+                                                             :title="`Target ratio: ${scope.row[stage.key].target_ratio}`">
                                                             <span>Target ratio</span>
                                                             <strong>{{ scope.row[stage.key].target_ratio }}</strong>
                                                         </div>
@@ -1717,20 +1710,18 @@
                                         <div class="image-inspection-final-qc-panel"
                                              :class="scope.row.final.final_qc_status_level === 'success' ? 'is-pass' : 'is-fail'">
                                             <div class="image-inspection-final-qc-summary">
-                                                <strong>{{ scope.row.final.final_qc_status_level === 'success' ? 'PASS' : `FAILED · ${scope.row.final.final_qc_issue_count}` }}</strong>
-                                                <span>Bit depth {{ scope.row.final.final_bit_depth }}</span>
-                                                <span :class="scope.row.final.final_canonical_exif_exact ? 'image-inspection-complete' : 'image-inspection-incomplete'">
-                                                    Canonical EXIF {{ scope.row.final.final_canonical_exif_present }}/{{ scope.row.final.final_canonical_exif_total }}
-                                                </span>
+                                                <strong>{{ scope.row.final.final_qc_status_level === 'success' ? `PASS · ${scope.row.final.final_qc_present}/${scope.row.final.final_qc_total}` : `FAILED · ${scope.row.final.final_qc_present}/${scope.row.final.final_qc_total}` }}</strong>
                                             </div>
-                                            <div v-if="scope.row.final.final_qc_failures && scope.row.final.final_qc_failures.length"
-                                                 class="image-inspection-final-qc-failures">
-                                                <div v-for="failure in scope.row.final.final_qc_failures" :key="failure.name">
-                                                    <strong>{{ failure.label }}</strong>
-                                                    <span>{{ failure.value }}</span>
+                                            <div class="image-inspection-final-qc-checks">
+                                                <div v-for="check in (scope.row.final.final_qc_checks || [])"
+                                                     :key="check.name"
+                                                     class="image-inspection-final-qc-check"
+                                                     :class="check.ok ? 'is-pass' : 'is-fail'"
+                                                     :title="`${check.label}: ${check.value}`">
+                                                    <span>{{ check.label }}</span>
+                                                    <strong>{{ check.value }}</strong>
                                                 </div>
                                             </div>
-                                            <div v-else class="image-inspection-final-qc-clean">All delivery checks passed.</div>
                                         </div>
                                     </details>
                                 </div>
@@ -1820,13 +1811,15 @@
                                         <span>{{ scope.row.final.resolution }}</span>
                                         <span>{{ scope.row.final.ratio_display }}</span>
                                     </div>
-                                    <div class="image-inspection-stage-meta">
-                                        Key EXIF
-                                        <strong :class="scope.row.final.metadata_focus_present === scope.row.final.metadata_focus_total ? 'image-inspection-complete' : 'image-inspection-incomplete'">{{ scope.row.final.metadata_focus_present }}/{{ scope.row.final.metadata_focus_total }}</strong>
-                                    </div>
-                                    <div class="image-inspection-stage-meta">
-                                        Final QC
-                                        <strong :class="scope.row.final.final_qc_status_level === 'success' ? 'image-inspection-complete' : 'image-inspection-incomplete'">{{ scope.row.final.final_qc_status_level === 'success' ? 'PASS' : `FAILED · ${scope.row.final.final_qc_issue_count}` }}</strong>
+                                    <div class="image-inspection-stage-meta image-inspection-stage-meta-inline">
+                                        <span>
+                                            Key EXIF
+                                            <strong :class="scope.row.final.metadata_focus_present === scope.row.final.metadata_focus_total ? 'image-inspection-complete' : 'image-inspection-incomplete'">{{ scope.row.final.metadata_focus_present }}/{{ scope.row.final.metadata_focus_total }}</strong>
+                                        </span>
+                                        <span>
+                                            Final QC
+                                            <strong :class="scope.row.final.final_qc_status_level === 'success' ? 'image-inspection-complete' : 'image-inspection-incomplete'">{{ scope.row.final.final_qc_status_level === 'success' ? 'PASS' : `FAILED · ${scope.row.final.final_qc_issue_count}` }}</strong>
+                                        </span>
                                     </div>
                                 </div>
                             </template>
@@ -2101,7 +2094,6 @@
                             <span>Selected <strong>{{ finalMetadataSelectedCount }}</strong></span>
                             <span :class="{'is-danger': finalMetadataPlan.summary.blocked_count}">Blocked <strong>{{ finalMetadataPlan.summary.blocked_count }}</strong></span>
                         </div>
-                        <el-button @click="openFinalMetadataSettings">字段设置</el-button>
                     </div>
 
                     <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
@@ -2115,7 +2107,7 @@
                         <div v-for="(message, index) in finalMetadataPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
                     </div>
 
-                    <div style="font-size:12px; color:#909399; margin:-2px 0 8px;">默认只勾选当前白名单字段不完整的 Final；15/15 完整文件默认不写，可手动勾选覆盖。</div>
+                    <div style="font-size:12px; color:#909399; margin:-2px 0 8px;">当前字段列表共 {{ finalMetadataPlan.summary.field_count }} 项；默认只勾选字段不完整的 Final，全部完整的文件默认不写，可手动勾选覆盖。</div>
 
                     <el-table :data="finalMetadataPlan.rows" border size="small" row-key="id" style="width:100%;">
                         <el-table-column width="54" align="center">
@@ -2233,41 +2225,6 @@
                                @click="closeFinalMetadata"
                                :disabled="['queued','running'].includes(finalMetadataTask.status)">关闭</el-button>
                 </template>
-            </template>
-        </el-dialog>
-
-        <el-dialog v-model="finalMetadataSettingsVisible"
-                   title="Final Metadata 字段设置"
-                   width="760px"
-                   append-to-body
-                   :close-on-click-modal="!finalMetadataSettingsSaving">
-            <div class="workflow-warning-box neutral" style="margin-bottom:14px;">
-                <strong>全局偏好</strong>
-                <span>这里只维护 curated 白名单，不列出文件里所有 XMP/LR/应用私有 metadata。保存后对所有 Set 生效。</span>
-            </div>
-            <el-checkbox-group v-model="finalMetadataSettingsDraft.selected_fields"
-                               style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 14px;">
-                <el-checkbox v-for="field in finalMetadataSettingsFields"
-                             :key="field.key"
-                             :label="field.key"
-                             style="margin-right:0; min-width:0;">
-                    <span>{{ field.label }}</span>
-                    <small style="color:#a8abb2; margin-left:4px;">{{ field.group }}</small>
-                </el-checkbox>
-            </el-checkbox-group>
-            <div style="margin-top:16px;">
-                <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Additional tags</div>
-                <el-input v-model="finalMetadataAdditionalTagsText"
-                          type="textarea"
-                          :rows="3"
-                          placeholder="可选，例如 Artist, Copyright。逗号或换行分隔；不允许 All / ICC_Profile / Adobe / MakerNotes 等破坏 canonical 边界的 group/tag。"></el-input>
-            </div>
-            <div v-for="field in finalMetadataSettingsFields.filter(item => item.note)" :key="`note-${field.key}`" style="font-size:11px; color:#909399; margin-top:8px;">
-                {{ field.label }}：{{ field.note }}
-            </div>
-            <template #footer>
-                <el-button @click="finalMetadataSettingsVisible = false" :disabled="finalMetadataSettingsSaving">取消</el-button>
-                <el-button type="primary" @click="saveFinalMetadataSettings" :loading="finalMetadataSettingsSaving">保存设置</el-button>
             </template>
         </el-dialog>
 

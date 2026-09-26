@@ -11,12 +11,7 @@
             id: '', status: '', total: 0, completed: 0, current: 0,
             percent: 0, message: '', logs: [], result: null, error: null
         });
-        const settingsVisible = ref(false);
         const selectedRowIds = ref([]);
-        const settingsSaving = ref(false);
-        const settingsDraft = ref({selected_fields: [], additional_tags: []});
-        const settingsFields = ref([]);
-        const additionalTagsText = ref('');
         let pollTimer = null;
         let refreshedTaskId = '';
 
@@ -69,7 +64,6 @@
                     `/api/library/final-metadata/sources/${ctx.sourceId}/plan`,
                     {path: ctx.path}
                 );
-                settingsFields.value = plan.value.fields || [];
                 selectedRowIds.value = (plan.value.rows || [])
                     .filter(row => row.default_selected)
                     .map(row => row.id);
@@ -137,51 +131,6 @@
 
         const setAllRowsSelected = (checked) => {
             selectedRowIds.value = checked ? selectableRows.value.map(row => row.id) : [];
-        };
-
-        const openSettings = async () => {
-            loading.value = true;
-            try {
-                const data = await fetchJson('/api/library/final-metadata/settings');
-                settingsFields.value = data.fields || [];
-                settingsDraft.value = {
-                    selected_fields: [...((data.settings && data.settings.selected_fields) || [])],
-                    additional_tags: [...((data.settings && data.settings.additional_tags) || [])]
-                };
-                additionalTagsText.value = settingsDraft.value.additional_tags.join(', ');
-                settingsVisible.value = true;
-            } catch (error) {
-                ElMessage.error(error.message || '读取 Metadata 设置失败');
-            } finally {
-                loading.value = false;
-            }
-        };
-
-        const saveSettings = async () => {
-            settingsSaving.value = true;
-            try {
-                const extra = additionalTagsText.value
-                    .split(/[,\n]+/)
-                    .map(item => item.trim())
-                    .filter(Boolean);
-                const data = await postJson('/api/library/final-metadata/settings', {
-                    settings: {
-                        selected_fields: settingsDraft.value.selected_fields,
-                        additional_tags: extra
-                    }
-                });
-                settingsDraft.value = {
-                    selected_fields: [...((data.settings && data.settings.selected_fields) || [])],
-                    additional_tags: [...((data.settings && data.settings.additional_tags) || [])]
-                };
-                settingsVisible.value = false;
-                ElMessage.success('Final Metadata 字段设置已保存');
-                await loadPlan();
-            } catch (error) {
-                ElMessage.error(error.message || '保存 Metadata 设置失败');
-            } finally {
-                settingsSaving.value = false;
-            }
         };
 
         const pollTask = async () => {
@@ -269,8 +218,7 @@
             visible, loading, step, plan, task, canExecute,
             selectedRowIds, selectedCount, allRowsSelected, someRowsSelected,
             isRowSelected, setRowSelected, setAllRowsSelected,
-            settingsVisible, settingsSaving, settingsDraft, settingsFields, additionalTagsText,
-            open, close, refreshPlan, thumbnailUrl, openSettings, saveSettings, execute
+            open, close, refreshPlan, thumbnailUrl, execute
         };
     }
 

@@ -2417,6 +2417,14 @@ body {
     font-size: 11px;
 }
 
+.image-inspection-stage-meta-inline {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 14px;
+    white-space: nowrap;
+}
+
 .image-inspection-complete {
     color: #67c23a;
 }
@@ -2615,6 +2623,59 @@ body {
 }
 
 .image-inspection-final-qc-panel.is-fail .image-inspection-final-qc-summary > strong {
+    color: #f56c6c;
+}
+
+.image-inspection-final-qc-checks {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 9px;
+}
+
+.image-inspection-final-qc-check {
+    box-sizing: border-box;
+    min-width: 0;
+    height: 54px;
+    padding: 6px 8px;
+    overflow: hidden;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.image-inspection-final-qc-check span,
+.image-inspection-final-qc-check strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.image-inspection-final-qc-check span {
+    color: #909399;
+    font-size: 10px;
+    line-height: 14px;
+}
+
+.image-inspection-final-qc-check strong {
+    margin-top: 3px;
+    color: #303133;
+    font-size: 10px;
+    line-height: 16px;
+}
+
+.image-inspection-final-qc-check.is-pass strong {
+    color: #67c23a;
+}
+
+.image-inspection-final-qc-check.is-fail {
+    border-color: #fde2e2;
+    background: #fff;
+}
+
+.image-inspection-final-qc-check.is-fail strong {
     color: #f56c6c;
 }
 
