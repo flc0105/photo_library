@@ -3336,3 +3336,44 @@ body {
     line-height: 1;
     pointer-events: none;
 }
+
+/* ==================== Validation rules help ==================== */
+.validation-dialog-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--el-dialog-title-font-size, 18px);
+    line-height: var(--el-dialog-font-line-height, 24px);
+    color: var(--el-text-color-primary, #303133);
+}
+
+.validation-rules-button {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.validation-rules-list {
+    margin: 0;
+    padding-left: 24px;
+    color: #606266;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.validation-rules-list li + li {
+    margin-top: 8px;
+}
+
+.validation-rules-list strong {
+    color: #303133;
+}
+
+.validation-rules-list code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+}
+

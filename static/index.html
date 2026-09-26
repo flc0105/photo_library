@@ -239,6 +239,7 @@
                             <template #dropdown>
                                 <el-dropdown-menu>
                                     <el-dropdown-item @click="openLibraryValidation">Validate</el-dropdown-item>
+                                    <el-dropdown-item @click="removeLibraryDotfiles">Remove Dotfiles</el-dropdown-item>
                                     <el-dropdown-item divided @click="openManifestArray">Collect Manifests</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
@@ -2408,7 +2409,13 @@
         </el-dialog>
 
         <!-- Completed/Library root validation. Runs only on demand. -->
-        <el-dialog v-model="validationVisible" title="Completed Validation" width="1040px" class="library-validation-dialog">
+        <el-dialog v-model="validationVisible" width="1040px" class="library-validation-dialog">
+            <template #header>
+                <div class="validation-dialog-title">
+                    <span>Completed Validation</span>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看校验规则" @click="validationRulesVisible = true">?</el-button>
+                </div>
+            </template>
             <div v-loading="validationLoading" class="library-validation-body">
                 <template v-if="validationData">
                     <div class="validation-toolbar">
@@ -2480,6 +2487,20 @@
                 <div v-else-if="!validationLoading" class="validation-empty-detail">No validation result.</div>
             </div>
             <template #footer><el-button @click="validationVisible = false">Close</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="validationRulesVisible" title="校验规则" width="680px" append-to-body class="validation-rules-dialog">
+            <ol class="validation-rules-list">
+                <li><strong>标准目录：</strong>每个 Set 必须包含 <code>01_Original</code>、<code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code>。缺少标准目录，或 Set 顶层存在其他目录，均记为 Issue。</li>
+                <li><strong>临时目录：</strong><code>Discards</code>、<code>Deleted</code>、<code>Intermediates</code> 等不得残留在 Set 顶层；<code>01_Original/Selects</code>、<code>02_Base_Edit/Ready</code>、<code>02_Base_Edit/discards</code> 也不得残留。发现即记为 Issue。</li>
+                <li><strong>Original 结构：</strong><code>01_Original</code> 必须包含 <code>JPG</code> 和 <code>RAW</code>，且不能出现其他一级子目录。</li>
+                <li><strong>Original 文件类型：</strong><code>JPG</code> 中出现非 JPG/JPEG 文件，或 <code>RAW</code> 中出现非 CR3 文件，记为 Issue。</li>
+                <li><strong>JPG / RAW 对应：</strong>两边都为空是 Issue；有 JPG 但没有 RAW 是 Issue；有 RAW 但没有 JPG 属于 Normal；两边都有时按文件名 stem 一一对应，无法完整对齐记为 Warning。带 <code>-dpp</code> 的 JPG 按去掉 <code>-dpp</code> 后的 stem 与 RAW 对应，并在结果中备注。</li>
+                <li><strong>Base / Model：</strong>任意一方为空都属于 Normal；只有两边都有图片时才要求按完整文件名 stem 一一对应，无法完整对齐记为 Warning。扩展名可以不同。<code>Ready</code> 不参与 Base / Model 对齐比较。</li>
+                <li><strong>Revision 与版本标签：</strong>只统计 Revision 数量和文件名中的版本标签，用于查看现状，本身不改变 Status。</li>
+                <li><strong>Status：</strong>同一 Set 同时命中多条规则时，以最高严重度显示：Issue → Warning → Normal → OK。Validation 只做检查，不会移动、重命名或删除任何文件。</li>
+            </ol>
+            <template #footer><el-button @click="validationRulesVisible = false">关闭</el-button></template>
         </el-dialog>
 
         <!-- Set metadata detail -->

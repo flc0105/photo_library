@@ -11,6 +11,7 @@
         const equipmentError = ref('');
 
         const validationVisible = ref(false);
+        const validationRulesVisible = ref(false);
         const validationLoading = ref(false);
         const validationData = ref(null);
         const validationError = ref('');
@@ -204,6 +205,7 @@
             lensText,
             focalText,
             validationVisible,
+            validationRulesVisible,
             validationLoading,
             validationData,
             validationError,

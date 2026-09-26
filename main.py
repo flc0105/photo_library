@@ -1897,6 +1897,43 @@ def _collect_manifest_array(root):
     return [data for _, data in manifests]
 
 
+
+def _remove_source_dotfiles(root):
+    """Recursively remove macOS AppleDouble files and .DS_Store only.
+
+    This intentionally mirrors the old Shot Flow Manager cleanup semantics:
+    other dotfiles are never touched, and directory symlinks are not followed.
+    Individual failures are reported without preventing other junk files from
+    being cleaned.
+    """
+    root = Path(root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError('Source 根目录不存在')
+
+    removed_count = 0
+    failures = []
+    for current_root, _, file_names in os.walk(root, followlinks=False):
+        current_root = Path(current_root)
+        for file_name in file_names:
+            if file_name != '.DS_Store' and not file_name.startswith('._'):
+                continue
+            file_path = current_root / file_name
+            try:
+                file_path.unlink()
+                removed_count += 1
+            except OSError as exc:
+                failures.append({
+                    'path': file_path.relative_to(root).as_posix(),
+                    'error': str(exc),
+                })
+
+    return {
+        'removed_count': removed_count,
+        'failed_count': len(failures),
+        'failures': failures[:50],
+    }
+
+
 def _library_state_map(source_id, relative_paths):
     paths = [p for p in relative_paths if p]
     if not paths:
@@ -2448,6 +2485,22 @@ def collect_library_manifests(source_id):
             return jsonify({'error': str(exc), 'errors': errors}), 400
         return jsonify({'error': str(exc)}), 400
     except (FileNotFoundError, OSError) as exc:
+        return jsonify({'error': str(exc)}), 400
+
+
+
+@app.route('/api/library/sources/<int:source_id>/remove-dotfiles', methods=['POST'])
+def remove_library_dotfiles(source_id):
+    denied = _library_admin_guard()
+    if denied:
+        return denied
+    source = _get_library_source(source_id)
+    if not source:
+        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+    try:
+        root, _, _ = _resolve_library_path(source, '')
+        return jsonify(_remove_source_dotfiles(root))
+    except (FileNotFoundError, OSError, ValueError) as exc:
         return jsonify({'error': str(exc)}), 400
 
 

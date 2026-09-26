@@ -2188,6 +2188,47 @@ const app = createApp({
             }
         };
 
+        const removeLibraryDotfiles = async () => {
+            if (!isLibraryRoot.value || !currentLibrarySource.value) {
+                ElMessage.warning('Remove Dotfiles 只能在 Set 父目录使用');
+                return;
+            }
+
+            try {
+                await ElMessageBox.confirm(
+                    '将递归删除当前 Set 父目录中的 .DS_Store 和 ._* 文件。其他隐藏文件不会删除。此操作不可撤销，是否继续？',
+                    'Remove Dotfiles',
+                    {
+                        type: 'warning',
+                        confirmButtonText: '删除',
+                        cancelButtonText: '取消'
+                    }
+                );
+            } catch (error) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/library/sources/${currentLibrarySource.value.id}/remove-dotfiles`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Remove Dotfiles 失败');
+
+                const removed = Number(data.removed_count) || 0;
+                const failed = Number(data.failed_count) || 0;
+                if (failed > 0) {
+                    ElMessage.warning(`已删除 ${removed} 个 dotfiles；${failed} 个删除失败`);
+                } else if (removed > 0) {
+                    ElMessage.success(`已删除 ${removed} 个 dotfiles`);
+                } else {
+                    ElMessage.info('没有发现 .DS_Store 或 ._* 文件');
+                }
+            } catch (error) {
+                ElMessage.error(error?.message || 'Remove Dotfiles 失败');
+            }
+        };
+
         const copyManifestArray = async () => {
             if (!manifestArrayText.value) return;
             try {
@@ -4062,6 +4103,7 @@ const app = createApp({
             manifestArrayText,
             manifestArrayCount,
             openManifestArray,
+            removeLibraryDotfiles,
             copyManifestArray,
             openNewSetDialog,
             createNewSet,
@@ -4093,6 +4135,7 @@ const app = createApp({
             equipmentFocalText: setInsights.focalText,
             rescanEquipment: setInsights.rescanEquipment,
             validationVisible: setInsights.validationVisible,
+            validationRulesVisible: setInsights.validationRulesVisible,
             validationLoading: setInsights.validationLoading,
             validationData: setInsights.validationData,
             validationError: setInsights.validationError,
