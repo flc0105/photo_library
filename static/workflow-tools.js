@@ -11,6 +11,7 @@
         const threshold = ref(0.8);
 
         const inspectionVisible = ref(false);
+        const inspectionRulesVisible = ref(false);
         const inspectionLoading = ref(false);
         const inspectionData = ref(null);
         const inspectionError = ref('');
@@ -546,6 +547,7 @@
             previewData,
             threshold,
             inspectionVisible,
+            inspectionRulesVisible,
             inspectionLoading,
             inspectionData,
             inspectionError,

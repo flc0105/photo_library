@@ -4161,6 +4161,7 @@ const app = createApp({
             workflowPreviewData: workflowTools.previewData,
             workflowThreshold: workflowTools.threshold,
             imageInspectionVisible: workflowTools.inspectionVisible,
+            imageInspectionRulesVisible: workflowTools.inspectionRulesVisible,
             imageInspectionLoading: workflowTools.inspectionLoading,
             imageInspectionData: workflowTools.inspectionData,
             imageInspectionError: workflowTools.inspectionError,

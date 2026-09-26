@@ -1590,10 +1590,15 @@
 
         <!-- Read-only recursive Set image inspection / stage diff. -->
         <el-dialog v-model="imageInspectionVisible"
-                   title="图像检测"
                    width="96%"
                    class="image-inspection-dialog"
                    :close-on-click-modal="!imageInspectionLoading">
+            <template #header>
+                <div class="validation-dialog-title">
+                    <span>图像检测</span>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看图像检测规则" @click="imageInspectionRulesVisible = true">?</el-button>
+                </div>
+            </template>
             <div v-loading="imageInspectionLoading" class="image-inspection-body">
                 <el-alert v-if="imageInspectionError"
                           :title="imageInspectionError"
@@ -1834,6 +1839,21 @@
             </template>
         </el-dialog>
 
+        <el-dialog v-model="imageInspectionRulesVisible" title="图像检测规则" width="760px" append-to-body class="validation-rules-dialog">
+            <ol class="validation-rules-list">
+                <li><strong>扫描范围：</strong>递归检查 <code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code> 中的 JPG/JPEG/PNG。忽略 <code>discards</code>、<code>deleted</code> 子目录和 <code>._*</code> AppleDouble 文件；<code>01_Original</code> 不参与 Image Inspection。</li>
+                <li><strong>阶段对齐：</strong>Base / Model / Revision / Final 按文件名 stem（忽略大小写）横向对齐。同一 stem 的 Final 可以缺失；Base / Model / Revision 任一阶段缺失会把该行提升为异常优先显示。工具只读，不移动、重命名、删除或改写文件。</li>
+                <li><strong>Geometry Status：</strong><code>Perfect</code> = 像素足够且比例精确为 2:3 / 3:2；<code>Slight Off</code> = 像素足够、比例非精确且 center-crop loss ≤ 3%；<code>Ratio Error</code> = 像素足够、比例非精确且 center-crop loss &gt; 3%；<code>Low Res</code> = 像素不足，不论比例；<code>Read Error</code> = 无法读取有效宽高。</li>
+                <li><strong>像素足够：</strong>Portrait / Square 必须至少 <code>3200×4800</code>，Landscape 必须至少 <code>4800×3200</code>。判断使用源图当前宽高；center crop 只能减少像素，因此不能修复 Low Res。</li>
+                <li><strong>Crop loss：</strong>按中心裁切到精确 2:3 / 3:2 后，被裁掉的面积占源图面积的比例。3% 是 Slight Off / Ratio Error 的分界，并与 Final Builder 的 crop warning threshold 对齐。Geometry Detail 继续显示 Resolution、Current ratio、必要时的 Target ratio，以及非 Final 阶段的 Center crop / Crop loss。</li>
+                <li><strong>顶部统计：</strong><code>总文件</code>统计四个阶段实际扫描到的文件数；<code>Perfect</code>统计像素足够且精确比例；<code>Low Res</code>统计像素不足，当前 Read Error 也会归入这一计数；顶部 <code>Ratio Error</code> 是所有“像素足够但比例非精确”的汇总，因此同时包含表内的 Slight Off 与 Ratio Error。</li>
+                <li><strong>Key EXIF：</strong>字段列表来自 <code>data/final_metadata_settings.json</code>，与 Write Metadata 使用同一份 contract。Base / Model / Revision 按配置的 source tag 优先级读取并统计存在项；Final 必须使用配置定义的 output tag，并且除允许的 EXIF 结构字段、JFIF、ICC 外不能有额外业务 metadata。</li>
+                <li><strong>Final delivery QC：</strong>仅对 Final 检查 12 项：File Format = JPEG 且 SOI/EOI 完整；Pixel Dimensions = 3200×4800 或 4800×3200 且与 SOF 一致；Aspect Ratio = 精确 2:3 / 3:2；JPEG Encoding = Baseline DCT / Sequential SOF0；Bit Depth = 8 bits/component；Color Space = 固定 sRGB IEC61966-2.1 ICC（3144 B + 固定 SHA-256）；Chroma Sampling = 4:4:4（Y/Cb/Cr 1×1）；JPEG Quality = canonical Q95 DQT 0/1 且 Y→0、Cb/Cr→1；Entropy Coding = 4 组 Huffman DHT 且无 arithmetic coding；JFIF Header = v1.01、unitless、density 1×1、无 thumbnail；Adobe APP14 = Absent；Metadata Contract = 当前 Key EXIF 全部存在且无额外业务 metadata。</li>
+                <li><strong>排序：</strong>异常行优先，其次 Warning，最后正常行；在同一严重度内优先显示阶段更完整的 stem，再按文件名自然排序。Final 缺失本身不构成异常。</li>
+            </ol>
+            <template #footer><el-button @click="imageInspectionRulesVisible = false">关闭</el-button></template>
+        </el-dialog>
+
         <el-dialog v-model="inspectionMetadataVisible"
                    title="全部元数据"
                    width="1080px"
@@ -1859,7 +1879,7 @@
                         <details v-for="group in inspectionMetadataData.groups"
                                  :key="group.name"
                                  class="image-inspection-metadata-group"
-                                 :open="['IFD0','ExifIFD','JFIF','ICC_Profile'].includes(group.name)">
+                                 :open="['IFD0','ExifIFD'].includes(group.name)">
                             <summary>{{ group.name }} <small>{{ group.fields.length }}</small></summary>
                             <div class="image-inspection-metadata-table-wrap">
                                 <table class="image-inspection-metadata-table">
