@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare Folders · Photo Library</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f5f6f8;
+            --panel: #ffffff;
+            --text: #1f2328;
+            --muted: #667085;
+            --border: #dfe3e8;
+            --accent: #409eff;
+            --soft: #f7f9fc;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #111318;
+                --panel: #1b1f26;
+                --text: #eef1f5;
+                --muted: #9aa4b2;
+                --border: #343b45;
+                --soft: #222832;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        main { max-width: 1120px; margin: 0 auto; padding: 32px 20px 48px; }
+        h1 { margin: 0; font-size: 24px; font-weight: 650; }
+        .hint { margin: 5px 0 20px; color: var(--muted); font-size: 13px; }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .folder-box { min-width: 0; }
+        .folder-title { font-size: 13px; font-weight: 650; margin-bottom: 8px; }
+        .path-row { display: flex; gap: 8px; align-items: stretch; }
+        .path {
+            min-width: 0;
+            flex: 1;
+            min-height: 38px;
+            padding: 9px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--soft);
+            color: var(--text);
+            font: 12px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .path::placeholder { color: var(--muted); }
+        button {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 8px 13px;
+            font: inherit;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+        button.danger { border-color: #f56c6c; color: #f56c6c; }
+        button:disabled { opacity: .5; cursor: default; }
+        .actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+        .message { margin-top: 12px; font-size: 13px; color: var(--muted); min-height: 20px; }
+        .message.error { color: #d03050; }
+        .summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 0 12px; color: var(--muted); font-size: 13px; }
+        .summary strong { color: var(--text); }
+        .results { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .result-panel { min-width: 0; }
+        .result-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+        .result-head-actions { display: flex; gap: 8px; align-items: center; }
+        .result-head h2 { margin: 0; font-size: 16px; }
+        .count { color: var(--muted); font-size: 12px; }
+        .empty { color: var(--muted); font-size: 13px; padding: 18px 4px; }
+        .row { border-top: 1px solid var(--border); padding: 10px 0; }
+        .row:first-child { border-top: 0; }
+        .stem { font: 600 13px/18px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .files { margin-top: 4px; color: var(--muted); font: 12px/17px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .file-line { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+        .file-name { min-width: 0; overflow-wrap: anywhere; }
+        .preview-button {
+            flex: 0 0 auto;
+            padding: 2px 8px;
+            border-radius: 6px;
+            color: var(--accent);
+            font: 11px/17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .preview-modal {
+            position: fixed; inset: 0; z-index: 1000;
+            display: flex; align-items: center; justify-content: center;
+            padding: 28px; background: rgba(0, 0, 0, .68);
+        }
+        .preview-modal[hidden] { display: none; }
+        .preview-dialog {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            width: fit-content;
+            max-width: min(92vw, 1200px);
+            max-height: 90vh;
+            overflow: hidden;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--panel);
+            box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+        }
+        .preview-dialog img {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: calc(92vw - 24px);
+            max-height: calc(90vh - 52px);
+            object-fit: contain;
+        }
+        .preview-dialog img[hidden], .preview-status[hidden] { display: none !important; }
+        .preview-status {
+            width: min(420px, 72vw);
+            height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 48px;
+            color: var(--muted);
+            font-size: 13px;
+            text-align: center;
+        }
+        .preview-status.error { color: #d03050; }
+        .preview-caption { margin-top: 8px; color: var(--muted); font: 12px/17px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .preview-close { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; padding: 0; border-radius: 50%; background: rgba(0,0,0,.55); border-color: rgba(255,255,255,.35); color: #fff; font-size: 20px; line-height: 28px; }
+        @media (max-width: 760px) {
+            main { padding: 20px 12px 32px; }
+            .selectors, .results { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Compare Folders</h1>
+    <p class="hint">只读取两个目录的顶层文件，按完整 stem 对比；不上传。删除操作只会把当前预览到的多余文件移入系统回收站。忽略 .DS_Store 和 ._*。</p>
+
+    <section class="panel">
+        <div class="selectors">
+            <div class="folder-box">
+                <div class="folder-title">目录 A</div>
+                <div class="path-row">
+                    <input class="path" id="leftPath" type="text" autocomplete="off" spellcheck="false" placeholder="输入绝对路径">
+                    <button id="pickLeft">选择目录</button>
+                </div>
+            </div>
+            <div class="folder-box">
+                <div class="folder-title">目录 B</div>
+                <div class="path-row">
+                    <input class="path" id="rightPath" type="text" autocomplete="off" spellcheck="false" placeholder="输入绝对路径">
+                    <button id="pickRight">选择目录</button>
+                </div>
+            </div>
+        </div>
+        <div class="actions">
+            <button class="primary" id="compareButton" disabled>比较</button>
+        </div>
+        <div class="message" id="message"></div>
+    </section>
+
+    <div class="summary" id="summary" hidden></div>
+
+    <div class="results" id="results" hidden>
+        <section class="panel result-panel">
+            <div class="result-head">
+                <h2>仅目录 A 有</h2>
+                <div class="result-head-actions">
+                    <span class="count" id="leftOnlyCount"></span>
+                    <button class="danger" id="trashLeft" hidden>删除多余文件</button>
+                </div>
+            </div>
+            <div id="leftOnly"></div>
+        </section>
+        <section class="panel result-panel">
+            <div class="result-head">
+                <h2>仅目录 B 有</h2>
+                <div class="result-head-actions">
+                    <span class="count" id="rightOnlyCount"></span>
+                    <button class="danger" id="trashRight" hidden>删除多余文件</button>
+                </div>
+            </div>
+            <div id="rightOnly"></div>
+        </section>
+    </div>
+</main>
+
+<div class="preview-modal" id="previewModal" hidden>
+    <div class="preview-dialog" role="dialog" aria-modal="true" aria-label="图像预览">
+        <button class="preview-close" id="previewClose" type="button" aria-label="关闭">×</button>
+        <div class="preview-status" id="previewStatus">正在加载预览…</div>
+        <img id="previewImage" alt="" hidden>
+        <div class="preview-caption" id="previewCaption"></div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const state = { left: '', right: '', onlyLeft: [], onlyRight: [], previewObjectUrl: null };
+    const leftPath = document.getElementById('leftPath');
+    const rightPath = document.getElementById('rightPath');
+    const compareButton = document.getElementById('compareButton');
+    const message = document.getElementById('message');
+    const summary = document.getElementById('summary');
+    const results = document.getElementById('results');
+    const previewModal = document.getElementById('previewModal');
+    const previewImage = document.getElementById('previewImage');
+    const previewStatus = document.getElementById('previewStatus');
+    const previewCaption = document.getElementById('previewCaption');
+    const previewClose = document.getElementById('previewClose');
+
+    const setMessage = (text, isError = false) => {
+        message.textContent = text || '';
+        message.classList.toggle('error', isError);
+    };
+
+    const updateControls = () => {
+        if (leftPath.value !== state.left) leftPath.value = state.left;
+        if (rightPath.value !== state.right) rightPath.value = state.right;
+        compareButton.disabled = !(state.left && state.right);
+        summary.hidden = true;
+        results.hidden = true;
+        state.onlyLeft = [];
+        state.onlyRight = [];
+        document.getElementById('trashLeft').hidden = true;
+        document.getElementById('trashRight').hidden = true;
+    };
+
+    const api = async (url, body) => {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body || {})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
+        return data;
+    };
+
+    const pick = async (side) => {
+        setMessage('正在打开本机目录选择器…');
+        try {
+            const data = await api('/api/tools/folder-compare/pick', {
+                prompt: side === 'left' ? '选择目录 A' : '选择目录 B'
+            });
+            if (!data.cancelled && data.path) state[side] = data.path;
+            setMessage('');
+            updateControls();
+        } catch (error) {
+            setMessage(error.message, true);
+        }
+    };
+
+    const syncTypedPath = (side, input) => {
+        state[side] = input.value.trim();
+        compareButton.disabled = !(state.left && state.right);
+        summary.hidden = true;
+        results.hidden = true;
+    };
+
+    const escapeHtml = (value) => String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+
+    const previewableExtensions = new Set(['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'bmp', 'gif', 'psd']);
+
+    const isPreviewable = (name) => {
+        const dot = String(name).lastIndexOf('.');
+        return dot >= 0 && previewableExtensions.has(String(name).slice(dot + 1).toLowerCase());
+    };
+
+    const closePreview = () => {
+        previewModal.hidden = true;
+        previewImage.hidden = true;
+        previewImage.removeAttribute('src');
+        previewImage.alt = '';
+        previewStatus.hidden = false;
+        previewStatus.classList.remove('error');
+        previewStatus.textContent = '正在加载预览…';
+        previewCaption.textContent = '';
+        if (state.previewObjectUrl) {
+            URL.revokeObjectURL(state.previewObjectUrl);
+            state.previewObjectUrl = null;
+        }
+    };
+
+    const openPreview = async (folder, name) => {
+        closePreview();
+        previewCaption.textContent = name;
+        previewModal.hidden = false;
+        try {
+            const params = new URLSearchParams({folder, name});
+            const response = await fetch(`/api/tools/folder-compare/preview?${params.toString()}`, {cache: 'no-store'});
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || `预览失败 (${response.status})`);
+            }
+            const blob = await response.blob();
+            state.previewObjectUrl = URL.createObjectURL(blob);
+            previewImage.alt = name;
+            previewImage.src = state.previewObjectUrl;
+            await previewImage.decode().catch(() => {});
+            previewStatus.hidden = true;
+            previewImage.hidden = false;
+        } catch (error) {
+            previewImage.hidden = true;
+            previewStatus.hidden = false;
+            previewStatus.classList.add('error');
+            previewStatus.textContent = error.message || '无法加载预览';
+        }
+    };
+
+    const renderRows = (container, rows, folder) => {
+        if (!rows.length) {
+            container.innerHTML = '<div class="empty">没有差异。</div>';
+            return;
+        }
+        container.innerHTML = rows.map(row => `
+            <div class="row">
+                <div class="stem">${escapeHtml(row.stem)}</div>
+                <div class="files">${row.files.map(name => `
+                    <div class="file-line">
+                        <span class="file-name">${escapeHtml(name)}</span>
+                        ${isPreviewable(name) ? `<button type="button" class="preview-button" data-preview-name="${escapeHtml(name)}">预览</button>` : ''}
+                    </div>
+                `).join('')}</div>
+            </div>
+        `).join('');
+
+        container.querySelectorAll('.preview-button').forEach(button => {
+            button.addEventListener('click', () => openPreview(folder, button.dataset.previewName));
+        });
+    };
+
+    const compare = async () => {
+        compareButton.disabled = true;
+        setMessage('正在比较…');
+        try {
+            const data = await api('/api/tools/folder-compare/compare', {
+                left_path: state.left,
+                right_path: state.right
+            });
+            state.left = data.left_path;
+            state.right = data.right_path;
+            leftPath.value = state.left;
+            rightPath.value = state.right;
+
+            const s = data.summary;
+            summary.innerHTML = `
+                <span>目录 A <strong>${s.left_file_count}</strong> 文件 / <strong>${s.left_stem_count}</strong> stems</span>
+                <span>目录 B <strong>${s.right_file_count}</strong> 文件 / <strong>${s.right_stem_count}</strong> stems</span>
+                <span>已对齐 <strong>${s.matched_stem_count}</strong></span>
+            `;
+            document.getElementById('leftOnlyCount').textContent = `${s.only_left_count} stems`;
+            document.getElementById('rightOnlyCount').textContent = `${s.only_right_count} stems`;
+            state.onlyLeft = data.only_left || [];
+            state.onlyRight = data.only_right || [];
+            renderRows(document.getElementById('leftOnly'), state.onlyLeft, state.left);
+            renderRows(document.getElementById('rightOnly'), state.onlyRight, state.right);
+            document.getElementById('trashLeft').hidden = !state.onlyLeft.length;
+            document.getElementById('trashRight').hidden = !state.onlyRight.length;
+            summary.hidden = false;
+            results.hidden = false;
+            setMessage(s.only_left_count || s.only_right_count ? '比较完成。' : '两个目录的 stem 已完全对齐。');
+        } catch (error) {
+            setMessage(error.message, true);
+        } finally {
+            compareButton.disabled = !(state.left && state.right);
+        }
+    };
+
+    const trashExtras = async (side) => {
+        const rows = side === 'left' ? state.onlyLeft : state.onlyRight;
+        if (!rows.length) return;
+        const folderLabel = side === 'left' ? '目录 A' : '目录 B';
+        const fileCount = rows.reduce((total, row) => total + row.files.length, 0);
+        if (!window.confirm(`将 ${folderLabel} 中当前预览的 ${fileCount} 个多余文件移入系统回收站？`)) return;
+
+        const button = document.getElementById(side === 'left' ? 'trashLeft' : 'trashRight');
+        button.disabled = true;
+        compareButton.disabled = true;
+        setMessage('正在移入系统回收站…');
+        try {
+            const data = await api('/api/tools/folder-compare/trash-extra', {
+                left_path: state.left,
+                right_path: state.right,
+                side,
+                expected_rows: rows
+            });
+            setMessage(`已将 ${data.moved_count} 个文件移入系统回收站，正在重新比较…`);
+            await compare();
+        } catch (error) {
+            setMessage(error.message, true);
+        } finally {
+            button.disabled = false;
+            compareButton.disabled = !(state.left && state.right);
+        }
+    };
+
+    previewClose.addEventListener('click', closePreview);
+    previewModal.addEventListener('click', event => {
+        if (event.target === previewModal) closePreview();
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !previewModal.hidden) closePreview();
+    });
+
+    document.getElementById('pickLeft').addEventListener('click', () => pick('left'));
+    document.getElementById('pickRight').addEventListener('click', () => pick('right'));
+    leftPath.addEventListener('input', () => syncTypedPath('left', leftPath));
+    rightPath.addEventListener('input', () => syncTypedPath('right', rightPath));
+    document.getElementById('trashLeft').addEventListener('click', () => trashExtras('left'));
+    document.getElementById('trashRight').addEventListener('click', () => trashExtras('right'));
+    compareButton.addEventListener('click', compare);
+    updateControls();
+})();
+</script>
+</body>
+</html>

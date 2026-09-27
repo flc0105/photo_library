@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "fields": [
+    {
+      "key": "Make",
+      "output": "IFD0:Make",
+      "sources": ["IFD0:Make"]
+    },
+    {
+      "key": "Model",
+      "output": "IFD0:Model",
+      "sources": ["IFD0:Model"]
+    },
+    {
+      "key": "LensModel",
+      "output": "ExifIFD:LensModel",
+      "sources": ["ExifIFD:LensModel"]
+    },
+    {
+      "key": "SerialNumber",
+      "output": "ExifIFD:SerialNumber",
+      "sources": ["ExifIFD:SerialNumber", "Canon:SerialNumber"]
+    },
+    {
+      "key": "DateTimeOriginal",
+      "output": "ExifIFD:DateTimeOriginal",
+      "sources": ["ExifIFD:DateTimeOriginal"]
+    },
+    {
+      "key": "FocalLength",
+      "output": "ExifIFD:FocalLength",
+      "sources": ["ExifIFD:FocalLength"]
+    },
+    {
+      "key": "FNumber",
+      "output": "ExifIFD:FNumber",
+      "sources": ["ExifIFD:FNumber"]
+    },
+    {
+      "key": "ExposureTime",
+      "output": "ExifIFD:ExposureTime",
+      "sources": ["ExifIFD:ExposureTime"]
+    },
+    {
+      "key": "ISO",
+      "output": "ExifIFD:ISO",
+      "sources": ["ExifIFD:ISO"]
+    },
+    {
+      "key": "ExposureCompensation",
+      "output": "ExifIFD:ExposureCompensation",
+      "sources": ["ExifIFD:ExposureCompensation"]
+    },
+    {
+      "key": "ExposureProgram",
+      "output": "ExifIFD:ExposureProgram",
+      "sources": ["ExifIFD:ExposureProgram"]
+    },
+    {
+      "key": "Flash",
+      "output": "ExifIFD:Flash",
+      "sources": ["ExifIFD:Flash"]
+    },
+    {
+      "key": "MeteringMode",
+      "output": "ExifIFD:MeteringMode",
+      "sources": ["ExifIFD:MeteringMode"]
+    },
+    {
+      "key": "WhiteBalance",
+      "output": "ExifIFD:WhiteBalance",
+      "sources": ["ExifIFD:WhiteBalance"]
+    },
+    {
+      "key": "ColorSpace",
+      "output": "ExifIFD:ColorSpace",
+      "sources": ["ExifIFD:ColorSpace"],
+      "fixed": {
+        "raw": 1,
+        "display": "sRGB"
+      }
+    }
+  ]
+}
