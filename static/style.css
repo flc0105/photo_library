@@ -2912,20 +2912,6 @@ body {
     color: #303133;
 }
 
-.validation-root-versions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin: 0 0 12px;
-}
-
-.validation-muted-label {
-    margin-right: 4px;
-    color: #909399;
-    font-size: 12px;
-}
-
 .validation-table code,
 .validation-code-list code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -2961,8 +2947,6 @@ body {
     margin-left: 6px;
 }
 
-.validation-ready-note,
-.validation-version-text,
 .validation-empty-detail {
     color: #909399;
     font-size: 11px;
@@ -3053,16 +3037,6 @@ body {
 
 .validation-sort-switch {
     align-self: stretch;
-}
-
-/* Keep the version-tag row visually separate and leave enough breathing room
-   that the first tag border can never be clipped by the toolbar above. */
-.validation-root-versions {
-    position: relative;
-    z-index: 0;
-    overflow: visible;
-    margin: 0 0 12px;
-    padding-top: 4px;
 }
 
 .validation-table .el-table__header-wrapper th.el-table__cell {
@@ -3305,9 +3279,6 @@ body {
         width: 100%;
     }
 
-    .validation-root-versions {
-        align-items: flex-start;
-    }
 }
 
 /* ==================== Set root view / sort / search ==================== */

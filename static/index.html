@@ -2409,22 +2409,17 @@
                             <el-option label="Date" value="date"></el-option>
                         </el-select>
                     </div>
-                    <div v-if="validationData.versions && validationData.versions.length" class="validation-root-versions">
-                        <span class="validation-muted-label">Version tags</span>
-                        <el-tag v-for="item in validationData.versions" :key="item.name" size="small" effect="plain">{{ item.name }} ×{{ item.count }}</el-tag>
-                    </div>
-
                     <el-table :data="validationSortedSets" stripe class="validation-table">
                         <el-table-column type="expand" width="42">
                             <template #default="scope">
                                 <div class="validation-expand">
                                     <div v-if="scope.row.issues.length" class="validation-detail-block validation-detail-issue">
                                         <strong>Issues</strong>
-                                        <div v-for="item in scope.row.issues" :key="item">{{ item }}</div>
+                                        <div v-for="(item, index) in scope.row.issues" :key="item">{{ scope.row.issues.length > 1 ? `${index + 1}. ${item}` : item }}</div>
                                     </div>
                                     <div v-if="scope.row.warnings.length" class="validation-detail-block validation-detail-warning">
                                         <strong>Warnings</strong>
-                                        <div v-for="item in scope.row.warnings" :key="item">{{ item }}</div>
+                                        <div v-for="(item, index) in scope.row.warnings" :key="item">{{ scope.row.warnings.length > 1 ? `${index + 1}. ${item}` : item }}</div>
                                     </div>
                                     <div v-if="scope.row.info.length" class="validation-detail-block">
                                         <strong>Normal notes</strong>
@@ -2435,11 +2430,7 @@
                                         <div>DPP regenerated JPG ×{{ scope.row.dpp_files.length }}</div>
                                         <div class="validation-code-list"><code v-for="name in scope.row.dpp_files" :key="name">{{ name }}</code></div>
                                     </div>
-                                    <div v-if="scope.row.versions.length" class="validation-detail-block">
-                                        <strong>Version tags</strong>
-                                        <div>{{ validationVersionText(scope.row.versions) }}</div>
-                                    </div>
-                                    <div v-if="!scope.row.issues.length && !scope.row.warnings.length && !scope.row.info.length && !scope.row.dpp_files.length && !scope.row.versions.length" class="validation-empty-detail">No additional notes.</div>
+                                    <div v-if="!scope.row.issues.length && !scope.row.warnings.length && !scope.row.info.length && !scope.row.dpp_files.length" class="validation-empty-detail">No additional notes.</div>
                                 </div>
                             </template>
                         </el-table-column>
@@ -2448,10 +2439,7 @@
                             <template #default="scope"><span>{{ scope.row.jpg_count }} / {{ scope.row.raw_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Base / Model" width="125" align="center">
-                            <template #default="scope">
-                                <span>{{ scope.row.base_count }} / {{ scope.row.model_count }}</span>
-                                <span v-if="scope.row.ready_count" class="validation-ready-note"> +{{ scope.row.ready_count }} Ready</span>
-                            </template>
+                            <template #default="scope"><span>{{ scope.row.base_count }} / {{ scope.row.model_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Revision" width="85" align="center">
                             <template #default="scope">{{ scope.row.revision_count }}</template>
@@ -2474,8 +2462,9 @@
                 <li><strong>Original 结构：</strong><code>01_Original</code> 必须包含 <code>JPG</code> 和 <code>RAW</code>，且不能出现其他一级子目录。</li>
                 <li><strong>Original 文件类型：</strong><code>JPG</code> 中出现非 JPG/JPEG 文件，或 <code>RAW</code> 中出现非 CR3 文件，记为 Issue。</li>
                 <li><strong>JPG / RAW 对应：</strong>两边都为空是 Issue；有 JPG 但没有 RAW 是 Issue；有 RAW 但没有 JPG 属于 Normal；两边都有时按文件名 stem 一一对应，无法完整对齐记为 Warning。带 <code>-dpp</code> 的 JPG 按去掉 <code>-dpp</code> 后的 stem 与 RAW 对应，并在结果中备注。</li>
-                <li><strong>Base / Model：</strong>任意一方为空都属于 Normal；只有两边都有图片时才要求按完整文件名 stem 一一对应，无法完整对齐记为 Warning。扩展名可以不同。<code>Ready</code> 不参与 Base / Model 对齐比较。</li>
-                <li><strong>Revision 与版本标签：</strong>只统计 Revision 数量和文件名中的版本标签，用于查看现状，本身不改变 Status。</li>
+                <li><strong>Base / Model：</strong>任意一方为空都属于 Normal；只有两边都有图片时才要求按完整文件名 stem 一一对应，无法完整对齐记为 Warning，并明确列出 Base/Model 各自多出、缺少的 stem。扩展名可以不同。</li>
+                <li><strong>Base / Model / Revision 文件名：</strong>图片必须严格使用 <code>logical_id.jpg</code> 或 <code>logical_id.png</code>。stem 中出现任何 <code>-keyword</code> 后缀（例如 <code>1C2A1234-filter.jpg</code>、<code>1C2A1234-v2.png</code>），或使用其他图片扩展名，均记为 Warning。</li>
+                <li><strong>Revision：</strong><code>04_Revision</code> 中的图片必须全部为 PNG；出现非 PNG 图片即记为 Issue。不再要求 Revision stem 与 Base Edit / Model Edit 对应。</li>
                 <li><strong>Status：</strong>同一 Set 同时命中多条规则时，以最高严重度显示：Issue → Warning → Normal → OK。Validation 只做检查，不会移动、重命名或删除任何文件。</li>
             </ol>
             <template #footer><el-button @click="validationRulesVisible = false">关闭</el-button></template>

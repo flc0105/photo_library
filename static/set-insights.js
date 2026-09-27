@@ -189,11 +189,6 @@
             }
         };
 
-        const versionText = (versions) => {
-            if (!Array.isArray(versions) || !versions.length) return '—';
-            return versions.map(item => `${item.name} ×${item.count}`).join(' · ');
-        };
-
         return {
             setStats,
             statsLoading,
@@ -216,7 +211,6 @@
             loadDetail,
             rescanEquipment,
             openValidation,
-            versionText,
         };
     }
 

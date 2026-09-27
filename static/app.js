@@ -4153,7 +4153,6 @@ const app = createApp({
             validationStatusLabel: setInsights.validationStatusLabel,
             validationStatusType: setInsights.validationStatusType,
             openLibraryValidation: setInsights.openValidation,
-            validationVersionText: setInsights.versionText,
             workflowPreviewVisible: workflowTools.previewVisible,
             workflowPreviewLoading: workflowTools.previewLoading,
             workflowPreviewKind: workflowTools.previewKind,
