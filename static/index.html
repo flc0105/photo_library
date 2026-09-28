@@ -134,7 +134,8 @@
                             <div class="album-cover locked-cover library-source-cover"
                                  style="display:flex; align-items:center; justify-content:center;">
                                 <el-icon class="lock-icon"><Folder /></el-icon>
-                                <span v-if="!source.available" class="lock-text">目录不可用</span>
+                                <span v-if="!source.enabled" class="lock-text">已停用</span>
+                                <span v-else-if="!source.available" class="lock-text">目录不可用</span>
                             </div>
                             <div class="album-info">
                                 <div class="album-name">{{ source.name }}</div>
@@ -1426,10 +1427,21 @@
             <div class="source-list">
                 <div v-for="source in librarySources" :key="source.id" class="source-row">
                     <div>
-                        <div><strong>{{ source.name }}</strong> <el-tag size="small" :type="source.available ? 'success' : 'danger'">{{ source.available ? '可用' : '不可用' }}</el-tag></div>
+                        <div class="source-title-row">
+                            <strong>{{ source.name }}</strong>
+                            <el-tag size="small" :type="source.enabled ? 'success' : 'info'">{{ source.enabled ? '已启用' : '已停用' }}</el-tag>
+                            <el-tag size="small" :type="source.available ? 'success' : 'danger'">{{ source.available ? '目录可用' : '目录不可用' }}</el-tag>
+                        </div>
                         <div class="source-path">{{ source.root_path }}</div>
                     </div>
-                    <el-button type="danger" plain size="small" @click="deleteLibrarySource(source)">移除映射</el-button>
+                    <div class="source-actions">
+                        <el-button plain size="small" @click="renameLibrarySource(source)">重命名</el-button>
+                        <el-button :type="source.enabled ? 'warning' : 'success'" plain size="small"
+                                   @click="setLibrarySourceEnabled(source, !source.enabled)">
+                            {{ source.enabled ? '停用' : '启用' }}
+                        </el-button>
+                        <el-button type="danger" plain size="small" @click="deleteLibrarySource(source)">移除映射</el-button>
+                    </div>
                 </div>
             </div>
             <template #footer><el-button @click="showLibrarySourcesDialog = false">关闭</el-button></template>

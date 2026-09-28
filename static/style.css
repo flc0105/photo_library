@@ -1316,6 +1316,8 @@ body {
 .library-file-size { margin-left: auto; color: #909399; font-size: 12px; }
 .source-add-form { display: flex; gap: 10px; margin-bottom: 18px; }
 .source-list { display: flex; flex-direction: column; gap: 10px; }
+.source-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.source-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .source-row {
     display: flex;
     justify-content: space-between;

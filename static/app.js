@@ -812,14 +812,25 @@ const app = createApp({
 
         const newSetModelOptions = computed(() => {
             const models = new Set();
+            const addModel = (value) => {
+                const model = String(value || '').trim();
+                if (model) models.add(model);
+            };
+
+            // Keep current-Source folder candidates so Sets without a manifest
+            // still contribute, then merge cross-Source manifest references.
             for (const item of allLibraryDirectories.value) {
                 let model = String(item && item.manifest_model || '').trim();
                 if (!model) {
                     const match = String(item && item.name || '').match(/^\d{8}-([^-]+)-/);
                     model = match ? match[1].trim() : '';
                 }
-                if (model) models.add(model);
+                addModel(model);
             }
+            for (const model of (manifestKnownValues.value?.models || [])) {
+                addModel(model);
+            }
+
             return Array.from(models).sort((a, b) => a.localeCompare(b, 'zh-CN', {numeric: true, sensitivity: 'base'}));
         });
 
@@ -898,13 +909,17 @@ const app = createApp({
             return `${year}-${month}-${day}`;
         };
 
-        const openNewSetDialog = () => {
+        const openNewSetDialog = async () => {
             if (!isLibraryRoot.value || !currentLibrarySource.value) {
                 ElMessage.warning('New Set 只能在 Set 父目录创建');
                 return;
             }
             newSetForm.value = {model: '', date: localToday(), theme: ''};
             showNewSetDialog.value = true;
+
+            // New Set shares the same cross-Source model references as Manifest Autofill.
+            await manifestAutofill.load();
+            manifestKnownValues.value = manifestAutofill.getValues();
         };
 
         const createNewSet = async () => {
@@ -1563,9 +1578,43 @@ const app = createApp({
                 }
                 ElMessage.success('本地目录已添加');
                 newLibrarySource.value = {name: 'Completed', root_path: ''};
+                manifestAutofill.invalidate();
+                manifestKnownValues.value = {};
                 await loadLibrarySources();
             } catch (error) {
                 ElMessage.error('添加 Source 失败');
+            }
+        };
+
+        const renameLibrarySource = async (source) => {
+            try {
+                const {value} = await ElMessageBox.prompt('请输入新的 Source 名称', '重命名 Source', {
+                    confirmButtonText: '保存',
+                    cancelButtonText: '取消',
+                    inputValue: source.name,
+                    inputPattern: /\S+/,
+                    inputErrorMessage: '名称不能为空'
+                });
+                const name = String(value || '').trim();
+                if (!name || name === source.name) return;
+
+                const response = await fetch(`/api/library/sources/${source.id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || '重命名失败');
+                    return;
+                }
+                if (currentLibrarySource.value && currentLibrarySource.value.id === source.id) {
+                    currentLibrarySource.value = {...currentLibrarySource.value, name};
+                }
+                await loadLibrarySources();
+                ElMessage.success('Source 已重命名');
+            } catch (error) {
+                if (error !== 'cancel') ElMessage.error('重命名失败');
             }
         };
 
@@ -1580,10 +1629,41 @@ const app = createApp({
                     ElMessage.error(data.error || '移除失败');
                     return;
                 }
+                manifestAutofill.invalidate();
+                manifestKnownValues.value = {};
                 await loadLibrarySources();
                 ElMessage.success('映射已移除，硬盘文件未修改');
             } catch (error) {
                 if (error !== 'cancel') ElMessage.error('移除失败');
+            }
+        };
+
+        const setLibrarySourceEnabled = async (source, enabled) => {
+            const action = enabled ? '启用' : '停用';
+            try {
+                if (!enabled) {
+                    await ElMessageBox.confirm(
+                        `停用 “${source.name}” 后将无法进入，也不会参与 Autofill 等 Source 功能；已有数据库状态会保留。确定停用吗？`,
+                        '停用 Source',
+                        {confirmButtonText: '停用', cancelButtonText: '取消', type: 'warning'}
+                    );
+                }
+                const response = await fetch(`/api/library/sources/${source.id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    ElMessage.error(data.error || `${action}失败`);
+                    return;
+                }
+                manifestAutofill.invalidate();
+                manifestKnownValues.value = {};
+                await loadLibrarySources();
+                ElMessage.success(`Source 已${action}`);
+            } catch (error) {
+                if (error !== 'cancel') ElMessage.error(`${action}失败`);
             }
         };
 
@@ -1652,6 +1732,10 @@ const app = createApp({
         };
 
         const openLibrarySource = async (source, path = '') => {
+            if (!source.enabled) {
+                ElMessage.warning(`Source 已停用: ${source.name}`);
+                return;
+            }
             if (!source.available) {
                 ElMessage.error(`本地目录不可用: ${source.root_path}`);
                 return;
@@ -4118,7 +4202,9 @@ const app = createApp({
             createNewSet,
             loadLibrarySources,
             addLibrarySource,
+            renameLibrarySource,
             deleteLibrarySource,
+            setLibrarySourceEnabled,
             openLibrarySource,
             openLibraryDirectory,
             libraryBack,

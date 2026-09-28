@@ -2393,7 +2393,11 @@ def update_library_source(source_id):
     root_path = data.get('root_path', source['root_path'])
     enabled = 1 if data.get('enabled', bool(source['enabled'])) else 0
     path = Path(root_path).expanduser().resolve()
-    if not path.is_dir():
+    current_path = Path(source['root_path']).expanduser().resolve()
+    root_path_changed = path != current_path
+    enabling_source = enabled and not bool(source['enabled'])
+    # 重命名不依赖目录在线；启用 Source 或修改启用中的映射路径时仍校验目录。
+    if enabled and (enabling_source or root_path_changed) and not path.is_dir():
         conn.close()
         return jsonify({'error': f'目录不存在: {path}'}), 400
     try:
