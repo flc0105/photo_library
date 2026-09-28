@@ -258,7 +258,7 @@
                                     <el-dropdown-item @click="openSelectRawTool">Pick RAW</el-dropdown-item>
                                     <el-dropdown-item divided @click="openVisualRenameTool">Match Rename</el-dropdown-item>
                                     <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
-                                    <el-dropdown-item @click="openImageInspectionTool">Image Check</el-dropdown-item>
+                                    <el-dropdown-item @click="openImageInspectionTool">Image Inspection</el-dropdown-item>
                                     <el-dropdown-item divided @click="openFinalBuilder">Build Final</el-dropdown-item>
                                     <el-dropdown-item @click="openFinalMetadata">Write Metadata</el-dropdown-item>
                                 </el-dropdown-menu>
@@ -2368,10 +2368,10 @@
         </el-dialog>
 
         <!-- Set 父目录：合并所有 descendant manifest.json，只读预览并复制。 -->
-        <el-dialog v-model="manifestArrayVisible" title="Manifest Array" width="900px">
+        <el-dialog v-model="manifestArrayVisible" title="Manifests" width="900px">
             <div v-loading="manifestArrayLoading">
                 <div style="margin-bottom:10px; color:#606266; font-size:13px;">
-                    {{ manifestArrayCount }} manifests · sorted by shoot.date
+                    {{ manifestArrayCount }} manifests
                 </div>
                 <el-input v-model="manifestArrayText"
                           type="textarea"
