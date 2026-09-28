@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request
 from PIL import ExifTags, Image
 
 from core.external_tools import resolve_exiftool
+from core.original_naming import original_stem_key
 
 
 _SET_RE = re.compile(r'^\d{8}-.+-.+$')
@@ -431,13 +432,6 @@ def _structure_affects(paths, roots):
     return any(path.split('/', 1)[0] in roots for path in paths)
 
 
-def _original_jpg_stem(path: Path):
-    stem = path.stem
-    if stem.casefold().endswith('-dpp'):
-        stem = stem[:-4]
-    return stem.casefold()
-
-
 def _stage_filename_violations(paths, original_stems):
     """Return stage images whose stem is not an exact Original file stem."""
     if not original_stems:
@@ -480,16 +474,16 @@ def _validate_one_set(set_dir: Path):
 
     jpg_count = len(jpg_files)
     raw_count = len(raw_files)
-    jpg_stems = Counter(_original_jpg_stem(path) for path in jpg_files)
-    raw_stems = Counter(path.stem.casefold() for path in raw_files)
+    jpg_stems = Counter(original_stem_key(path, is_jpg=True) for path in jpg_files)
+    raw_stems = Counter(original_stem_key(path, is_jpg=False) for path in raw_files)
     jpg_stem_labels = {}
     raw_stem_labels = {}
     for path in jpg_files:
-        stem = _original_jpg_stem(path)
+        stem = original_stem_key(path, is_jpg=True)
         label = path.stem[:-4] if path.stem.casefold().endswith('-dpp') else path.stem
         jpg_stem_labels.setdefault(stem, label)
     for path in raw_files:
-        raw_stem_labels.setdefault(path.stem.casefold(), path.stem)
+        raw_stem_labels.setdefault(original_stem_key(path, is_jpg=False), path.stem)
 
     if raw_dir.is_dir() and raw_count == 0:
         issues.append('Original RAW is empty')

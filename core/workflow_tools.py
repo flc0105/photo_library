@@ -27,6 +27,7 @@ from core.final_delivery_contract import (
     public_final_delivery_contract,
 )
 from core.manifest_autofill import get_datetime_original
+from core.original_naming import original_stem_key
 from core.final_metadata_fields import (
     FINAL_STRUCTURAL_FIELDS,
     field_output_key,
@@ -762,23 +763,21 @@ def _build_discard_unreturned_base_plan(source_id, set_dir: Path, set_rel: str):
     }
 
 
-def _scan_by_stem(directory: Path, extensions, excluded_dir_names=None):
+def _scan_by_stem(directory: Path, extensions, excluded_dir_names=None, *, is_jpg=False):
     excluded = {name.casefold() for name in (excluded_dir_names or [])}
-    result = {}
-    duplicates = {}
+    grouped = {}
     if not directory.is_dir():
-        return result, duplicates
+        return grouped, {}
     for root, dirs, files in os.walk(directory):
         dirs[:] = [d for d in dirs if d.casefold() not in excluded]
         for filename in files:
             if not filename.lower().endswith(extensions):
                 continue
             path = Path(root) / filename
-            key = path.stem  # Keep the original Qt case-sensitive stem logic.
-            if key in result:
-                duplicates.setdefault(key, [result[key]]).append(path)
-            result[key] = path
-    return result, duplicates
+            key = original_stem_key(path, is_jpg=is_jpg)
+            grouped.setdefault(key, []).append(path)
+    duplicates = {key: paths for key, paths in grouped.items() if len(paths) > 1}
+    return grouped, duplicates
 
 
 def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
@@ -794,6 +793,8 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
         reference_dir = jpg_dir
         target_ext = ('.cr3',)
         ref_ext = ('.jpg', '.jpeg')
+        target_is_jpg = False
+        reference_is_jpg = True
     elif direction == 'jpg_by_raw':
         target_type = 'JPG'
         reference_type = 'RAW'
@@ -801,12 +802,31 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
         reference_dir = raw_dir
         target_ext = ('.jpg', '.jpeg')
         ref_ext = ('.cr3',)
+        target_is_jpg = True
+        reference_is_jpg = False
     else:
         raise ValueError('同步方向不合法')
 
-    target_files, target_duplicates = _scan_by_stem(target_dir, target_ext, {'Deleted', 'Selects'})
-    reference_files, reference_duplicates = _scan_by_stem(reference_dir, ref_ext, {'Deleted', 'Selects'})
-    files_to_move = [path for key, path in target_files.items() if key not in reference_files]
+    target_groups, target_duplicates = _scan_by_stem(
+        target_dir,
+        target_ext,
+        {'Deleted', 'Selects'},
+        is_jpg=target_is_jpg,
+    )
+    reference_groups, reference_duplicates = _scan_by_stem(
+        reference_dir,
+        ref_ext,
+        {'Deleted', 'Selects'},
+        is_jpg=reference_is_jpg,
+    )
+    target_files = [path for paths in target_groups.values() for path in paths]
+    reference_files = [path for paths in reference_groups.values() for path in paths]
+    files_to_move = [
+        path
+        for key, paths in target_groups.items()
+        if key not in reference_groups
+        for path in paths
+    ]
     files_to_move.sort(key=lambda p: str(p).casefold())
 
     output_dir = target_dir / 'Deleted'
@@ -818,7 +838,7 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
         )
 
     signatures = {}
-    for path in [*target_files.values(), *reference_files.values(), *preexisting_deleted]:
+    for path in [*target_files, *reference_files, *preexisting_deleted]:
         signatures[str(path)] = _file_signature(path)
 
     return {
@@ -862,8 +882,14 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
             'reference_duplicate_stems': len(reference_duplicates),
         },
         'warnings': [
-            *( [f'{target_type} 中有 {len(target_duplicates)} 个重复 stem；保持旧逻辑，按扫描到的最后一个文件参与同步。'] if target_duplicates else [] ),
-            *( [f'{reference_type} 中有 {len(reference_duplicates)} 个重复 stem；保持旧逻辑，按扫描到的最后一个文件参与匹配。'] if reference_duplicates else [] ),
+            *(
+                [f'{target_type} 中有 {len(target_duplicates)} 个重复 Original stem；同步按 stem 分组判断是否存在对应项，不在同 stem 文件之间自动取舍。']
+                if target_duplicates else []
+            ),
+            *(
+                [f'{reference_type} 中有 {len(reference_duplicates)} 个重复 Original stem；同步按 stem 分组匹配。']
+                if reference_duplicates else []
+            ),
         ],
     }
 

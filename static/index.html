@@ -1533,7 +1533,7 @@
                 <template v-else-if="workflowPreviewKind === 'sync_originals'">
                     <div v-if="workflowPreviewData" class="workflow-warning-box">
                         <strong>{{ workflowPreviewData.direction === 'raw_by_jpg' ? 'Delete Extra RAW' : 'Delete Extra JPG' }}</strong>
-                        <span>{{ workflowPreviewData.direction === 'raw_by_jpg' ? '以 JPG 为基准，找出没有同 stem JPG 的多余 RAW。' : '以 RAW 为基准，找出没有同 stem RAW 的多余 JPG。' }}执行时先移入 <code>Deleted</code>，再将 <code>Deleted</code> 移入系统回收站，不永久删除。</span>
+                        <span>{{ workflowPreviewData.direction === 'raw_by_jpg' ? '以 JPG 为基准，找出没有对应 Original stem 的多余 RAW。' : '以 RAW 为基准，找出没有对应 Original stem 的多余 JPG。' }}匹配忽略大小写，JPG 末尾 <code>-dpp</code> 按原 stem 处理。执行时先移入 <code>Deleted</code>，再将 <code>Deleted</code> 移入系统回收站，不永久删除。</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Target <strong>{{ workflowPreviewData.summary.target_count }}</strong></span>
