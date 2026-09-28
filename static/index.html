@@ -1871,16 +1871,16 @@
                     <ul class="image-inspection-qc-rule-list">
                         <li><strong>File Format：</strong>JPEG。</li>
                         <li><strong>Pixel Dimensions：</strong>3200×4800 / 3600×5400 / 4000×6000（横图转置）。</li>
-                        <li><strong>Aspect Ratio：</strong>精确 2:3 / 3:2。</li>
+                        <li><strong>Aspect Ratio：</strong>2:3 / 3:2。</li>
                         <li><strong>JPEG Encoding：</strong>Baseline DCT。</li>
-                        <li><strong>Bit Depth：</strong>8 bits/component。</li>
-                        <li><strong>Color Space：</strong>sRGB IEC61966-2.1。</li>
+                        <li><strong>Bit Depth：</strong>8-bit。</li>
                         <li><strong>Chroma Sampling：</strong>4:4:4。</li>
-                        <li><strong>JPEG Quality：</strong>95。</li>
-                        <li><strong>Entropy Coding：</strong>4 组 Huffman DHT。</li>
-                        <li><strong>JFIF Header：</strong>v1.01、unitless、1×1、无 thumbnail。</li>
-                        <li><strong>Adobe APP14：</strong>不存在。</li>
-                        <li><strong>Metadata Contract：</strong>Key EXIF 完整，且无额外业务 metadata。</li>
+                        <li><strong>ICC Profile：</strong>sRGB IEC61966-2.1。</li>
+                        <li><strong>JPEG Quality：</strong>Q95。</li>
+                        <li><strong>Huffman Tables：</strong>4 DHT tables。</li>
+                        <li><strong>JFIF Header：</strong>v1.01 · unitless · 1×1 · no thumbnail。</li>
+                        <li><strong>Adobe APP14：</strong>Absent。</li>
+                        <li><strong>Metadata Contract：</strong>Key EXIF 完整且无额外业务 metadata。</li>
                     </ul>
                 </li>
             </ol>
@@ -2017,7 +2017,7 @@
                         <span>Warnings <strong>{{ finalBuilderPlan.summary.warning_count }}</strong></span>
                         <span :class="{'is-danger': finalBuilderPlan.summary.blocked_count}">Blocked <strong>{{ finalBuilderPlan.summary.blocked_count }}</strong></span>
                         <span>Crop &gt;3% <strong>{{ finalBuilderPlan.summary.crop_warning_count }}</strong></span>
-                        <span>AI SR <strong>{{ finalBuilderPlan.summary.pixel_insufficient_count }}</strong></span>
+                        <span>Low Res <strong>{{ finalBuilderPlan.summary.pixel_insufficient_count }}</strong></span>
                     </div>
 
                     <div class="workflow-warning-box" :class="finalBuilderPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
@@ -2051,7 +2051,7 @@
                                         Center Crop {{ Number(scope.row.geometry.crop_percent).toFixed(2) }}% · L {{ scope.row.geometry.crop_left }} / R {{ scope.row.geometry.crop_right }} / T {{ scope.row.geometry.crop_top }} / B {{ scope.row.geometry.crop_bottom }} px
                                     </div>
                                     <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Crop skipped · already exact {{ scope.row.geometry.target_ratio }}</div>
-                                    <div v-if="scope.row.geometry.pixel_insufficient" style="font-size:12px; color:#f56c6c; margin-top:4px;">Crop 后像素不足：请先手动 AI SR</div>
+                                    <div v-if="scope.row.geometry.pixel_insufficient" style="font-size:12px; color:#f56c6c; margin-top:4px;">Low Res · 目标尺寸像素不足</div>
                                     <div v-else-if="scope.row.geometry.resize_required" style="font-size:12px; color:#909399; margin-top:4px;">Resize: Lanczos3 → {{ scope.row.geometry.target_width }}×{{ scope.row.geometry.target_height }}</div>
                                     <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Resize skipped · already target size</div>
                                 </template>
@@ -2124,7 +2124,7 @@
         <el-dialog v-model="finalBuilderRulesVisible" title="Build Final Rules" width="720px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list">
                 <li><strong>默认选择：</strong>Revision 默认选中；Model Edit 只默认选择没有 Revision 的图片；Model Edit 与 Revision 都为空时，Base Edit 默认全选。最终以复选框为准。</li>
-                <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '4000×6000 / 3600×5400 / 3200×4800' }}。裁切超过 3% 标记 Warning；像素不足时先处理 AI SR。</li>
+                <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '4000×6000 / 3600×5400 / 3200×4800' }}。裁切超过 3% 标记 Warning；像素不足则 Block。</li>
                 <li><strong>JPEG：</strong>Q95 · 4:4:4 · Sequential JPEG · Huffman optimize · sRGB IEC61966-2.1 ICC；缩放使用 Lanczos3。</li>
                 <li><strong>写入：</strong>Preview 后才执行；源文件不修改，已有同名 Final 或输出冲突会停止。</li>
             </ol>

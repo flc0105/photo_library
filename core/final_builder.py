@@ -653,7 +653,7 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
         elif info and info['color_status'] == 'invalid':
             errors.append(f'sRGB 预检无法完成：{info["color_description"]}')
         if geometry and geometry['pixel_insufficient']:
-            errors.append('Center Crop 后像素不足目标尺寸；请先手动 AI SR')
+            errors.append('Center Crop 后像素不足目标尺寸')
         if geometry and geometry['crop_warning']:
             warnings.append(f'Center Crop 将移除 {geometry["crop_percent"]:.2f}% 画面，超过 {_CROP_WARNING_PERCENT:.0f}%')
         if output_path.exists():

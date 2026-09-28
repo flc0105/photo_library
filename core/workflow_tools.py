@@ -1380,22 +1380,48 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
     )
 
     subsampling_ok = '4:4:4' in subsampling
+    if jfif:
+        jfif_unit = {0: 'unitless', 1: 'dpi', 2: 'dpcm'}.get(
+            jfif.get('unit'),
+            f"unit {jfif.get('unit')}" if jfif.get('unit') is not None else 'unit missing',
+        )
+        jfif_value = (
+            f"v{jfif.get('version') or '?'} · {jfif_unit} · "
+            f"{jfif.get('x_density', '?')}×{jfif.get('y_density', '?')}"
+        )
+        thumb_width = int(jfif.get('thumb_width') or 0)
+        thumb_height = int(jfif.get('thumb_height') or 0)
+        jfif_value += (
+            ' · no thumbnail'
+            if not thumb_width and not thumb_height
+            else f' · thumbnail {thumb_width}×{thumb_height}'
+        )
+    else:
+        jfif_value = 'Missing'
+
+    exact_ratio_value = ('2:3' if height >= width else '3:2') if exact_ratio else 'Not exact'
+    if icc_ok:
+        icc_value = _IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION
+    elif not jpeg_structure.get('icc_sha256'):
+        icc_value = 'Missing'
+    elif profile_description == _IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION:
+        icc_value = f'{profile_description} · profile mismatch'
+    else:
+        icc_value = profile_description or 'Profile mismatch'
+
     checks = [
-        ('jpeg', 'Format', file_type.upper() == 'JPEG', 'JPEG' if file_type.upper() == 'JPEG' else (file_type or 'Missing')),
-        ('dimensions', '尺寸', exact_dimensions, f'{width}×{height}' if width and height else 'Missing'),
-        ('ratio', '比例', exact_ratio, '2:3 / 3:2' if exact_ratio else 'Not exact'),
-        ('baseline', 'Baseline', encoding.startswith('Baseline DCT'), encoding or 'Missing'),
-        ('bits', 'Bit depth', bits == '8', '8-bit' if bits == '8' else (f'{bits}-bit' if bits else 'Missing')),
-        ('subsampling', 'Chroma subsampling', subsampling_ok, '4:4:4' if subsampling_ok else (subsampling or 'Missing')),
-        ('jfif', 'JFIF', jfif_ok, (
-            f"{jfif.get('version', 'Missing')} · unit {jfif.get('unit', '—')} · "
-            f"{jfif.get('x_density', '—')}×{jfif.get('y_density', '—')}"
-        )),
-        ('icc', 'ICC', icc_ok, profile_description or 'Missing'),
-        ('quantization', 'JPEG quality', q95_ok, 'Q95' if q95_ok else 'Not Q95'),
-        ('huffman', 'Huffman', huffman_ok, f'{len(huffman_keys)} DHT tables' if huffman_keys else 'Missing'),
-        ('adobe_app14', 'APP14', not jpeg_structure.get('has_adobe_app14'), 'Absent' if not jpeg_structure.get('has_adobe_app14') else 'Present'),
-        ('canonical_exif', 'Key EXIF', canonical_exif['exact'], exif_value),
+        ('jpeg', 'File Format', file_type.upper() == 'JPEG', 'JPEG' if file_type.upper() == 'JPEG' else (file_type or 'Missing')),
+        ('dimensions', 'Pixel Dimensions', exact_dimensions, f'{width}×{height}' if width and height else 'Missing'),
+        ('ratio', 'Aspect Ratio', exact_ratio, exact_ratio_value),
+        ('baseline', 'JPEG Encoding', encoding.startswith('Baseline DCT'), 'Baseline DCT' if encoding.startswith('Baseline DCT') else (encoding or 'Missing')),
+        ('bits', 'Bit Depth', bits == '8', '8-bit' if bits == '8' else (f'{bits}-bit' if bits else 'Missing')),
+        ('subsampling', 'Chroma Sampling', subsampling_ok, '4:4:4' if subsampling_ok else (subsampling or 'Missing')),
+        ('icc', 'ICC Profile', icc_ok, icc_value),
+        ('quantization', 'JPEG Quality', q95_ok, 'Q95' if q95_ok else 'Not Q95'),
+        ('huffman', 'Huffman Tables', huffman_ok, f'{len(huffman_keys)} DHT tables' if huffman_keys else 'Missing'),
+        ('jfif', 'JFIF Header', jfif_ok, jfif_value),
+        ('adobe_app14', 'Adobe APP14', not jpeg_structure.get('has_adobe_app14'), 'Absent' if not jpeg_structure.get('has_adobe_app14') else 'Present'),
+        ('canonical_exif', 'Metadata Contract', canonical_exif['exact'], exif_value),
     ]
     if jpeg_structure.get('error'):
         checks.append(('jpeg_structure', 'JPEG structure', False, jpeg_structure['error']))
