@@ -16,6 +16,16 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file
 from PIL import Image, ImageOps
 
+from core.external_tools import probe_exiftool_version, resolve_exiftool
+from core.final_delivery_contract import (
+    FINAL_CROP_WARNING_PERCENT,
+    FINAL_JPEG_CHROMA_SAMPLING,
+    FINAL_JPEG_QUALITY,
+    FINAL_SRGB_ICC_BYTES,
+    FINAL_SRGB_ICC_SHA256,
+    FINAL_SRGB_PROFILE_DESCRIPTION,
+    public_final_delivery_contract,
+)
 from core.manifest_autofill import get_datetime_original
 from core.final_metadata_fields import (
     FINAL_STRUCTURAL_FIELDS,
@@ -1030,10 +1040,6 @@ _IMAGE_INSPECTION_STAGES = [
 ]
 _IMAGE_INSPECTION_EXCLUDED_META_GROUPS = {'ExifTool', 'File', 'System', 'Composite'}
 _IMAGE_INSPECTION_BATCH_SIZE = 120
-_IMAGE_INSPECTION_CROP_LOSS_LIMIT = 3.0
-_IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION = 'sRGB IEC61966-2.1'
-
-_IMAGE_INSPECTION_FINAL_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
 _IMAGE_INSPECTION_JPEG_ZIGZAG = [
     0, 1, 8, 16, 9, 2, 3, 10,
     17, 24, 32, 25, 18, 11, 4, 5,
@@ -1349,14 +1355,14 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
         and jfif.get('thumb_height') == 0
     )
     icc_ok = (
-        profile_description == _IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION
-        and jpeg_structure.get('icc_sha256') == _IMAGE_INSPECTION_FINAL_ICC_SHA256
-        and jpeg_structure.get('icc_bytes') == 3144
+        profile_description == FINAL_SRGB_PROFILE_DESCRIPTION
+        and jpeg_structure.get('icc_sha256') == FINAL_SRGB_ICC_SHA256
+        and jpeg_structure.get('icc_bytes') == FINAL_SRGB_ICC_BYTES
     )
     quant_tables = jpeg_structure.get('quant_tables') or {}
-    q95_ok = (
-        quant_tables.get(0) == _jpeg_quality_table(_IMAGE_INSPECTION_JPEG_LUMA_BASE, 95)
-        and quant_tables.get(1) == _jpeg_quality_table(_IMAGE_INSPECTION_JPEG_CHROMA_BASE, 95)
+    quality_ok = (
+        quant_tables.get(0) == _jpeg_quality_table(_IMAGE_INSPECTION_JPEG_LUMA_BASE, FINAL_JPEG_QUALITY)
+        and quant_tables.get(1) == _jpeg_quality_table(_IMAGE_INSPECTION_JPEG_CHROMA_BASE, FINAL_JPEG_QUALITY)
     )
 
     exact_dimensions = (width, height) in allowed_final_dimensions()
@@ -1379,7 +1385,7 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
         else ' · '.join(exif_details) or 'Not exact'
     )
 
-    subsampling_ok = '4:4:4' in subsampling
+    subsampling_ok = FINAL_JPEG_CHROMA_SAMPLING in subsampling
     if jfif:
         jfif_unit = {0: 'unitless', 1: 'dpi', 2: 'dpcm'}.get(
             jfif.get('unit'),
@@ -1401,10 +1407,10 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
 
     exact_ratio_value = ('2:3' if height >= width else '3:2') if exact_ratio else 'Not exact'
     if icc_ok:
-        icc_value = _IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION
+        icc_value = FINAL_SRGB_PROFILE_DESCRIPTION
     elif not jpeg_structure.get('icc_sha256'):
         icc_value = 'Missing'
-    elif profile_description == _IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION:
+    elif profile_description == FINAL_SRGB_PROFILE_DESCRIPTION:
         icc_value = f'{profile_description} · profile mismatch'
     else:
         icc_value = profile_description or 'Profile mismatch'
@@ -1415,9 +1421,9 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
         ('ratio', 'Aspect Ratio', exact_ratio, exact_ratio_value),
         ('baseline', 'JPEG Encoding', encoding.startswith('Baseline DCT'), 'Baseline DCT' if encoding.startswith('Baseline DCT') else (encoding or 'Missing')),
         ('bits', 'Bit Depth', bits == '8', '8-bit' if bits == '8' else (f'{bits}-bit' if bits else 'Missing')),
-        ('subsampling', 'Chroma Sampling', subsampling_ok, '4:4:4' if subsampling_ok else (subsampling or 'Missing')),
+        ('subsampling', 'Chroma Sampling', subsampling_ok, FINAL_JPEG_CHROMA_SAMPLING if subsampling_ok else (subsampling or 'Missing')),
         ('icc', 'ICC Profile', icc_ok, icc_value),
-        ('quantization', 'JPEG Quality', q95_ok, 'Q95' if q95_ok else 'Not Q95'),
+        ('quantization', 'JPEG Quality', quality_ok, f'Q{FINAL_JPEG_QUALITY}' if quality_ok else f'Not Q{FINAL_JPEG_QUALITY}'),
         ('huffman', 'Huffman Tables', huffman_ok, f'{len(huffman_keys)} DHT tables' if huffman_keys else 'Missing'),
         ('jfif', 'JFIF Header', jfif_ok, jfif_value),
         ('adobe_app14', 'Adobe APP14', not jpeg_structure.get('has_adobe_app14'), 'Absent' if not jpeg_structure.get('has_adobe_app14') else 'Present'),
@@ -1574,10 +1580,10 @@ def _ratio_analysis(width: int, height: int):
     # Pixel sufficiency uses the exact center-crop dimensions because the active
     # Final policy is defined on the pixels that can actually reach Final.
     pixel_insufficient = bool(target['pixel_insufficient'])
-    crop_loss_excessive = (not exact) and crop_area_percent > _IMAGE_INSPECTION_CROP_LOSS_LIMIT
+    crop_loss_excessive = (not exact) and crop_area_percent > FINAL_CROP_WARNING_PERCENT
 
     # Keep the visible comparison vocabulary about output readiness, not crop mechanics.
-    # The 3% boundary intentionally matches Final Builder's crop warning threshold.
+    # The boundary is shared with Final Builder through the Final delivery contract.
     if pixel_insufficient:
         display_status_level = 'error'
         display_status_text = 'Low Res'
@@ -1694,29 +1700,18 @@ def _build_image_inspection(set_dir: Path):
         for field in field_defs
     ]
 
-    exiftool_path = shutil.which('exiftool')
+    exiftool_path = resolve_exiftool()
     if not exiftool_path:
-        raise FileNotFoundError('ExifTool 未安装或不在 PATH 中；图像检测不会 fallback 到 Pillow。')
+        raise FileNotFoundError('ExifTool 未安装或不可用；图像检测不会 fallback 到 Pillow。')
     validate_metadata_fields_with_exiftool(exiftool_path, field_defs)
 
-    try:
-        version = subprocess.run(
-            [exiftool_path, '-ver'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            timeout=15,
-            check=False,
-        ).stdout.strip()
-    except Exception:
-        version = ''
+    version = probe_exiftool_version(exiftool_path)
 
     entries = _image_inspection_files(set_dir)
     if not entries:
         return {
             'exiftool_version': version,
+            'contract': public_final_delivery_contract(),
             'summary': {
                 'file_count': 0,
                 'perfect_count': 0,
@@ -1830,6 +1825,7 @@ def _build_image_inspection(set_dir: Path):
 
     return {
         'exiftool_version': version,
+        'contract': public_final_delivery_contract(),
         'key_exif_fields': key_exif_fields,
         'summary': {
             'file_count': len(items),
@@ -1896,9 +1892,9 @@ def create_workflow_blueprint(admin_guard, get_source, resolve_path, get_db_conn
             if candidate.name.startswith('._') or candidate.suffix.lower() not in _IMAGE_EXTENSIONS or not candidate.is_file():
                 raise FileNotFoundError('图片不存在或格式不支持')
 
-            exiftool_path = shutil.which('exiftool')
+            exiftool_path = resolve_exiftool()
             if not exiftool_path:
-                raise FileNotFoundError('ExifTool 未安装或不在 PATH 中')
+                raise FileNotFoundError('ExifTool 未安装或不可用')
             groups = _run_exiftool_full_metadata(exiftool_path, candidate)
             return jsonify({
                 'file': candidate.name,

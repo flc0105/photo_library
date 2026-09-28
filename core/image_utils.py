@@ -3,6 +3,8 @@ import subprocess
 
 from PIL import Image, ImageOps
 
+from core.external_tools import resolve_exiftool
+
 
 def generate_thumbnail(image_path, output_path, size=(250, 250), apply_exif_orientation=False):
     with Image.open(image_path) as img:
@@ -57,9 +59,12 @@ def generate_compressed(image_path, output_path, max_size=1200, apply_exif_orien
 
 def get_image_exif_all(image_path):
     try:
-        # 使用exiftool获取EXIF信息
+        # 使用统一解析到的 ExifTool 获取 EXIF 信息。
+        exiftool_path = resolve_exiftool()
+        if not exiftool_path:
+            raise FileNotFoundError('ExifTool 未安装或不可用')
         result = subprocess.run(
-            ['exiftool', '-j', '-s', '-EXIF:All', image_path],
+            [exiftool_path, '-j', '-s', '-EXIF:All', image_path],
             capture_output=True,
             text=True,
             check=True
@@ -83,7 +88,10 @@ def get_image_exif_simple(image_path):
         ]
 
         # 构建命令获取指定字段
-        cmd = ['exiftool', '-j', '-s']
+        exiftool_path = resolve_exiftool()
+        if not exiftool_path:
+            raise FileNotFoundError('ExifTool 未安装或不可用')
+        cmd = [exiftool_path, '-j', '-s']
         for field in simple_fields:
             cmd.append(f'-{field}')
         cmd.append(image_path)

@@ -77,9 +77,15 @@ for folder in [UPLOAD_FOLDER, THUMBNAIL_FOLDER, COMPRESSED_FOLDER, LIBRARY_CACHE
     os.makedirs(folder, exist_ok=True)
 
 
+def _open_database():
+    conn = sqlite3.connect(DATABASE)
+    conn.execute('PRAGMA foreign_keys = ON')
+    return conn
+
+
 # 初始化数据库
 def init_db():
-    conn = sqlite3.connect(DATABASE)
+    conn = _open_database()
     c = conn.cursor()
 
     # 相册表
@@ -222,7 +228,7 @@ def init_db():
 
 # 数据库连接
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE)
+    conn = _open_database()
     conn.row_factory = sqlite3.Row
     return conn
 

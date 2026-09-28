@@ -1,11 +1,12 @@
 import json
 import os
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 from PIL import Image
+
+from core.external_tools import resolve_exiftool
 
 
 DATETIME_ORIGINAL_TAG = 36867
@@ -40,7 +41,7 @@ def _datetime_original_with_pillow(path):
 
 
 def _datetime_original_with_exiftool(path):
-    executable = shutil.which('exiftool')
+    executable = resolve_exiftool()
     if not executable:
         return None
     try:

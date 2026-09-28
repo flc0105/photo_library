@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 from collections import Counter
 from datetime import datetime
@@ -10,6 +9,8 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 from PIL import ExifTags, Image
+
+from core.external_tools import resolve_exiftool
 
 
 _SET_RE = re.compile(r'^\d{8}-.+-.+$')
@@ -135,7 +136,7 @@ def _summarize_equipment_records(records, file_count, method):
 
 
 def _scan_equipment_exiftool(base_dir: Path, file_count: int):
-    exiftool = shutil.which('exiftool')
+    exiftool = resolve_exiftool()
     if not exiftool:
         raise FileNotFoundError('exiftool not found')
 

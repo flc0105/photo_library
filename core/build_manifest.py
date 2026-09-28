@@ -8,11 +8,19 @@ from pathlib import Path
 
 from PIL import Image
 
+from core.external_tools import EXIFTOOL_REQUIRED_VERSION
+from core.final_delivery_contract import (
+    FINAL_JPEG_BASELINE,
+    FINAL_JPEG_CHROMA_SAMPLING,
+    FINAL_JPEG_HUFFMAN_OPTIMIZE,
+    FINAL_JPEG_QUALITY,
+    FINAL_SRGB_ICC_SHA256,
+    FINAL_SRGB_PROFILE_DESCRIPTION,
+)
 from core.final_metadata_fields import load_metadata_field_keys
 
 
 _MANIFEST_FILENAME = 'build.json'
-_FINAL_SRGB_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
 
 _PROFILE_BASE = {
     'crop': {
@@ -25,14 +33,14 @@ _PROFILE_BASE = {
         'upscale': False,
     },
     'jpeg': {
-        'quality': 95,
-        'sampling': '4:4:4',
-        'baseline': True,
-        'huffman_optimize': True,
+        'quality': FINAL_JPEG_QUALITY,
+        'sampling': FINAL_JPEG_CHROMA_SAMPLING,
+        'baseline': FINAL_JPEG_BASELINE,
+        'huffman_optimize': FINAL_JPEG_HUFFMAN_OPTIMIZE,
     },
     'icc': {
-        'name': 'sRGB IEC61966-2.1',
-        'sha256': _FINAL_SRGB_ICC_SHA256,
+        'name': FINAL_SRGB_PROFILE_DESCRIPTION,
+        'sha256': FINAL_SRGB_ICC_SHA256,
     },
 }
 
@@ -49,7 +57,7 @@ _TOOLS = {
     'libvips': '8.18.6',
     'pyvips': '3.2.0',
     'libjpeg-turbo': '3.2.0',
-    'exiftool': '13.55',
+    'exiftool': EXIFTOOL_REQUIRED_VERSION,
 }
 
 _LOCK = threading.Lock()

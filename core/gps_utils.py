@@ -1,9 +1,10 @@
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 from PIL import Image
+
+from core.external_tools import resolve_exiftool
 
 
 GPS_IFD_TAG = 34853
@@ -67,7 +68,7 @@ def _validate(lat, lng):
 
 
 def _extract_with_exiftool(path):
-    executable = shutil.which('exiftool')
+    executable = resolve_exiftool()
     if not executable:
         return None
 
@@ -147,7 +148,7 @@ def extract_gps_from_image(path, precision=5):
     path = Path(path)
     result = _extract_with_exiftool(path) or _extract_with_pillow(path)
     if not result:
-        if path.suffix.lower() in {'.heic', '.heif'} and not shutil.which('exiftool'):
+        if path.suffix.lower() in {'.heic', '.heif'} and not resolve_exiftool():
             raise ValueError('未读取到 GPS。HEIC/HEIF 建议在运行 Photo Library 的 Mac 上安装 ExifTool，或上传带 GPS 的 JPEG。')
         raise ValueError('照片中未读取到 GPS 经纬度。请确认照片保留了定位信息。')
 

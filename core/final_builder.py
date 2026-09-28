@@ -14,6 +14,18 @@ from flask import Blueprint, jsonify, request, send_file
 from PIL import Image, ImageCms, ImageOps, JpegImagePlugin
 
 from core.build_manifest import prepare_build_manifest, record_build_failure, record_build_success
+from core.final_delivery_contract import (
+    FINAL_CROP_WARNING_PERCENT,
+    FINAL_JPEG_CHROMA_SAMPLING,
+    FINAL_JPEG_CJPEG_SAMPLE,
+    FINAL_JPEG_HUFFMAN_OPTIMIZE,
+    FINAL_JPEG_PIL_SAMPLING,
+    FINAL_JPEG_PROGRESSIVE,
+    FINAL_JPEG_QUALITY,
+    FINAL_SRGB_ICC_FILENAME,
+    FINAL_SRGB_ICC_SHA256,
+    FINAL_SRGB_PROFILE_DESCRIPTION,
+)
 from core.final_metadata_fields import load_metadata_field_keys
 from core.final_resolution import choose_target_for_crop, current_policy
 
@@ -22,21 +34,19 @@ _IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 _SET_RE = re.compile(r'^\d{8}-.+-.+$')
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
-_CROP_WARNING_PERCENT = 3.0
-_FINAL_SRGB_ICC_FILENAME = 'sRGB_IEC61966-2.1.icc'
-_FINAL_SRGB_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
-
 _FINAL_PROFILE_BASE = {
     'resize_kernel': 'lanczos3',
-    'quality': 95,
-    'chroma': '4:4:4',
-    'huffman_optimize': True,
-    'progressive': False,
+    'quality': FINAL_JPEG_QUALITY,
+    'chroma': FINAL_JPEG_CHROMA_SAMPLING,
+    'huffman_optimize': FINAL_JPEG_HUFFMAN_OPTIMIZE,
+    'progressive': FINAL_JPEG_PROGRESSIVE,
     'dct': 'accurate integer',
     'icc': 'fixed sRGB',
     'source_color_contract': 'verify sRGB from ICC / PNG signals / EXIF; otherwise use project sRGB assumption',
-    'output_icc': 'sRGB IEC61966-2.1 · ICC v2.1 · HP/IEC 1998 fixed profile',
-    'icc_sha256': _FINAL_SRGB_ICC_SHA256,
+    'icc_profile': FINAL_SRGB_PROFILE_DESCRIPTION,
+    'output_icc': f'{FINAL_SRGB_PROFILE_DESCRIPTION} · ICC v2.1 · HP/IEC 1998 fixed profile',
+    'icc_sha256': FINAL_SRGB_ICC_SHA256,
+    'crop_warning_percent': FINAL_CROP_WARNING_PERCENT,
 }
 
 _FINAL_RUNTIME = {
@@ -417,11 +427,11 @@ def _source_color_info(image):
 
 
 def _fixed_srgb_icc_path():
-    path = Path(__file__).resolve().parents[1] / 'assets' / _FINAL_SRGB_ICC_FILENAME
+    path = Path(__file__).resolve().parents[1] / 'assets' / FINAL_SRGB_ICC_FILENAME
     if not path.is_file():
-        raise RuntimeError(f'缺少固定 sRGB ICC：{_FINAL_SRGB_ICC_FILENAME}')
+        raise RuntimeError(f'缺少固定 sRGB ICC：{FINAL_SRGB_ICC_FILENAME}')
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != _FINAL_SRGB_ICC_SHA256:
+    if digest != FINAL_SRGB_ICC_SHA256:
         raise RuntimeError('固定 sRGB ICC hash 不匹配；拒绝生成 Final')
     return path
 
@@ -508,7 +518,7 @@ def _geometry_plan(width: int, height: int):
         'crop_required': crop_required,
         'resize_required': resize_required,
         'pixel_insufficient': pixel_insufficient,
-        'crop_warning': crop_percent > _CROP_WARNING_PERCENT,
+        'crop_warning': crop_percent > FINAL_CROP_WARNING_PERCENT,
     }
 
 
@@ -577,7 +587,7 @@ def _dependency_status():
     try:
         icc_path = _fixed_srgb_icc_path()
         status['icc_profile_path'] = str(icc_path)
-        status['icc_profile_sha256'] = _FINAL_SRGB_ICC_SHA256
+        status['icc_profile_sha256'] = FINAL_SRGB_ICC_SHA256
     except Exception as exc:
         status['messages'].append(str(exc))
 
@@ -655,7 +665,7 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
         if geometry and geometry['pixel_insufficient']:
             errors.append('Center Crop 后像素不足目标尺寸')
         if geometry and geometry['crop_warning']:
-            warnings.append(f'Center Crop 将移除 {geometry["crop_percent"]:.2f}% 画面，超过 {_CROP_WARNING_PERCENT:.0f}%')
+            warnings.append(f'Center Crop 将移除 {geometry["crop_percent"]:.2f}% 画面，超过 {FINAL_CROP_WARNING_PERCENT:.0f}%')
         if output_path.exists():
             errors.append('05_Final 已有同名文件；禁止静默覆盖')
 
@@ -865,7 +875,7 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
     command = [
         cjpeg_path,
         '-quality', str(_FINAL_PROFILE_BASE['quality']),
-        '-sample', '1x1',
+        '-sample', FINAL_JPEG_CJPEG_SAMPLE,
         '-optimize',
         '-dct', 'int',
         '-icc', str(icc_path),
@@ -878,7 +888,7 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
         'argv': [
             cjpeg_path,
             '-quality', str(_FINAL_PROFILE_BASE['quality']),
-            '-sample', '1x1',
+            '-sample', FINAL_JPEG_CJPEG_SAMPLE,
             '-optimize',
             '-dct', 'int',
             '-icc', str(icc_path),
@@ -929,14 +939,14 @@ def _validate_output(path: Path, item):
         icc_blob = image.info.get('icc_profile')
         if not icc_blob:
             raise RuntimeError('输出缺少 sRGB ICC profile')
-        if hashlib.sha256(bytes(icc_blob)).hexdigest() != _FINAL_SRGB_ICC_SHA256:
+        if hashlib.sha256(bytes(icc_blob)).hexdigest() != FINAL_SRGB_ICC_SHA256:
             raise RuntimeError('输出 sRGB ICC 与 Final 固定 profile 不一致')
         if image.getexif():
             raise RuntimeError('图像生成阶段不应携带 EXIF；请检查编码流程')
         sampling = JpegImagePlugin.get_sampling(image)
-        if sampling != 0:
-            raise RuntimeError(f'输出不是 4:4:4 chroma sampling（Pillow sampling={sampling}）')
-        if image.info.get('progressive') or image.info.get('progression'):
+        if sampling != FINAL_JPEG_PIL_SAMPLING:
+            raise RuntimeError(f'输出不是 {FINAL_JPEG_CHROMA_SAMPLING} chroma sampling（Pillow sampling={sampling}）')
+        if not FINAL_JPEG_PROGRESSIVE and (image.info.get('progressive') or image.info.get('progression')):
             raise RuntimeError('输出意外成为 Progressive JPEG')
 
 

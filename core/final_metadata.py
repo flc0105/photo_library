@@ -15,6 +15,8 @@ from flask import Blueprint, jsonify, request, send_file
 from PIL import Image, ImageOps
 
 from core.build_manifest import record_metadata_failure, record_metadata_success
+from core.external_tools import EXIFTOOL_REQUIRED_VERSION, probe_exiftool_version, resolve_exiftool
+from core.final_delivery_contract import FINAL_SRGB_ICC_SHA256, FINAL_SRGB_PROFILE_DESCRIPTION
 from core.final_metadata_fields import (
     FINAL_STRUCTURAL_FIELDS,
     field_fixed_display,
@@ -32,10 +34,6 @@ _FINAL_EXTENSIONS = {'.jpg', '.jpeg'}
 _DONOR_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
-_EXIFTOOL_VERSION = '13.55'
-_EXIFTOOL_PATH = '/usr/local/bin/exiftool'
-_FINAL_SRGB_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
-
 
 _PLAN_LOCK = threading.Lock()
 _PLANS = {}
@@ -242,38 +240,21 @@ def _resolve_donor(final_path: Path, base_index, original_index):
     return None, None, '01_Original/JPG 与 Base Edit 都没有对应来源文件'
 
 
-def _probe_exiftool(path):
-    try:
-        result = subprocess.run(
-            [str(path), '-ver'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            timeout=15,
-            check=False,
-        )
-        return result.stdout.strip() if result.returncode == 0 else ''
-    except Exception:
-        return ''
-
-
 def _dependency_status():
-    path = _EXIFTOOL_PATH if Path(_EXIFTOOL_PATH).is_file() else ''
-    version = _probe_exiftool(path) if path else ''
+    path = resolve_exiftool()
+    version = probe_exiftool_version(path)
     messages = []
     if not path:
-        messages.append(f'找不到 ExifTool：{_EXIFTOOL_PATH}')
-    elif version != _EXIFTOOL_VERSION:
-        messages.append(f'ExifTool {version or "unknown"}（需要 {_EXIFTOOL_VERSION}）')
+        messages.append('找不到 ExifTool')
+    elif version != EXIFTOOL_REQUIRED_VERSION:
+        messages.append(f'ExifTool {version or "unknown"}（需要 {EXIFTOOL_REQUIRED_VERSION}）')
 
     return {
-        'ready': bool(path and version == _EXIFTOOL_VERSION),
+        'ready': bool(path and version == EXIFTOOL_REQUIRED_VERSION),
         'exiftool_path': path,
         'exiftool_version': version,
-        'exiftool_required': _EXIFTOOL_VERSION,
-        'icc_required_sha256': _FINAL_SRGB_ICC_SHA256,
+        'exiftool_required': EXIFTOOL_REQUIRED_VERSION,
+        'icc_required_sha256': FINAL_SRGB_ICC_SHA256,
         'messages': messages,
     }
 
@@ -452,8 +433,8 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
         try:
             if dependency['exiftool_path']:
                 icc_sha = _icc_sha256(dependency['exiftool_path'], final_path)
-                if icc_sha != _FINAL_SRGB_ICC_SHA256:
-                    errors.append('Final ICC 不是 canonical sRGB IEC61966-2.1')
+                if icc_sha != FINAL_SRGB_ICC_SHA256:
+                    errors.append(f'Final ICC 不是 canonical {FINAL_SRGB_PROFILE_DESCRIPTION}')
             else:
                 icc_sha = ''
         except Exception as exc:
@@ -753,7 +734,7 @@ def _validate_staged(exiftool_path, original_final: Path, staged_path: Path, fie
         raise RuntimeError(f'metadata 清理导致显示像素发生变化，拒绝发布：{original_final.name}')
 
     before_icc_sha = _icc_sha256(exiftool_path, original_final)
-    if before_icc_sha != _FINAL_SRGB_ICC_SHA256:
+    if before_icc_sha != FINAL_SRGB_ICC_SHA256:
         raise RuntimeError(f'原 Final ICC 不是 canonical profile，拒绝处理：{original_final.name}')
     after_icc_sha = _icc_sha256(exiftool_path, staged_path)
     if after_icc_sha != before_icc_sha:
@@ -859,7 +840,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     'clear': '-all= --JFIF:all --ICC_Profile:all -Adobe=',
                     'jfif': 'preserve existing JFIF APP0 byte-for-byte',
                     'icc': 'preserve existing canonical ICC byte-for-byte',
-                    'icc_sha256': _FINAL_SRGB_ICC_SHA256,
+                    'icc_sha256': FINAL_SRGB_ICC_SHA256,
                     'donor_rule': 'Original/JPG -> Base Edit -> Block',
                 },
             })
@@ -908,7 +889,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                 raise RuntimeError('Final Metadata 字段配置在 Preview 后发生变化，请重新 Preview')
             dependency = _dependency_status()
             if not dependency['ready']:
-                raise RuntimeError(f'需要固定 ExifTool {_EXIFTOOL_VERSION}，请处理 Runtime 后重新 Preview')
+                raise RuntimeError(f'需要固定 ExifTool {EXIFTOOL_REQUIRED_VERSION}，请处理 Runtime 后重新 Preview')
 
             raw_row_ids = data.get('row_ids')
             if not isinstance(raw_row_ids, list):
@@ -1024,7 +1005,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     result = {
                         'count': len(published),
                         'profile': 'final-metadata',
-                        'exiftool_version': _EXIFTOOL_VERSION,
+                        'exiftool_version': EXIFTOOL_REQUIRED_VERSION,
                     }
                     if not manifest_ok:
                         _update_task(task_id, log=f'build.json skipped: {manifest_error}')

@@ -1858,8 +1858,8 @@
                     <strong>Geometry Status：</strong>
                     <ol class="image-inspection-rule-sublist">
                         <li><code>Perfect</code>：像素足够，比例精确为 2:3 / 3:2。</li>
-                        <li><code>Slight Off</code>：像素足够，比例偏差，center crop loss ≤ 3%。</li>
-                        <li><code>Ratio Error</code>：像素足够，比例偏差，center crop loss &gt; 3%。</li>
+                        <li><code>Slight Off</code>：像素足够，比例偏差，center crop loss ≤ {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
+                        <li><code>Ratio Error</code>：像素足够，比例偏差，center crop loss &gt; {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
                         <li><code>Low Res</code>：像素不足。</li>
                     </ol>
                     <div class="image-inspection-rule-note"><code>Read Error</code>：无法读取有效尺寸。</div>
@@ -1870,13 +1870,13 @@
                     <strong>Final delivery QC：</strong>
                     <ul class="image-inspection-qc-rule-list">
                         <li><strong>File Format：</strong>JPEG。</li>
-                        <li><strong>Pixel Dimensions：</strong>3200×4800 / 3600×5400 / 4000×6000（横图转置）。</li>
+                        <li><strong>Pixel Dimensions：</strong>{{ imageInspectionData?.contract?.resolution_label || '—' }}（横图转置）。</li>
                         <li><strong>Aspect Ratio：</strong>2:3 / 3:2。</li>
                         <li><strong>JPEG Encoding：</strong>Baseline DCT。</li>
                         <li><strong>Bit Depth：</strong>8-bit。</li>
-                        <li><strong>Chroma Sampling：</strong>4:4:4。</li>
-                        <li><strong>ICC Profile：</strong>sRGB IEC61966-2.1。</li>
-                        <li><strong>JPEG Quality：</strong>Q95。</li>
+                        <li><strong>Chroma Sampling：</strong>{{ imageInspectionData?.contract?.chroma_sampling || '—' }}。</li>
+                        <li><strong>ICC Profile：</strong>{{ imageInspectionData?.contract?.icc_profile || '—' }}。</li>
+                        <li><strong>JPEG Quality：</strong>Q{{ imageInspectionData?.contract?.jpeg_quality ?? '—' }}。</li>
                         <li><strong>Huffman Tables：</strong>4 DHT tables。</li>
                         <li><strong>JFIF Header：</strong>v1.01 · unitless · 1×1 · no thumbnail。</li>
                         <li><strong>Adobe APP14：</strong>Absent。</li>
@@ -2016,13 +2016,13 @@
                         <span>Selected <strong>{{ finalBuilderPlan.summary.selected_count }}</strong></span>
                         <span>Warnings <strong>{{ finalBuilderPlan.summary.warning_count }}</strong></span>
                         <span :class="{'is-danger': finalBuilderPlan.summary.blocked_count}">Blocked <strong>{{ finalBuilderPlan.summary.blocked_count }}</strong></span>
-                        <span>Crop &gt;3% <strong>{{ finalBuilderPlan.summary.crop_warning_count }}</strong></span>
+                        <span>Crop &gt;{{ finalBuilderPlan.profile.crop_warning_percent }}% <strong>{{ finalBuilderPlan.summary.crop_warning_count }}</strong></span>
                         <span>Low Res <strong>{{ finalBuilderPlan.summary.pixel_insufficient_count }}</strong></span>
                     </div>
 
                     <div class="workflow-warning-box" :class="finalBuilderPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
                         <strong>Final JPEG Profile</strong>
-                        <span>{{ finalBuilderPlan.profile.resolution_label }} · Q95 · 4:4:4 · sRGB IEC61966-2.1</span>
+                        <span>{{ finalBuilderPlan.profile.resolution_label }} · Q{{ finalBuilderPlan.profile.quality }} · {{ finalBuilderPlan.profile.chroma }} · {{ finalBuilderPlan.profile.icc_profile }}</span>
                         <strong style="margin-top:4px;">Runtime</strong>
                         <span>pyvips {{ finalBuilderPlan.dependency.pyvips_version || 'missing' }} · libvips {{ finalBuilderPlan.dependency.libvips_version || 'missing' }} · libjpeg-turbo {{ finalBuilderPlan.dependency.libjpeg_turbo_version || 'missing' }}</span>
                         <div v-for="(message, index) in finalBuilderPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
@@ -2124,8 +2124,8 @@
         <el-dialog v-model="finalBuilderRulesVisible" title="Build Final Rules" width="720px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list">
                 <li><strong>默认选择：</strong>Revision 默认选中；Model Edit 只默认选择没有 Revision 的图片；Model Edit 与 Revision 都为空时，Base Edit 默认全选。最终以复选框为准。</li>
-                <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '4000×6000 / 3600×5400 / 3200×4800' }}。裁切超过 3% 标记 Warning；像素不足则 Block。</li>
-                <li><strong>JPEG：</strong>Q95 · 4:4:4 · Sequential JPEG · Huffman optimize · sRGB IEC61966-2.1 ICC；缩放使用 Lanczos3。</li>
+                <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '—' }}。裁切超过 {{ finalBuilderSelection?.profile?.crop_warning_percent ?? '—' }}% 标记 Warning；像素不足则 Block。</li>
+                <li><strong>JPEG：</strong>Q{{ finalBuilderSelection?.profile?.quality ?? '—' }} · {{ finalBuilderSelection?.profile?.chroma || '—' }} · {{ finalBuilderSelection?.profile?.progressive ? 'Progressive JPEG' : 'Sequential JPEG' }} · {{ finalBuilderSelection?.profile?.huffman_optimize ? 'Huffman optimize' : 'No Huffman optimize' }} · {{ finalBuilderSelection?.profile?.icc_profile || '—' }} ICC；缩放使用 Lanczos3。</li>
                 <li><strong>写入：</strong>Preview 后才执行；源文件不修改，已有同名 Final 或输出冲突会停止。</li>
             </ol>
             <template #footer><el-button @click="finalBuilderRulesVisible = false">关闭</el-button></template>
@@ -2164,7 +2164,7 @@
 
                     <div class="workflow-warning-box" :class="finalMetadataPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
                         <strong>Runtime</strong>
-                        <span>ExifTool {{ finalMetadataPlan.dependency.exiftool_version || 'missing' }} · /usr/local/bin/exiftool</span>
+                        <span>ExifTool {{ finalMetadataPlan.dependency.exiftool_version || 'missing' }} · {{ finalMetadataPlan.dependency.exiftool_path || 'not found' }}</span>
                         <div v-for="(message, index) in finalMetadataPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
                     </div>
 
