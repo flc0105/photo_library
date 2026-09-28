@@ -17,11 +17,6 @@
       "sources": ["ExifIFD:LensModel"]
     },
     {
-      "key": "SerialNumber",
-      "output": "ExifIFD:SerialNumber",
-      "sources": ["ExifIFD:SerialNumber", "Canon:SerialNumber"]
-    },
-    {
       "key": "DateTimeOriginal",
       "output": "ExifIFD:DateTimeOriginal",
       "sources": ["ExifIFD:DateTimeOriginal"]
@@ -60,16 +55,6 @@
       "key": "Flash",
       "output": "ExifIFD:Flash",
       "sources": ["ExifIFD:Flash"]
-    },
-    {
-      "key": "MeteringMode",
-      "output": "ExifIFD:MeteringMode",
-      "sources": ["ExifIFD:MeteringMode"]
-    },
-    {
-      "key": "WhiteBalance",
-      "output": "ExifIFD:WhiteBalance",
-      "sources": ["ExifIFD:WhiteBalance"]
     },
     {
       "key": "ColorSpace",

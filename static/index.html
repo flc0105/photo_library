@@ -2398,11 +2398,11 @@
             </template>
         </el-dialog>
 
-        <!-- Completed/Library root validation. Runs only on demand. -->
+        <!-- Directory Validation for the current Source root. Runs only on demand. -->
         <el-dialog v-model="validationVisible" width="1040px" class="library-validation-dialog">
             <template #header>
                 <div class="validation-dialog-title">
-                    <span>Completed Validation</span>
+                    <span>Validation</span>
                     <el-button class="validation-rules-button" size="small" circle plain aria-label="查看校验规则" @click="validationRulesVisible = true">?</el-button>
                 </div>
             </template>
@@ -2455,6 +2455,9 @@
                         </el-table-column>
                         <el-table-column label="Revision" width="85" align="center">
                             <template #default="scope">{{ scope.row.revision_count }}</template>
+                        </el-table-column>
+                        <el-table-column label="Final" width="70" align="center">
+                            <template #default="scope">{{ scope.row.final_count }}</template>
                         </el-table-column>
                         <el-table-column label="Status" width="105" align="center">
                             <template #default="scope"><el-tag size="small" :type="validationStatusType(scope.row.status)">{{ validationStatusLabel(scope.row.status) }}</el-tag></template>

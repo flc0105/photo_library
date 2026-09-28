@@ -477,6 +477,7 @@ def _validate_one_set(set_dir: Path):
     base_files = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted', 'discards', 'Ready'})
     model_files = _iter_files(set_dir / '03_Model_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
     revision_files = _iter_files(set_dir / '04_Revision', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
+    final_files = _iter_files(set_dir / '05_Final', _ORIGINAL_JPG_EXTENSIONS, {'Deleted'})
 
     base_count = len(base_files)
     model_count = len(model_files)
@@ -565,6 +566,7 @@ def _validate_one_set(set_dir: Path):
         'base_count': base_count,
         'model_count': model_count,
         'revision_count': len(revision_files),
+        'final_count': len(final_files),
         'base_model_match': base_count > 0 and model_count > 0 and base_stems == model_stems,
         'dpp_files': dpp_files,
         'issues': issues,
