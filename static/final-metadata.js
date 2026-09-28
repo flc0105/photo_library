@@ -168,7 +168,7 @@
             }
             try {
                 await ElMessageBox.confirm(
-                    `将重建 ${selectedRowIds.value.length} 张已选择的 05_Final JPEG metadata：使用 -all= 清空来源 metadata，但明确保留现有 JFIF 与 ICC，并删除 Adobe APP14；随后优先从 Original/JPG（缺失时 Base Edit）写入当前白名单字段。JFIF、ICC、JPEG 图像数据和解码后的显示像素都必须保持不变，否则整批拒绝发布。`,
+                    `将写入 ${selectedRowIds.value.length} 张 Final 的 metadata。JFIF / ICC 与图像数据保持不变。`,
                     'Write Final Metadata',
                     {confirmButtonText: '开始写入', cancelButtonText: '取消', type: 'warning'}
                 );

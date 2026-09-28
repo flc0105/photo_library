@@ -33,6 +33,7 @@ _DONOR_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
 _EXIFTOOL_VERSION = '13.55'
+_EXIFTOOL_PATH = '/usr/local/bin/exiftool'
 _FINAL_SRGB_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
 
 
@@ -217,7 +218,7 @@ def _choose_candidate(final_path: Path, candidates, stage_label):
     names = ', '.join(path.name for path in candidates[:6])
     if len(candidates) > 6:
         names += f' 等 {len(candidates)} 个'
-    return None, f'{stage_label} 同 logical ID 存在多个 donor，无法唯一确定：{names}'
+    return None, f'{stage_label} 同一照片存在多个来源文件，无法唯一确定：{names}'
 
 
 def _resolve_donor(final_path: Path, base_index, original_index):
@@ -238,7 +239,7 @@ def _resolve_donor(final_path: Path, base_index, original_index):
     if base_path is not None:
         return base_path, 'Base Edit', None
 
-    return None, None, '01_Original/JPG 没有对应文件，且 Base Edit 也没有可用 donor'
+    return None, None, '01_Original/JPG 与 Base Edit 都没有对应来源文件'
 
 
 def _probe_exiftool(path):
@@ -259,46 +260,13 @@ def _probe_exiftool(path):
 
 
 def _dependency_status():
-    # The official macOS ExifTool package installs to /usr/local/bin, while an
-    # older Homebrew copy may still win PATH on Apple Silicon.  Probe both and
-    # deliberately choose the frozen version when it is present.
-    raw_candidates = [
-        shutil.which('exiftool'),
-        '/usr/local/bin/exiftool',
-        '/opt/homebrew/bin/exiftool',
-    ]
-    candidates = []
-    seen = set()
-    for candidate in raw_candidates:
-        if not candidate:
-            continue
-        path = str(Path(candidate))
-        if path in seen or not Path(path).is_file():
-            continue
-        seen.add(path)
-        candidates.append(path)
-
-    detected = []
-    for path in candidates:
-        detected.append((path, _probe_exiftool(path)))
-
-    exact = next(((path, version) for path, version in detected if version == _EXIFTOOL_VERSION), None)
-    selected = exact or (detected[0] if detected else ('', ''))
-    path, version = selected
-
+    path = _EXIFTOOL_PATH if Path(_EXIFTOOL_PATH).is_file() else ''
+    version = _probe_exiftool(path) if path else ''
     messages = []
-    path_default = shutil.which('exiftool') or ''
-    if not detected:
-        messages.append('ExifTool 未安装或未在常见路径中找到')
-    elif exact:
-        if path_default and str(Path(path_default)) != path:
-            default_version = next((ver for p, ver in detected if p == str(Path(path_default))), '')
-            messages.append(
-                f'PATH 中 exiftool 为 {default_version or "unknown"}；本 Workflow 固定使用 {path} ({version})'
-            )
-    else:
-        detail = ', '.join(f'{p} = {v or "unknown"}' for p, v in detected)
-        messages.append(f'需要 ExifTool {_EXIFTOOL_VERSION}；检测到：{detail}')
+    if not path:
+        messages.append(f'找不到 ExifTool：{_EXIFTOOL_PATH}')
+    elif version != _EXIFTOOL_VERSION:
+        messages.append(f'ExifTool {version or "unknown"}（需要 {_EXIFTOOL_VERSION}）')
 
     return {
         'ready': bool(path and version == _EXIFTOOL_VERSION),
@@ -468,14 +436,14 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
         if row['donor_error']:
             errors.append(row['donor_error'])
         if donor_path is not None and not donor_path.exists():
-            errors.append('Metadata donor 已不存在')
+            errors.append('Metadata 来源文件已不存在')
         missing_source_fields = [
             field['label']
             for field in field_rows
             if not field['source_value'] and not field['output_fixed']
         ]
         if donor_path is not None and missing_source_fields:
-            errors.append('Metadata donor 缺少配置字段：' + ', '.join(missing_source_fields))
+            errors.append('Metadata 来源文件缺少配置字段：' + ', '.join(missing_source_fields))
         try:
             jfif_sha = _jfif_segment_sha256(final_path)
         except Exception as exc:
@@ -887,8 +855,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                 'dependency': plan['dependency'],
                 'can_execute': plan['can_execute'],
                 'profile': {
-                    'name': 'final-metadata-v5',
-                    'exiftool': _EXIFTOOL_VERSION,
+                    'name': 'final-metadata',
                     'clear': '-all= --JFIF:all --ICC_Profile:all -Adobe=',
                     'jfif': 'preserve existing JFIF APP0 byte-for-byte',
                     'icc': 'preserve existing canonical ICC byte-for-byte',
@@ -1056,7 +1023,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     )
                     result = {
                         'count': len(published),
-                        'profile': 'final-metadata-v5',
+                        'profile': 'final-metadata',
                         'exiftool_version': _EXIFTOOL_VERSION,
                     }
                     if not manifest_ok:

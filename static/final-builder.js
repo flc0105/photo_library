@@ -196,7 +196,7 @@
             }
             try {
                 await ElMessageBox.confirm(
-                    `将生成 ${plan.value.summary.selected_count} 张 JPEG 到 05_Final。源文件只读，不会被修改；已有同名 Final 不会覆盖。`,
+                    `将生成 ${plan.value.summary.selected_count} 张 JPEG 到 05_Final。已有同名文件会停止。`,
                     'Build Final',
                     {confirmButtonText: '开始生成', cancelButtonText: '取消', type: 'warning'}
                 );

@@ -16,6 +16,7 @@
         const validationData = ref(null);
         const validationError = ref('');
         const validationSortMode = ref('severity');
+        const validationSearchQuery = ref('');
 
         let detailRequestToken = 0;
 
@@ -35,10 +36,19 @@
             ok: 'success',
         }[status] || 'info');
 
+        const validationCountClass = (status) => ({
+            issue: 'validation-count-issue',
+            warning: 'validation-count-warning',
+        }[status] || '');
+
         const sortedValidationSets = computed(() => {
-            const items = Array.isArray(validationData.value?.sets)
+            let items = Array.isArray(validationData.value?.sets)
                 ? [...validationData.value.sets]
                 : [];
+            const query = String(validationSearchQuery.value || '').trim().toLocaleLowerCase();
+            if (query) {
+                items = items.filter((item) => String(item?.name || '').toLocaleLowerCase().includes(query));
+            }
             if (validationSortMode.value === 'date') {
                 return items.sort((a, b) => {
                     const dateCompare = String(b.date_key || b.name || '').localeCompare(String(a.date_key || a.name || ''));
@@ -176,6 +186,7 @@
             validationLoading.value = true;
             validationData.value = null;
             validationError.value = '';
+            validationSearchQuery.value = '';
             try {
                 validationData.value = await fetchJson(
                     `/api/library/insights/sources/${source.id}/validate-root`,
@@ -205,9 +216,11 @@
             validationData,
             validationError,
             validationSortMode,
+            validationSearchQuery,
             sortedValidationSets,
             validationStatusLabel,
             validationStatusType,
+            validationCountClass,
             loadDetail,
             rescanEquipment,
             openValidation,

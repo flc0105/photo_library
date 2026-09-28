@@ -27,10 +27,6 @@ _FINAL_SRGB_ICC_FILENAME = 'sRGB_IEC61966-2.1.icc'
 _FINAL_SRGB_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
 
 _FINAL_PROFILE_BASE = {
-    'name': 'final-jpeg-v1',
-    'pyvips': '3.2.0',
-    'libvips': '8.18.6',
-    'libjpeg_turbo': '3.2.0',
     'resize_kernel': 'lanczos3',
     'quality': 95,
     'chroma': '4:4:4',
@@ -41,6 +37,12 @@ _FINAL_PROFILE_BASE = {
     'source_color_contract': 'verify sRGB from ICC / PNG signals / EXIF; otherwise use project sRGB assumption',
     'output_icc': 'sRGB IEC61966-2.1 · ICC v2.1 · HP/IEC 1998 fixed profile',
     'icc_sha256': _FINAL_SRGB_ICC_SHA256,
+}
+
+_FINAL_RUNTIME = {
+    'pyvips': '3.2.0',
+    'libvips': '8.18.6',
+    'libjpeg_turbo': '3.2.0',
 }
 
 
@@ -203,13 +205,13 @@ def _selection_plan(source_id, set_dir: Path, set_rel: str):
             logical_id = _logical_id(path.name)
             if stage_key == 'revision':
                 default_selected = True
-                default_reason = 'Revision 优先'
+                default_reason = '默认选中'
             elif stage_key == 'model_edit':
                 default_selected = logical_id.casefold() not in revision_ids
-                default_reason = '未被 Revision 覆盖' if default_selected else '同 logical ID 已有 Revision'
+                default_reason = '默认选中' if default_selected else '已有 Revision'
             else:
                 default_selected = not later_stage_has_any
-                default_reason = 'Model Edit / Revision 整组为空' if default_selected else '仅手动选择'
+                default_reason = '默认选中' if default_selected else '手动选择'
 
             item_id = uuid.uuid4().hex
             relative_path = path.relative_to(set_dir).as_posix()
@@ -552,11 +554,11 @@ def _cjpeg_version(cjpeg_path):
 def _dependency_status():
     status = {
         'ready': False,
-        'pyvips_required': _FINAL_PROFILE_BASE['pyvips'],
+        'pyvips_required': _FINAL_RUNTIME['pyvips'],
         'pyvips_version': '',
-        'libvips_required': _FINAL_PROFILE_BASE['libvips'],
+        'libvips_required': _FINAL_RUNTIME['libvips'],
         'libvips_version': '',
-        'libjpeg_turbo_required': _FINAL_PROFILE_BASE['libjpeg_turbo'],
+        'libjpeg_turbo_required': _FINAL_RUNTIME['libjpeg_turbo'],
         'libjpeg_turbo_version': '',
         'cjpeg_path': '',
         'icc_profile_path': '',
@@ -581,24 +583,22 @@ def _dependency_status():
 
     cjpeg_candidates = _cjpeg_candidates()
     versions = [(path, _cjpeg_version(path)) for path in cjpeg_candidates]
-    exact = next((item for item in versions if item[1] == _FINAL_PROFILE_BASE['libjpeg_turbo']), None)
+    exact = next((item for item in versions if item[1] == _FINAL_RUNTIME['libjpeg_turbo']), None)
     chosen = exact or (versions[0] if versions else ('', ''))
     status['cjpeg_path'], status['libjpeg_turbo_version'] = chosen
     if not status['cjpeg_path']:
         status['messages'].append('找不到 cjpeg（libjpeg-turbo）；macOS 可安装官方 3.2.0 DMG，默认路径 /opt/libjpeg-turbo/bin/cjpeg')
 
     checks = [
-        ('pyvips', status['pyvips_version'], _FINAL_PROFILE_BASE['pyvips']),
-        ('libvips', status['libvips_version'], _FINAL_PROFILE_BASE['libvips']),
-        ('libjpeg-turbo', status['libjpeg_turbo_version'], _FINAL_PROFILE_BASE['libjpeg_turbo']),
+        ('pyvips', status['pyvips_version'], _FINAL_RUNTIME['pyvips']),
+        ('libvips', status['libvips_version'], _FINAL_RUNTIME['libvips']),
+        ('libjpeg-turbo', status['libjpeg_turbo_version'], _FINAL_RUNTIME['libjpeg_turbo']),
     ]
     for label, actual, expected in checks:
         if actual and actual != expected:
-            status['messages'].append(f'{label} 版本为 {actual}，Final Profile v1 要求 {expected}')
+            status['messages'].append(f'{label} {actual}（需要 {expected}）')
 
     status['ready'] = all(actual == expected for _, actual, expected in checks) and bool(status['icc_profile_path'])
-    if status['ready']:
-        status['messages'].append('Final Profile v1 依赖版本匹配')
     return status
 
 
@@ -634,7 +634,7 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
         geometry = None
 
         if not logical_id:
-            errors.append('无法解析 logical ID')
+            errors.append('无法解析文件标识')
         try:
             info = _read_image_info(source_path)
             geometry = _geometry_plan(info['width'], info['height'])
@@ -1109,7 +1109,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                 raise RuntimeError('Final Metadata 字段配置在 Preview 后发生变化，请重新打开 Build Final')
             dependency = _dependency_status()
             if not dependency['ready']:
-                raise RuntimeError('Final Profile v1 依赖版本不匹配，请按安装说明配置后重新 Preview')
+                raise RuntimeError('Final Runtime 不符合要求，请处理后重新 Preview')
             if any(item['status'] == 'blocked' for item in plan['items']):
                 raise RuntimeError('Build Plan 中仍有阻断项，请先处理')
             _verify_signatures(plan['signatures'])

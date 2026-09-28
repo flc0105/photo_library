@@ -1607,8 +1607,8 @@
                    :close-on-click-modal="!imageInspectionLoading">
             <template #header>
                 <div class="validation-dialog-title">
-                    <span>图像检测</span>
-                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看图像检测规则" @click="imageInspectionRulesVisible = true">?</el-button>
+                    <span>Image Inspection</span>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看 Image Inspection 规则" @click="imageInspectionRulesVisible = true">?</el-button>
                 </div>
             </template>
             <div v-loading="imageInspectionLoading" class="image-inspection-body">
@@ -1620,7 +1620,7 @@
 
                 <template v-if="imageInspectionData">
                     <div class="workflow-summary-strip image-inspection-summary">
-                        <span>总文件 <strong>{{ imageInspectionData.summary.file_count }}</strong></span>
+                        <span>Total Files <strong>{{ imageInspectionData.summary.file_count }}</strong></span>
                         <span class="is-success">Perfect <strong>{{ imageInspectionData.summary.perfect_count }}</strong></span>
                         <span class="is-danger">Ratio Error <strong>{{ imageInspectionData.summary.ratio_error_count }}</strong></span>
                         <span class="is-danger">Low Res <strong>{{ imageInspectionData.summary.pixel_insufficient_count }}</strong></span>
@@ -1851,17 +1851,38 @@
             </template>
         </el-dialog>
 
-        <el-dialog v-model="imageInspectionRulesVisible" title="图像检测规则" width="760px" append-to-body class="validation-rules-dialog">
-            <ol class="validation-rules-list">
-                <li><strong>扫描范围：</strong>递归检查 <code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code> 中的 JPG/JPEG/PNG。忽略 <code>discards</code>、<code>deleted</code> 子目录和 <code>._*</code> AppleDouble 文件；<code>01_Original</code> 不参与 Image Inspection。</li>
-                <li><strong>阶段对齐：</strong>Base / Model / Revision / Final 按文件名 stem（忽略大小写）横向对齐。同一 stem 的 Final 可以缺失；Base / Model / Revision 任一阶段缺失会把该行提升为异常优先显示。工具只读，不移动、重命名、删除或改写文件。</li>
-                <li><strong>Geometry Status：</strong><code>Perfect</code> = 像素足够且比例精确为 2:3 / 3:2；<code>Slight Off</code> = 像素足够、比例非精确且 center-crop loss ≤ 3%；<code>Ratio Error</code> = 像素足够、比例非精确且 center-crop loss &gt; 3%；<code>Low Res</code> = 像素不足，不论比例；<code>Read Error</code> = 无法读取有效宽高。</li>
-                <li><strong>像素足够：</strong>按当前 Final resolution policy 判断。Single 3600 要求 Portrait / Square 至少 <code>3600×5400</code>、Landscape 至少 <code>5400×3600</code>；Tiered 模式最低合法档为 <code>3200×4800</code> / <code>4800×3200</code>，并由 Builder 选择可达的最高档。center crop 只能减少像素，不能修复 Low Res。</li>
-                <li><strong>Crop loss：</strong>按中心裁切到精确 2:3 / 3:2 后，被裁掉的面积占源图面积的比例。3% 是 Slight Off / Ratio Error 的分界，并与 Final Builder 的 crop warning threshold 对齐。Geometry Detail 继续显示 Resolution、Current ratio、必要时的 Target ratio，以及非 Final 阶段的 Center crop / Crop loss。</li>
-                <li><strong>顶部统计：</strong><code>总文件</code>统计四个阶段实际扫描到的文件数；<code>Perfect</code>统计像素足够且精确比例；<code>Low Res</code>统计像素不足，当前 Read Error 也会归入这一计数；顶部 <code>Ratio Error</code> 是所有“像素足够但比例非精确”的汇总，因此同时包含表内的 Slight Off 与 Ratio Error。</li>
-                <li><strong>Key EXIF：</strong>字段列表来自 <code>data/final_metadata_settings.json</code>，与 Write Metadata 使用同一份 contract。Base / Model / Revision 按配置的 source tag 优先级读取并统计存在项；Final 必须使用配置定义的 output tag，并且除允许的 EXIF 结构字段、JFIF、ICC 外不能有额外业务 metadata。</li>
-                <li><strong>Final delivery QC：</strong>仅对 Final 检查 12 项：File Format = JPEG 且 SOI/EOI 完整；Pixel Dimensions = 当前 Final resolution policy 的合法尺寸且与 SOF 一致；Aspect Ratio = 精确 2:3 / 3:2；JPEG Encoding = Baseline DCT / Sequential SOF0；Bit Depth = 8 bits/component；Color Space = 固定 sRGB IEC61966-2.1 ICC（3144 B + 固定 SHA-256）；Chroma Sampling = 4:4:4（Y/Cb/Cr 1×1）；JPEG Quality = canonical Q95 DQT 0/1 且 Y→0、Cb/Cr→1；Entropy Coding = 4 组 Huffman DHT 且无 arithmetic coding；JFIF Header = v1.01、unitless、density 1×1、无 thumbnail；Adobe APP14 = Absent；Metadata Contract = 当前 Key EXIF 全部存在且无额外业务 metadata。</li>
-                <li><strong>排序：</strong>异常行优先，其次 Warning，最后正常行；在同一严重度内优先显示阶段更完整的 stem，再按文件名自然排序。Final 缺失本身不构成异常。</li>
+        <el-dialog v-model="imageInspectionRulesVisible" title="Image Inspection Rules" width="760px" append-to-body class="validation-rules-dialog">
+            <ol class="validation-rules-list image-inspection-rules-list">
+                <li><strong>扫描范围：</strong>递归扫描 <code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code> 中的 JPG/JPEG/PNG；Base / Model / Revision / Final 按文件名 stem（忽略大小写）横向对齐。</li>
+                <li>
+                    <strong>Geometry Status：</strong>
+                    <ol class="image-inspection-rule-sublist">
+                        <li><code>Perfect</code>：像素足够，比例精确为 2:3 / 3:2。</li>
+                        <li><code>Slight Off</code>：像素足够，比例偏差，center crop loss ≤ 3%。</li>
+                        <li><code>Ratio Error</code>：像素足够，比例偏差，center crop loss &gt; 3%。</li>
+                        <li><code>Low Res</code>：像素不足。</li>
+                    </ol>
+                    <div class="image-inspection-rule-note"><code>Read Error</code>：无法读取有效尺寸。</div>
+                </li>
+                <li><strong>像素档位：</strong><code>3200×4800</code> / <code>3600×5400</code> / <code>4000×6000</code>（横图转置）。</li>
+                <li><strong>Key EXIF：</strong>与 Write Metadata 共用 <code>data/final_metadata_settings.json</code>。Base / Model / Revision 读取配置 source tags；Final 必须精确符合 output tags，且不得有额外业务 metadata。</li>
+                <li>
+                    <strong>Final delivery QC：</strong>
+                    <ul class="image-inspection-qc-rule-list">
+                        <li><strong>File Format：</strong>JPEG。</li>
+                        <li><strong>Pixel Dimensions：</strong>3200×4800 / 3600×5400 / 4000×6000（横图转置）。</li>
+                        <li><strong>Aspect Ratio：</strong>精确 2:3 / 3:2。</li>
+                        <li><strong>JPEG Encoding：</strong>Baseline DCT。</li>
+                        <li><strong>Bit Depth：</strong>8 bits/component。</li>
+                        <li><strong>Color Space：</strong>sRGB IEC61966-2.1。</li>
+                        <li><strong>Chroma Sampling：</strong>4:4:4。</li>
+                        <li><strong>JPEG Quality：</strong>95。</li>
+                        <li><strong>Entropy Coding：</strong>4 组 Huffman DHT。</li>
+                        <li><strong>JFIF Header：</strong>v1.01、unitless、1×1、无 thumbnail。</li>
+                        <li><strong>Adobe APP14：</strong>不存在。</li>
+                        <li><strong>Metadata Contract：</strong>Key EXIF 完整，且无额外业务 metadata。</li>
+                    </ul>
+                </li>
             </ol>
             <template #footer><el-button @click="imageInspectionRulesVisible = false">关闭</el-button></template>
         </el-dialog>
@@ -1914,12 +1935,17 @@
 
         <!-- Canonical Final JPEG builder: source selection -> build plan -> execution. -->
         <el-dialog v-model="finalBuilderVisible"
-                   title="Build Final"
                    width="1180px"
                    top="4vh"
                    :close-on-click-modal="false"
                    :close-on-press-escape="finalBuilderStep !== 2 || !['queued','running'].includes(finalBuilderTask.status)"
                    :show-close="finalBuilderStep !== 2 || !['queued','running'].includes(finalBuilderTask.status)">
+            <template #header>
+                <div class="validation-dialog-title">
+                    <span>Build Final</span>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看 Build Final 规则" @click="finalBuilderRulesVisible = true">?</el-button>
+                </div>
+            </template>
             <div v-loading="finalBuilderLoading" style="min-height:220px;">
                 <el-steps :active="finalBuilderStep === 2 && finalBuilderTask.status === 'done' ? 3 : finalBuilderStep" finish-status="success" simple style="margin-bottom:16px;">
                     <el-step title="Select Sources"></el-step>
@@ -1929,10 +1955,6 @@
                 </el-steps>
 
                 <template v-if="finalBuilderStep === 0 && finalBuilderSelection">
-                    <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
-                        <strong>默认选择规则</strong>
-                        <span>Revision 默认优先；Model Edit 只默认选择未被同 logical ID Revision 覆盖的图；只有 Model Edit 与 Revision 整组都为空时，Base Edit 才默认全选。最终以本页复选框为准。</span>
-                    </div>
                     <div class="workflow-summary-strip" style="margin-bottom:12px;">
                         <span>Revision <strong>{{ finalBuilderSelection.summary.revision_count }}</strong></span>
                         <span>Model <strong>{{ finalBuilderSelection.summary.model_count }}</strong></span>
@@ -1976,9 +1998,9 @@
                                 <div style="min-width:0; padding:8px 2px 1px;">
                                     <code :title="item.name"
                                           style="display:block; min-width:0; font-size:12px; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ item.name }}</code>
-                                    <div :title="`默认${item.default_selected ? '选中' : '未选'} · ${item.default_reason}`"
+                                    <div :title="item.default_reason"
                                          style="min-width:0; margin-top:4px; font-size:11px; color:#a8abb2; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                        默认{{ item.default_selected ? '选中' : '未选' }} · {{ item.default_reason }}
+                                        {{ item.default_reason }}
                                     </div>
                                     <div :title="item.relative_path"
                                          style="min-width:0; margin-top:4px; font-size:10px; color:#c0c4cc; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ item.relative_path }}</div>
@@ -1998,14 +2020,11 @@
                         <span>AI SR <strong>{{ finalBuilderPlan.summary.pixel_insufficient_count }}</strong></span>
                     </div>
 
-                    <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
-                        <strong>Final JPEG Profile · {{ finalBuilderPlan.profile.name }}</strong>
-                        <span>libvips {{ finalBuilderPlan.profile.libvips }} · Lanczos3 · {{ finalBuilderPlan.profile.resolution_label }} · libjpeg-turbo {{ finalBuilderPlan.profile.libjpeg_turbo }} · Q95 · 4:4:4 · Huffman optimize · Sequential JPEG · sRGB IEC61966-2.1 ICC</span>
-                    </div>
-
                     <div class="workflow-warning-box" :class="finalBuilderPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
-                        <strong>Runtime</strong>
-                        <span>pyvips {{ finalBuilderPlan.dependency.pyvips_version || 'missing' }} / {{ finalBuilderPlan.dependency.pyvips_required }} · libvips {{ finalBuilderPlan.dependency.libvips_version || 'missing' }} / {{ finalBuilderPlan.dependency.libvips_required }} · libjpeg-turbo {{ finalBuilderPlan.dependency.libjpeg_turbo_version || 'missing' }} / {{ finalBuilderPlan.dependency.libjpeg_turbo_required }}</span>
+                        <strong>Final JPEG Profile</strong>
+                        <span>{{ finalBuilderPlan.profile.resolution_label }} · Q95 · 4:4:4 · sRGB IEC61966-2.1</span>
+                        <strong style="margin-top:4px;">Runtime</strong>
+                        <span>pyvips {{ finalBuilderPlan.dependency.pyvips_version || 'missing' }} · libvips {{ finalBuilderPlan.dependency.libvips_version || 'missing' }} · libjpeg-turbo {{ finalBuilderPlan.dependency.libjpeg_turbo_version || 'missing' }}</span>
                         <div v-for="(message, index) in finalBuilderPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
                     </div>
 
@@ -2074,8 +2093,8 @@
                             <div v-for="(line, index) in finalBuilderTask.logs.slice(-12)" :key="index">{{ line }}</div>
                         </div>
                         <div v-if="finalBuilderTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
-                            <strong>Source Safety</strong>
-                            <span>本次 Build 仅读取上游文件；所有临时文件已随临时目录清理，最终只发布到 05_Final。</span>
+                            <strong>Done</strong>
+                            <span>Final 已生成到 05_Final；源文件未修改。</span>
                         </div>
                     </div>
                 </template>
@@ -2102,14 +2121,29 @@
             </template>
         </el-dialog>
 
+        <el-dialog v-model="finalBuilderRulesVisible" title="Build Final Rules" width="720px" append-to-body class="validation-rules-dialog">
+            <ol class="validation-rules-list">
+                <li><strong>默认选择：</strong>Revision 默认选中；Model Edit 只默认选择没有 Revision 的图片；Model Edit 与 Revision 都为空时，Base Edit 默认全选。最终以复选框为准。</li>
+                <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '4000×6000 / 3600×5400 / 3200×4800' }}。裁切超过 3% 标记 Warning；像素不足时先处理 AI SR。</li>
+                <li><strong>JPEG：</strong>Q95 · 4:4:4 · Sequential JPEG · Huffman optimize · sRGB IEC61966-2.1 ICC；缩放使用 Lanczos3。</li>
+                <li><strong>写入：</strong>Preview 后才执行；源文件不修改，已有同名 Final 或输出冲突会停止。</li>
+            </ol>
+            <template #footer><el-button @click="finalBuilderRulesVisible = false">关闭</el-button></template>
+        </el-dialog>
+
         <!-- Final metadata rebuild: Final-driven donor mapping -> preview -> staged ExifTool write. -->
         <el-dialog v-model="finalMetadataVisible"
-                   title="Write Final Metadata"
                    width="1180px"
                    top="4vh"
                    :close-on-click-modal="false"
                    :close-on-press-escape="finalMetadataStep !== 1 || !['queued','running'].includes(finalMetadataTask.status)"
                    :show-close="finalMetadataStep !== 1 || !['queued','running'].includes(finalMetadataTask.status)">
+            <template #header>
+                <div class="validation-dialog-title">
+                    <span>Write Metadata</span>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看 Write Metadata 规则" @click="finalMetadataRulesVisible = true">?</el-button>
+                </div>
+            </template>
             <div v-loading="finalMetadataLoading" style="min-height:220px;">
                 <el-steps class="final-metadata-steps" :active="finalMetadataStep" finish-status="success" simple style="margin-bottom:16px;">
                     <el-step title="Preview Plan"></el-step>
@@ -2128,18 +2162,11 @@
                         </div>
                     </div>
 
-                    <div class="workflow-warning-box neutral" style="margin-bottom:12px;">
-                        <strong>Final Metadata Profile · {{ finalMetadataPlan.profile.name }}</strong>
-                        <span>Final 驱动 · donor: Original/JPG → Base Edit → Block · 清理 {{ finalMetadataPlan.profile.clear }} · JFIF / ICC 原样保留 · 只写当前白名单字段</span>
-                    </div>
-
                     <div class="workflow-warning-box" :class="finalMetadataPlan.dependency.ready ? 'neutral' : ''" style="margin-bottom:12px;">
                         <strong>Runtime</strong>
-                        <span>ExifTool {{ finalMetadataPlan.dependency.exiftool_version || 'missing' }} / {{ finalMetadataPlan.dependency.exiftool_required }}</span>
+                        <span>ExifTool {{ finalMetadataPlan.dependency.exiftool_version || 'missing' }} · /usr/local/bin/exiftool</span>
                         <div v-for="(message, index) in finalMetadataPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
                     </div>
-
-                    <div style="font-size:12px; color:#909399; margin:-2px 0 8px;">当前字段列表共 {{ finalMetadataPlan.summary.field_count }} 项；默认只勾选字段不完整的 Final，全部完整的文件默认不写，可手动勾选覆盖。</div>
 
                     <el-table :data="finalMetadataPlan.rows" border size="small" row-key="id" style="width:100%;">
                         <el-table-column width="54" align="center">
@@ -2240,7 +2267,7 @@
                         </div>
                         <div v-if="finalMetadataTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
                             <strong>Verified</strong>
-                            <span>metadata 在临时副本上重建；JFIF APP0 与 canonical ICC 必须原字节保持不变；JPEG ImageDataMD5 与解码后的显示像素必须保持不变；XMP / IPTC / Photoshop / Adobe / MakerNotes / Thumbnail / Preview / Comment 不得残留。</span>
+                            <span>Metadata 已写入；JFIF / ICC 与图像数据保持不变。</span>
                         </div>
                     </div>
                 </template>
@@ -2258,6 +2285,16 @@
                                :disabled="['queued','running'].includes(finalMetadataTask.status)">关闭</el-button>
                 </template>
             </template>
+        </el-dialog>
+
+        <el-dialog v-model="finalMetadataRulesVisible" title="Write Metadata Rules" width="720px" append-to-body class="validation-rules-dialog">
+            <ol class="validation-rules-list">
+                <li><strong>默认选择：</strong>metadata 不完整且可写的 Final 默认选中；完整文件默认不选。最终以复选框为准。</li>
+                <li><strong>Profile：</strong>Original/JPG 优先，缺失时使用 Base Edit；保留 JFIF / ICC，只写当前白名单字段。</li>
+                <li><strong>Block：</strong>找不到唯一来源时停止该文件，不自动猜测。</li>
+                <li><strong>验证：</strong>在临时副本完成后再发布；JFIF / ICC、JPEG 图像数据和显示像素必须保持不变，也不能留下额外业务 metadata。</li>
+            </ol>
+            <template #footer><el-button @click="finalMetadataRulesVisible = false">关闭</el-button></template>
         </el-dialog>
 
         <!-- First version uses a blocking progress dialog intentionally: file operations stay visible. -->
@@ -2410,16 +2447,19 @@
                 <template v-if="validationData">
                     <div class="validation-toolbar">
                         <div class="validation-summary-strip">
-                            <span>Sets <strong>{{ validationData.summary.set_count }}</strong></span>
-                            <span>Issue <strong>{{ validationData.summary.issue_count }}</strong></span>
-                            <span>Warning <strong>{{ validationData.summary.warning_count }}</strong></span>
-                            <span>Normal <strong>{{ validationData.summary.info_count }}</strong></span>
-                            <span>OK <strong>{{ validationData.summary.ok_count }}</strong></span>
+                            <span class="validation-summary-item validation-summary-total">Sets <strong>{{ validationData.summary.set_count }}</strong></span>
+                            <span class="validation-summary-item validation-summary-issue">Issue <strong>{{ validationData.summary.issue_count }}</strong></span>
+                            <span class="validation-summary-item validation-summary-warning">Warning <strong>{{ validationData.summary.warning_count }}</strong></span>
+                            <span class="validation-summary-item validation-summary-normal">Normal <strong>{{ validationData.summary.info_count }}</strong></span>
+                            <span class="validation-summary-item validation-summary-ok">OK <strong>{{ validationData.summary.ok_count }}</strong></span>
                         </div>
-                        <el-select v-model="validationSortMode" class="validation-sort-select" aria-label="Validation sort">
-                            <el-option label="Severity" value="severity"></el-option>
-                            <el-option label="Date" value="date"></el-option>
-                        </el-select>
+                        <div class="validation-toolbar-controls">
+                            <el-select v-model="validationSortMode" class="validation-sort-select" aria-label="Validation sort">
+                                <el-option label="Severity" value="severity"></el-option>
+                                <el-option label="Date" value="date"></el-option>
+                            </el-select>
+                            <el-input v-model="validationSearchQuery" class="validation-search-input" placeholder="Search Set" clearable aria-label="Search Set"></el-input>
+                        </div>
                     </div>
                     <el-table :data="validationSortedSets" stripe class="validation-table">
                         <el-table-column type="expand" width="42">
@@ -2434,13 +2474,12 @@
                                         <div v-for="(item, index) in scope.row.warnings" :key="item">{{ scope.row.warnings.length > 1 ? `${index + 1}. ${item}` : item }}</div>
                                     </div>
                                     <div v-if="scope.row.info.length" class="validation-detail-block">
-                                        <strong>Normal notes</strong>
+                                        <strong>Normal</strong>
                                         <div v-for="item in scope.row.info" :key="item">{{ item }}</div>
                                     </div>
                                     <div v-if="scope.row.dpp_files.length" class="validation-detail-block">
-                                        <strong>Original notes</strong>
-                                        <div>DPP regenerated JPG ×{{ scope.row.dpp_files.length }}</div>
-                                        <div class="validation-code-list"><code v-for="name in scope.row.dpp_files" :key="name">{{ name }}</code></div>
+                                        <strong>Notes</strong>
+                                        <div>DPP regenerated JPG ×{{ scope.row.dpp_files.length }}: {{ scope.row.dpp_files.join(', ') }}</div>
                                     </div>
                                     <div v-if="!scope.row.issues.length && !scope.row.warnings.length && !scope.row.info.length && !scope.row.dpp_files.length" class="validation-empty-detail">No additional notes.</div>
                                 </div>
@@ -2448,16 +2487,16 @@
                         </el-table-column>
                         <el-table-column prop="name" label="Set" min-width="300"></el-table-column>
                         <el-table-column label="JPG / RAW" width="100" align="center">
-                            <template #default="scope"><span>{{ scope.row.jpg_count }} / {{ scope.row.raw_count }}</span></template>
+                            <template #default="scope"><span :class="validationCountClass(scope.row.original_status)">{{ scope.row.jpg_count }} / {{ scope.row.raw_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Base / Model" width="125" align="center">
-                            <template #default="scope"><span>{{ scope.row.base_count }} / {{ scope.row.model_count }}</span></template>
+                            <template #default="scope"><span :class="validationCountClass(scope.row.base_model_status)">{{ scope.row.base_count }} / {{ scope.row.model_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Revision" width="85" align="center">
-                            <template #default="scope">{{ scope.row.revision_count }}</template>
+                            <template #default="scope"><span :class="validationCountClass(scope.row.revision_status)">{{ scope.row.revision_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Final" width="70" align="center">
-                            <template #default="scope">{{ scope.row.final_count }}</template>
+                            <template #default="scope"><span :class="validationCountClass(scope.row.final_status)">{{ scope.row.final_count }}</span></template>
                         </el-table-column>
                         <el-table-column label="Status" width="105" align="center">
                             <template #default="scope"><el-tag size="small" :type="validationStatusType(scope.row.status)">{{ validationStatusLabel(scope.row.status) }}</el-tag></template>
@@ -2470,18 +2509,37 @@
             <template #footer><el-button @click="validationVisible = false">Close</el-button></template>
         </el-dialog>
 
-        <el-dialog v-model="validationRulesVisible" title="校验规则" width="680px" append-to-body class="validation-rules-dialog">
-            <ol class="validation-rules-list">
-                <li><strong>标准目录：</strong>每个 Set 必须包含 <code>01_Original</code>、<code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code>。缺少标准目录，或 Set 顶层存在其他目录，均记为 Issue。</li>
-                <li><strong>临时目录：</strong><code>Discards</code>、<code>Deleted</code>、<code>Intermediates</code> 等不得残留在 Set 顶层；<code>01_Original/Selects</code>、<code>02_Base_Edit/Ready</code>、<code>02_Base_Edit/discards</code> 也不得残留。发现即记为 Issue。</li>
-                <li><strong>Original 结构：</strong><code>01_Original</code> 必须包含 <code>JPG</code> 和 <code>RAW</code>，且不能出现其他一级子目录。</li>
-                <li><strong>Original 文件类型：</strong><code>JPG</code> 中出现非 JPG/JPEG 文件，或 <code>RAW</code> 中出现非 CR3 文件，记为 Issue。</li>
-                <li><strong>JPG / RAW 对应：</strong>两边都为空是 Issue；有 JPG 但没有 RAW 是 Issue；有 RAW 但没有 JPG 属于 Normal；两边都有时按文件名 stem 一一对应，无法完整对齐记为 Warning。带 <code>-dpp</code> 的 JPG 按去掉 <code>-dpp</code> 后的 stem 与 RAW 对应，并在结果中备注。</li>
-                <li><strong>Base / Model：</strong>任意一方为空都属于 Normal；只有两边都有图片时才要求按完整文件名 stem 一一对应，无法完整对齐记为 Warning，并明确列出 Base/Model 各自多出、缺少的 stem。扩展名可以不同。</li>
-                <li><strong>Base / Model / Revision 文件名：</strong>图片必须严格使用 <code>logical_id.jpg</code> 或 <code>logical_id.png</code>。stem 中出现任何 <code>-keyword</code> 后缀（例如 <code>1C2A1234-filter.jpg</code>、<code>1C2A1234-v2.png</code>），或使用其他图片扩展名，均记为 Warning。</li>
-                <li><strong>Revision：</strong><code>04_Revision</code> 中的图片必须全部为 PNG；出现非 PNG 图片即记为 Issue。不再要求 Revision stem 与 Base Edit / Model Edit 对应。</li>
-                <li><strong>Status：</strong>同一 Set 同时命中多条规则时，以最高严重度显示：Issue → Warning → Normal → OK。Validation 只做检查，不会移动、重命名或删除任何文件。</li>
-            </ol>
+        <el-dialog v-model="validationRulesVisible" title="校验规则" width="720px" append-to-body class="validation-rules-dialog">
+            <div class="validation-rules-groups">
+                <section class="validation-rules-group validation-rules-issue">
+                    <h4>Issue</h4>
+                    <ol>
+                        <li>Set 必须使用标准目录结构：<code>01_Original/JPG</code>、<code>01_Original/RAW</code>、<code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code>。缺少标准目录或出现额外目录均为 Issue。</li>
+                        <li>Original JPG 只允许 JPG/JPEG，RAW 只允许 CR3。两边都有文件时，stem 必须一一对应；JPG 的 <code>-dpp</code> 后缀允许，并按去掉后缀后的 stem 对应。</li>
+                        <li>Revision 中的图片必须全部为 PNG。</li>
+                        <li>Original RAW 不能为空。</li>
+                    </ol>
+                </section>
+                <section class="validation-rules-group validation-rules-warning">
+                    <h4>Warning</h4>
+                    <ol>
+                        <li>Base Edit 与 Model Edit 都有图片时，stem 必须一一对应。</li>
+                        <li>Base Edit、Model Edit、Revision 的文件 stem 必须与 Original 文件名完全一致，不允许附加 keyword 或版本后缀。</li>
+                    </ol>
+                </section>
+                <section class="validation-rules-group validation-rules-normal">
+                    <h4>Normal</h4>
+                    <ol>
+                        <li>Base Edit 或 Model Edit 任意一方为空。</li>
+                        <li>Original 有 RAW，但没有 JPG。</li>
+                    </ol>
+                </section>
+                <section class="validation-rules-group validation-rules-ok">
+                    <h4>OK</h4>
+                    <p>未发现以上问题。</p>
+                </section>
+                <p class="validation-rules-footnote">同一 Set 命中多项时，按 Issue → Warning → Normal → OK 显示最高严重度。Validation 只检查，不修改文件。</p>
+            </div>
             <template #footer><el-button @click="validationRulesVisible = false">关闭</el-button></template>
         </el-dialog>
 
@@ -3089,9 +3147,9 @@
 <script src="gps-import.js?v=20260920-03"></script>
 <script src="manifest-autofill.js?v=20260924-01"></script>
 <script src="workflow-tools.js?v=20260921-04"></script>
-<script src="final-builder.js?v=20260925-01"></script>
-<script src="final-metadata.js?v=20260925-01"></script>
+<script src="final-builder.js?v=20260928-01"></script>
+<script src="final-metadata.js?v=20260928-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260925-04"></script>
+<script type="module" src="app.js?v=20260928-01"></script>
 </body>
 </html>

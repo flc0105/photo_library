@@ -656,6 +656,9 @@ const app = createApp({
             }
         });
 
+        const finalBuilderRulesVisible = ref(false);
+        const finalMetadataRulesVisible = ref(false);
+
         const finalBuilder = window.FinalBuilder.createController({
             getSource: () => currentLibrarySource.value,
             getSetPath: () => libraryListing.value && libraryListing.value.path,
@@ -4235,9 +4238,11 @@ const app = createApp({
             validationData: setInsights.validationData,
             validationError: setInsights.validationError,
             validationSortMode: setInsights.validationSortMode,
+            validationSearchQuery: setInsights.validationSearchQuery,
             validationSortedSets: setInsights.sortedValidationSets,
             validationStatusLabel: setInsights.validationStatusLabel,
             validationStatusType: setInsights.validationStatusType,
+            validationCountClass: setInsights.validationCountClass,
             openLibraryValidation: setInsights.openValidation,
             workflowPreviewVisible: workflowTools.previewVisible,
             workflowPreviewLoading: workflowTools.previewLoading,
@@ -4281,6 +4286,8 @@ const app = createApp({
             workflowStatusLabel: workflowTools.statusLabel,
             workflowStatusType: workflowTools.statusType,
             workflowFormatSize: workflowTools.formatSize,
+            finalBuilderRulesVisible,
+            finalMetadataRulesVisible,
             finalBuilderVisible: finalBuilder.visible,
             finalBuilderLoading: finalBuilder.loading,
             finalBuilderStep: finalBuilder.step,

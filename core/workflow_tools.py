@@ -1031,7 +1031,6 @@ _IMAGE_INSPECTION_STAGES = [
 _IMAGE_INSPECTION_EXCLUDED_META_GROUPS = {'ExifTool', 'File', 'System', 'Composite'}
 _IMAGE_INSPECTION_BATCH_SIZE = 120
 _IMAGE_INSPECTION_CROP_LOSS_LIMIT = 3.0
-_IMAGE_INSPECTION_PROCESS_STAGE_KEYS = ('base_edit', 'model_edit', 'revision')
 _IMAGE_INSPECTION_FINAL_PROFILE_DESCRIPTION = 'sRGB IEC61966-2.1'
 
 _IMAGE_INSPECTION_FINAL_ICC_SHA256 = '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'
@@ -1380,19 +1379,20 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
         else ' · '.join(exif_details) or 'Not exact'
     )
 
+    subsampling_ok = '4:4:4' in subsampling
     checks = [
-        ('jpeg', 'JPEG', file_type.upper() == 'JPEG', file_type or 'Missing'),
+        ('jpeg', 'Format', file_type.upper() == 'JPEG', 'JPEG' if file_type.upper() == 'JPEG' else (file_type or 'Missing')),
         ('dimensions', '尺寸', exact_dimensions, f'{width}×{height}' if width and height else 'Missing'),
         ('ratio', '比例', exact_ratio, '2:3 / 3:2' if exact_ratio else 'Not exact'),
         ('baseline', 'Baseline', encoding.startswith('Baseline DCT'), encoding or 'Missing'),
-        ('bits', '8-bit', bits == '8', f'{bits}-bit' if bits else 'Missing'),
-        ('subsampling', '4:4:4', '4:4:4' in subsampling, subsampling or 'Missing'),
+        ('bits', 'Bit depth', bits == '8', '8-bit' if bits == '8' else (f'{bits}-bit' if bits else 'Missing')),
+        ('subsampling', 'Chroma subsampling', subsampling_ok, '4:4:4' if subsampling_ok else (subsampling or 'Missing')),
         ('jfif', 'JFIF', jfif_ok, (
             f"{jfif.get('version', 'Missing')} · unit {jfif.get('unit', '—')} · "
             f"{jfif.get('x_density', '—')}×{jfif.get('y_density', '—')}"
         )),
         ('icc', 'ICC', icc_ok, profile_description or 'Missing'),
-        ('quantization', 'Q95', q95_ok, 'Canonical Q95' if q95_ok else 'Not canonical Q95'),
+        ('quantization', 'JPEG quality', q95_ok, 'Q95' if q95_ok else 'Not Q95'),
         ('huffman', 'Huffman', huffman_ok, f'{len(huffman_keys)} DHT tables' if huffman_keys else 'Missing'),
         ('adobe_app14', 'APP14', not jpeg_structure.get('has_adobe_app14'), 'Absent' if not jpeg_structure.get('has_adobe_app14') else 'Present'),
         ('canonical_exif', 'Key EXIF', canonical_exif['exact'], exif_value),
@@ -1796,41 +1796,11 @@ def _build_image_inspection(set_dir: Path):
                 'row_key': f'{match_key}:{index}',
                 'stem': group['display_stem'],
             }
-            present_count = 0
             for stage_key, _stage_label, _stage_dir_name in _IMAGE_INSPECTION_STAGES:
-                value = group[stage_key][index] if index < len(group[stage_key]) else None
-                row[stage_key] = value
-                if value is not None:
-                    present_count += 1
-            row['match_count'] = present_count
-
-            # Row ordering remains severity-first while preserving horizontal
-            # alignment. Final is optional: a process image not selected for Final
-            # is valid, so a missing Final never makes the row red by itself.
-            row_severity = 0
-            if any(row[stage_key] is None for stage_key in _IMAGE_INSPECTION_PROCESS_STAGE_KEYS):
-                row_severity = 2
-            for stage_key, _stage_label, _stage_dir_name in _IMAGE_INSPECTION_STAGES:
-                value = row[stage_key]
-                if value is None:
-                    continue
-                if value['display_status_level'] == 'error' or value['metadata_status_level'] == 'error':
-                    row_severity = max(row_severity, 2)
-                if value.get('final_qc_status_level') == 'error':
-                    row_severity = max(row_severity, 2)
-                elif value['display_status_level'] == 'warning':
-                    row_severity = max(row_severity, 1)
-            row['severity_rank'] = row_severity
+                row[stage_key] = group[stage_key][index] if index < len(group[stage_key]) else None
             rows.append(row)
 
-    # Error rows first, then warnings, then fully clean rows. Stems still stay
-    # aligned across Base / Model / Revision / Final inside each row.
-    rows.sort(key=lambda row: (
-        -row['severity_rank'],
-        -row['match_count'],
-        _natural_text_key(row['stem']),
-        row['row_key'],
-    ))
+    rows.sort(key=lambda row: _natural_text_key(row['row_key']))
 
     return {
         'exiftool_version': version,

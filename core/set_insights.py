@@ -25,9 +25,7 @@ _REQUIRED_SET_DIRS = {
     '04_Revision',
     '05_Final',
 }
-_ALLOWED_TOP_LEVEL_DIRS = _REQUIRED_SET_DIRS
 _ALLOWED_ORIGINAL_DIRS = {'JPG', 'RAW'}
-_ALLOWED_BASE_SUBDIRS = set()
 
 
 def _is_hidden_or_control(name):
@@ -351,14 +349,85 @@ def _top_level_subdirs(path: Path):
     return result
 
 
-def _direct_invalid_files(path: Path, allowed_extensions):
+def _direct_files(path: Path, extensions=None):
     if not path.is_dir():
         return []
-    invalid = []
-    for file_path in _iter_files(path, None, {'Deleted'}):
-        if file_path.suffix.lower() not in allowed_extensions:
-            invalid.append(file_path)
-    return invalid
+    extensions = {ext.lower() for ext in extensions} if extensions else None
+    result = []
+    try:
+        for item in path.iterdir():
+            if _is_hidden_or_control(item.name) or not item.is_file():
+                continue
+            if extensions is not None and item.suffix.lower() not in extensions:
+                continue
+            result.append(item)
+    except OSError:
+        return result
+    return sorted(result, key=lambda item: item.name.casefold())
+
+
+def _direct_invalid_files(path: Path, allowed_extensions):
+    return [
+        file_path for file_path in _direct_files(path)
+        if file_path.suffix.lower() not in allowed_extensions
+    ]
+
+
+def _set_structure_findings(set_dir: Path):
+    missing = []
+    unexpected = []
+
+    top_dirs = _top_level_subdirs(set_dir)
+    missing.extend(sorted(_REQUIRED_SET_DIRS - top_dirs))
+    unexpected.extend(sorted(top_dirs - _REQUIRED_SET_DIRS))
+
+    original_dir = set_dir / '01_Original'
+    if original_dir.is_dir():
+        original_subdirs = _top_level_subdirs(original_dir)
+        missing.extend(
+            f'01_Original/{name}'
+            for name in sorted(_ALLOWED_ORIGINAL_DIRS - original_subdirs)
+        )
+        unexpected.extend(
+            f'01_Original/{name}'
+            for name in sorted(original_subdirs - _ALLOWED_ORIGINAL_DIRS)
+        )
+
+    # Every standard leaf directory is file-only. Reporting the first unexpected
+    # child is enough; descendants are already outside the standard structure.
+    leaf_dirs = (
+        '01_Original/JPG',
+        '01_Original/RAW',
+        '02_Base_Edit',
+        '03_Model_Edit',
+        '04_Revision',
+        '05_Final',
+    )
+    for relative in leaf_dirs:
+        for name in sorted(_top_level_subdirs(set_dir / relative)):
+            unexpected.append(f'{relative}/{name}')
+
+    return missing, unexpected
+
+
+def _format_file_preview(names):
+    names = list(names)
+    if len(names) <= 3:
+        return ', '.join(names)
+    return f'{", ".join(names[:2])} 等 {len(names)} 个文件'
+
+
+def _format_stem_counter(counter, labels):
+    items = []
+    for stem, count in sorted(counter.items()):
+        label = labels.get(stem, stem)
+        items.append(f'{label} ×{count}' if count > 1 else label)
+    return ', '.join(items)
+
+
+def _structure_affects(paths, roots):
+    roots = set(roots)
+    return any(path.split('/', 1)[0] in roots for path in paths)
 
 
 def _original_jpg_stem(path: Path):
@@ -368,24 +437,16 @@ def _original_jpg_stem(path: Path):
     return stem.casefold()
 
 
-def _stage_filename_violations(paths):
-    """Return stage images that are not exactly logical_id.jpg/png.
-
-    Final Builder treats the first '-' as the start of a keyword/version suffix,
-    so any '-' in the stem is non-canonical for Base / Model / Revision.
-    """
-    return [
-        path for path in paths
-        if '-' in path.stem or path.suffix.lower() not in {'.jpg', '.png'}
-    ]
+def _stage_filename_violations(paths, original_stems):
+    """Return stage images whose stem is not an exact Original file stem."""
+    if not original_stems:
+        return []
+    return [path for path in paths if path.stem.casefold() not in original_stems]
 
 
 def _format_stage_filename_warning(stage_label, paths):
     names = [path.name for path in paths]
-    preview = ', '.join(names[:3])
-    if len(names) > 3:
-        preview += f' 等 {len(names)} 个文件'
-    return f'{stage_label} has {len(names)} non-canonical filename(s): {preview}'
+    return f'{stage_label} filename does not match Original stem: {_format_file_preview(names)}'
 
 
 def _validate_one_set(set_dir: Path):
@@ -393,38 +454,28 @@ def _validate_one_set(set_dir: Path):
     warnings = []
     info = []
 
-    top_dirs = _top_level_subdirs(set_dir)
-    missing = sorted(_REQUIRED_SET_DIRS - top_dirs)
-    unexpected_top = sorted(top_dirs - _ALLOWED_TOP_LEVEL_DIRS)
+    missing, unexpected = _set_structure_findings(set_dir)
     if missing:
-        issues.append('Missing required directories: ' + ', '.join(missing))
-    if unexpected_top:
-        issues.append('Unexpected top-level directories: ' + ', '.join(unexpected_top))
-
-    original_dir = set_dir / '01_Original'
-    original_subdirs = _top_level_subdirs(original_dir)
-    missing_original = sorted({'JPG', 'RAW'} - original_subdirs)
-    unexpected_original = sorted(original_subdirs - _ALLOWED_ORIGINAL_DIRS)
-    if missing_original:
-        issues.append('01_Original missing directories: ' + ', '.join(missing_original))
-    if unexpected_original:
-        issues.append('01_Original unexpected directories: ' + ', '.join(unexpected_original))
-
-    base_subdirs = _top_level_subdirs(set_dir / '02_Base_Edit')
-    unexpected_base = sorted(base_subdirs - _ALLOWED_BASE_SUBDIRS)
-    if unexpected_base:
-        issues.append('02_Base_Edit unexpected directories: ' + ', '.join(unexpected_base))
+        issues.append('Missing standard directories: ' + ', '.join(missing))
+    if unexpected:
+        issues.append('Unexpected directories: ' + ', '.join(unexpected))
 
     jpg_dir = set_dir / '01_Original' / 'JPG'
     raw_dir = set_dir / '01_Original' / 'RAW'
-    jpg_files = _iter_files(jpg_dir, _ORIGINAL_JPG_EXTENSIONS, {'Deleted'})
-    raw_files = _iter_files(raw_dir, _RAW_EXTENSIONS, {'Deleted'})
+    jpg_files = _direct_files(jpg_dir, _ORIGINAL_JPG_EXTENSIONS)
+    raw_files = _direct_files(raw_dir, _RAW_EXTENSIONS)
     invalid_jpg = _direct_invalid_files(jpg_dir, _ORIGINAL_JPG_EXTENSIONS)
     invalid_raw = _direct_invalid_files(raw_dir, _RAW_EXTENSIONS)
     if invalid_jpg:
-        issues.append(f'Original/JPG has {len(invalid_jpg)} non-JPG file(s)')
+        issues.append(
+            'Original JPG contains non-JPG files: '
+            + _format_file_preview(path.name for path in invalid_jpg)
+        )
     if invalid_raw:
-        issues.append(f'Original/RAW has {len(invalid_raw)} non-CR3 file(s)')
+        issues.append(
+            'Original RAW contains non-CR3 files: '
+            + _format_file_preview(path.name for path in invalid_raw)
+        )
 
     jpg_count = len(jpg_files)
     raw_count = len(raw_files)
@@ -439,76 +490,60 @@ def _validate_one_set(set_dir: Path):
     for path in raw_files:
         raw_stem_labels.setdefault(path.stem.casefold(), path.stem)
 
-    if jpg_count == 0 and raw_count == 0:
-        issues.append('Original JPG and RAW are both empty')
-    elif raw_count == 0 and jpg_count > 0:
-        issues.append(f'Original RAW is empty ({jpg_count} JPG)')
-    elif jpg_count == 0 and raw_count > 0:
-        info.append(f'Original JPG is empty ({raw_count} RAW)')
-    else:
-        if jpg_stems != raw_stems:
-            jpg_extra = jpg_stems - raw_stems
-            raw_extra = raw_stems - jpg_stems
+    if raw_dir.is_dir() and raw_count == 0:
+        issues.append('Original RAW is empty')
+    if jpg_dir.is_dir() and raw_count > 0 and jpg_count == 0:
+        info.append(f'Original JPG is empty (RAW ×{raw_count})')
+    if jpg_count > 0 and raw_count > 0 and jpg_stems != raw_stems:
+        jpg_extra = jpg_stems - raw_stems
+        raw_extra = raw_stems - jpg_stems
+        if jpg_extra:
+            count = sum(jpg_extra.values())
+            issues.append(
+                f'JPG/RAW mismatch, RAW missing ({count}): '
+                f'{_format_stem_counter(jpg_extra, jpg_stem_labels)}'
+            )
+        if raw_extra:
+            count = sum(raw_extra.values())
+            issues.append(
+                f'JPG/RAW mismatch, JPG missing ({count}): '
+                f'{_format_stem_counter(raw_extra, raw_stem_labels)}'
+            )
 
-            def format_original_stem_counter(counter, labels):
-                items = []
-                for stem, count in sorted(counter.items()):
-                    label = labels.get(stem, stem)
-                    items.append(f'{label} ×{count}' if count > 1 else label)
-                return ', '.join(items)
+    dpp_files = [path.name for path in jpg_files if path.stem.casefold().endswith('-dpp')]
 
-            if jpg_extra:
-                count = sum(jpg_extra.values())
-                warnings.append(
-                    f'Original JPG/RAW file mismatch: JPG extra / RAW missing ({count}): '
-                    f'{format_original_stem_counter(jpg_extra, jpg_stem_labels)}'
-                )
-            if raw_extra:
-                count = sum(raw_extra.values())
-                warnings.append(
-                    f'Original JPG/RAW file mismatch: RAW extra / JPG missing ({count}): '
-                    f'{format_original_stem_counter(raw_extra, raw_stem_labels)}'
-                )
-
-    dpp_files = [path.name for path in jpg_files if path.stem.lower().endswith('-dpp')]
-
-    # Ready is not a supported Base_Edit subdirectory. It is reported above as
-    # an unexpected directory and is excluded entirely from Base/Model stats.
-    base_files = _iter_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted', 'discards', 'Ready'})
-    model_files = _iter_files(set_dir / '03_Model_Edit', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
-    revision_files = _iter_files(set_dir / '04_Revision', _STAGE_IMAGE_EXTENSIONS, {'Deleted'})
-    final_files = _iter_files(set_dir / '05_Final', _ORIGINAL_JPG_EXTENSIONS, {'Deleted'})
+    # Validation counts only files directly inside each standard stage. Any
+    # nested directory is already reported as a structure Issue.
+    base_files = _direct_files(set_dir / '02_Base_Edit', _STAGE_IMAGE_EXTENSIONS)
+    model_files = _direct_files(set_dir / '03_Model_Edit', _STAGE_IMAGE_EXTENSIONS)
+    revision_files = _direct_files(set_dir / '04_Revision', _STAGE_IMAGE_EXTENSIONS)
+    final_files = _direct_files(set_dir / '05_Final', _ORIGINAL_JPG_EXTENSIONS)
 
     base_count = len(base_files)
     model_count = len(model_files)
 
-    # Stage filenames are canonical only when they are exactly logical_id.jpg/png.
-    # Any '-keyword' suffix (or another image extension) is a Warning.
+    original_stems = set(jpg_stems) | set(raw_stems)
+    filename_warning_by_stage = {}
     for stage_label, files in (
         ('Base Edit', base_files),
         ('Model Edit', model_files),
         ('Revision', revision_files),
     ):
-        violations = _stage_filename_violations(files)
+        violations = _stage_filename_violations(files, original_stems)
+        filename_warning_by_stage[stage_label] = bool(violations)
         if violations:
             warnings.append(_format_stage_filename_warning(stage_label, violations))
 
-    # Base/Model status semantics:
-    # - both non-zero but exact stems do not align -> Warning
-    # - either side empty -> Normal
-    # - both empty -> Normal
     base_stems = Counter(path.stem.casefold() for path in base_files)
     model_stems = Counter(path.stem.casefold() for path in model_files)
 
-    # Revision image format is strict: every Revision image must be PNG.
-    # Revision stems are intentionally independent of Base / Model validation.
     non_png_revision = [path for path in revision_files if path.suffix.lower() != '.png']
     if non_png_revision:
-        names = [path.name for path in non_png_revision]
-        preview = ', '.join(names[:3])
-        if len(names) > 3:
-            preview += f' 等 {len(names)} 个文件'
-        issues.append(f'Revision must be PNG ({len(names)}): {preview}')
+        issues.append(
+            'Revision must be PNG: '
+            + _format_file_preview(path.name for path in non_png_revision)
+        )
+
     base_stem_labels = {}
     model_stem_labels = {}
     for path in base_files:
@@ -519,33 +554,68 @@ def _validate_one_set(set_dir: Path):
     if base_count > 0 and model_count > 0 and base_stems != model_stems:
         base_extra = base_stems - model_stems
         model_extra = model_stems - base_stems
-
-        def format_stem_counter(counter, labels):
-            items = []
-            for stem, count in sorted(counter.items()):
-                label = labels.get(stem, stem)
-                items.append(f'{label} ×{count}' if count > 1 else label)
-            return ', '.join(items) or 'none'
-
         if base_extra:
             count = sum(base_extra.values())
             warnings.append(
-                f'Base/Model file mismatch: Base extra / Model missing ({count}): '
-                f'{format_stem_counter(base_extra, base_stem_labels)}'
+                f'Base/Model mismatch, Model missing ({count}): '
+                f'{_format_stem_counter(base_extra, base_stem_labels)}'
             )
         if model_extra:
             count = sum(model_extra.values())
             warnings.append(
-                f'Base/Model file mismatch: Model extra / Base missing ({count}): '
-                f'{format_stem_counter(model_extra, model_stem_labels)}'
+                f'Base/Model mismatch, Base missing ({count}): '
+                f'{_format_stem_counter(model_extra, model_stem_labels)}'
             )
     elif base_count > 0 and model_count == 0:
-        info.append(f'Base Edit has {base_count} file(s), Model Edit is empty')
+        info.append(f'Model Edit is empty (Base Edit ×{base_count})')
     elif base_count == 0 and model_count > 0:
-        info.append(f'Model Edit has {model_count} file(s), Base Edit is empty')
+        info.append(f'Base Edit is empty (Model Edit ×{model_count})')
     elif base_count == 0 and model_count == 0:
         info.append('Base Edit and Model Edit are both empty')
 
+    structure_paths = missing + unexpected
+    original_issue = (
+        _structure_affects(structure_paths, {'01_Original'})
+        or bool(invalid_jpg)
+        or bool(invalid_raw)
+        or (raw_dir.is_dir() and raw_count == 0)
+        or (jpg_count > 0 and raw_count > 0 and jpg_stems != raw_stems)
+    )
+    base_model_issue = _structure_affects(structure_paths, {'02_Base_Edit', '03_Model_Edit'})
+    revision_issue = (
+        _structure_affects(structure_paths, {'04_Revision'})
+        or bool(non_png_revision)
+    )
+    final_issue = _structure_affects(structure_paths, {'05_Final'})
+
+    if original_issue:
+        original_status = 'issue'
+    elif jpg_dir.is_dir() and raw_count > 0 and jpg_count == 0:
+        original_status = 'info'
+    else:
+        original_status = 'ok'
+
+    if base_model_issue:
+        base_model_status = 'issue'
+    elif (
+        (base_count > 0 and model_count > 0 and base_stems != model_stems)
+        or filename_warning_by_stage.get('Base Edit')
+        or filename_warning_by_stage.get('Model Edit')
+    ):
+        base_model_status = 'warning'
+    elif base_count == 0 or model_count == 0:
+        base_model_status = 'info'
+    else:
+        base_model_status = 'ok'
+
+    if revision_issue:
+        revision_status = 'issue'
+    elif filename_warning_by_stage.get('Revision'):
+        revision_status = 'warning'
+    else:
+        revision_status = 'ok'
+
+    final_status = 'issue' if final_issue else 'ok'
 
     if issues:
         status = 'issue'
@@ -562,11 +632,15 @@ def _validate_one_set(set_dir: Path):
         'status': status,
         'jpg_count': jpg_count,
         'raw_count': raw_count,
+        'original_status': original_status,
         'original_count_match': jpg_count > 0 and raw_count > 0 and jpg_stems == raw_stems,
         'base_count': base_count,
         'model_count': model_count,
+        'base_model_status': base_model_status,
         'revision_count': len(revision_files),
+        'revision_status': revision_status,
         'final_count': len(final_files),
+        'final_status': final_status,
         'base_model_match': base_count > 0 and model_count > 0 and base_stems == model_stems,
         'dpp_files': dpp_files,
         'issues': issues,
