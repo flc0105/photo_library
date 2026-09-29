@@ -1458,7 +1458,7 @@
                     <div class="workflow-toolbar-row">
                         <div class="workflow-toolbar-copy">
                             <strong>02_Base_Edit → 03_Model_Edit</strong>
-                            <span>按图像相似度将 03_Model_Edit 匹配到 02_Base_Edit，并按匹配结果统一文件名；低于阈值的结果保持不动。</span>
+                            <span>按图像相似度将 Model Edit 匹配到 Base Edit，并按匹配结果统一文件名</span>
                         </div>
                         <div class="workflow-threshold-control">
                             <span>Threshold</span>
@@ -1499,7 +1499,7 @@
                 <template v-else-if="workflowPreviewKind === 'discard_unreturned_base'">
                     <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
                         <strong>02_Base_Edit → 02_Base_Edit/discards</strong>
-                        <span>按文件 stem 对照 03_Model_Edit；未返图的 02_Base_Edit 顶层图片会移入 discards。只检查两个阶段顶层，不扫描 Ready、discards 等子目录；建议先完成 Match Rename。</span>
+                        <span>按文件 stem 对照 Model Edit，未返图的 Base Edit 顶层图片会移入 discards。需要先完成 Match Rename。</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
