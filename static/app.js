@@ -4270,6 +4270,7 @@ const app = createApp({
             executePhotoImport: workflowTools.executePhotoImport,
             photoImportThumbnailUrl: workflowTools.photoImportThumbnailUrl,
             photoImportGroupTime: workflowTools.photoImportGroupTime,
+            schedulePhotoImportSourceRootSave: workflowTools.schedulePhotoImportSourceRootSave,
             workflowProgressVisible: workflowTools.progressVisible,
             workflowTask: workflowTools.task,
             workflowCanExecute: workflowTools.canExecute,

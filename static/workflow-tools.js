@@ -24,11 +24,13 @@
         const photoImportLoading = ref(false);
         const photoImportExecuting = ref(false);
         const photoImportForm = ref({
-            source_root: '/Users/flc/Pictures/Camera Exports/',
+            source_root: '',
             gap_minutes: 30
         });
         const photoImportPlan = ref(null);
         const photoImportSelectedGroups = ref([]);
+        const photoImportSourceRootConfigKey = 'photo_import_source_root';
+        let photoImportSourceRootSaveTimer = null;
 
         const progressVisible = ref(false);
         const task = ref({
@@ -244,6 +246,40 @@
             }
         };
 
+        const loadPhotoImportSourceRoot = async () => {
+            const response = await fetch(`/api/site-config/${encodeURIComponent(photoImportSourceRootConfigKey)}`);
+            if (response.status === 404) return '';
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (error) {
+                throw new Error(`Source Root 配置返回了非 JSON 响应 (${response.status})`);
+            }
+            if (!response.ok) throw new Error(data.error || `Source Root 配置读取失败 (${response.status})`);
+            return String(data.value || '').trim();
+        };
+
+        const savePhotoImportSourceRoot = async () => {
+            const root = String(photoImportForm.value.source_root || '').trim();
+            await fetchJson('/api/site-config', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({[photoImportSourceRootConfigKey]: root})
+            });
+        };
+
+        const schedulePhotoImportSourceRootSave = () => {
+            if (photoImportSourceRootSaveTimer) clearTimeout(photoImportSourceRootSaveTimer);
+            photoImportSourceRootSaveTimer = setTimeout(async () => {
+                photoImportSourceRootSaveTimer = null;
+                try {
+                    await savePhotoImportSourceRoot();
+                } catch (error) {
+                    ElMessage.error(error.message || 'Source Root 保存失败');
+                }
+            }, 350);
+        };
+
         const previewPhotoImport = async () => {
             let ctx;
             try {
@@ -288,13 +324,19 @@
                 return;
             }
             photoImportForm.value = {
-                source_root: '/Users/flc/Pictures/Camera Exports/',
+                source_root: '',
                 gap_minutes: 30
             };
             photoImportPlan.value = null;
             photoImportSelectedGroups.value = [];
             photoImportVisible.value = true;
-            await previewPhotoImport();
+            try {
+                photoImportForm.value.source_root = await loadPhotoImportSourceRoot();
+            } catch (error) {
+                ElMessage.error(error.message || 'Source Root 读取失败');
+                return;
+            }
+            if (photoImportForm.value.source_root) await previewPhotoImport();
         };
 
         const photoImportThumbnailUrl = (fileId) => {
@@ -566,6 +608,7 @@
             executePhotoImport,
             photoImportThumbnailUrl,
             photoImportGroupTime,
+            schedulePhotoImportSourceRootSave,
             progressVisible,
             task,
             canExecute,

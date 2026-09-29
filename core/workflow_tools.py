@@ -1553,6 +1553,12 @@ def _ratio_analysis(width: int, height: int):
             'crop_adjustment': '—',
             'crop_detail': '—',
             'final_target': '',
+            'perfect_dimensions': False,
+            'resize_scale': None,
+            'resize_scale_display': '—',
+            'resize_pixel_loss': None,
+            'resize_pixel_loss_percent': None,
+            'resize_pixel_loss_display': '—',
             'pixel_insufficient': True,
             'crop_loss_excessive': False,
             'display_status_level': 'error',
@@ -1607,15 +1613,35 @@ def _ratio_analysis(width: int, height: int):
     # Final policy is defined on the pixels that can actually reach Final.
     pixel_insufficient = bool(target['pixel_insufficient'])
     crop_loss_excessive = (not exact) and crop_area_percent > FINAL_CROP_WARNING_PERCENT
+    perfect_dimensions = exact and (width, height) in allowed_final_dimensions()
 
-    # Keep the visible comparison vocabulary about output readiness, not crop mechanics.
-    # The boundary is shared with Final Builder through the Final delivery contract.
+    crop_pixel_count = crop_width * crop_height
+    target_pixel_count = final_width * final_height
+    resize_scale = (final_width / crop_width) if crop_width else None
+    if pixel_insufficient:
+        resize_pixel_loss = None
+        resize_pixel_loss_percent = None
+        resize_pixel_loss_display = '— · upscale blocked'
+    else:
+        resize_pixel_loss = max(0, crop_pixel_count - target_pixel_count)
+        resize_pixel_loss_percent = (
+            resize_pixel_loss / crop_pixel_count * 100.0
+            if crop_pixel_count else 0.0
+        )
+        resize_pixel_loss_display = f'{resize_pixel_loss:,} px · {resize_pixel_loss_percent:.2f}%'
+    resize_scale_display = f'{resize_scale:.4f}×' if resize_scale is not None else '—'
+
+    # Perfect is reserved for files already matching a canonical Final tier.
+    # Exact-ratio source files at any other sufficient size still need resize.
     if pixel_insufficient:
         display_status_level = 'error'
         display_status_text = 'Low Res'
-    elif exact:
+    elif perfect_dimensions:
         display_status_level = 'success'
         display_status_text = 'Perfect'
+    elif exact:
+        display_status_level = 'success'
+        display_status_text = 'Exact Ratio'
     elif crop_loss_excessive:
         display_status_level = 'error'
         display_status_text = 'Ratio Error'
@@ -1641,6 +1667,12 @@ def _ratio_analysis(width: int, height: int):
         'crop_adjustment': crop_adjustment,
         'crop_detail': crop_detail,
         'final_target': f'{final_width}×{final_height}',
+        'perfect_dimensions': perfect_dimensions,
+        'resize_scale': round(resize_scale, 6) if resize_scale is not None else None,
+        'resize_scale_display': resize_scale_display,
+        'resize_pixel_loss': resize_pixel_loss,
+        'resize_pixel_loss_percent': round(resize_pixel_loss_percent, 4) if resize_pixel_loss_percent is not None else None,
+        'resize_pixel_loss_display': resize_pixel_loss_display,
         'pixel_insufficient': pixel_insufficient,
         'crop_loss_excessive': crop_loss_excessive,
         'display_status_level': display_status_level,
@@ -1741,6 +1773,7 @@ def _build_image_inspection(set_dir: Path):
             'summary': {
                 'file_count': 0,
                 'perfect_count': 0,
+                'exact_ratio_count': 0,
                 'ratio_error_count': 0,
                 'pixel_insufficient_count': 0,
             },
@@ -1763,6 +1796,7 @@ def _build_image_inspection(set_dir: Path):
 
     items = []
     perfect_count = 0
+    exact_ratio_count = 0
     ratio_error_count = 0
     pixel_insufficient_count = 0
 
@@ -1776,8 +1810,10 @@ def _build_image_inspection(set_dir: Path):
 
         if ratio['pixel_insufficient']:
             pixel_insufficient_count += 1
-        elif ratio['exact_ratio']:
+        elif ratio['perfect_dimensions']:
             perfect_count += 1
+        elif ratio['exact_ratio']:
+            exact_ratio_count += 1
         else:
             ratio_error_count += 1
 
@@ -1856,6 +1892,7 @@ def _build_image_inspection(set_dir: Path):
         'summary': {
             'file_count': len(items),
             'perfect_count': perfect_count,
+            'exact_ratio_count': exact_ratio_count,
             'ratio_error_count': ratio_error_count,
             'pixel_insufficient_count': pixel_insufficient_count,
         },

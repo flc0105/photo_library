@@ -1622,6 +1622,7 @@
                     <div class="workflow-summary-strip image-inspection-summary">
                         <span>Total Files <strong>{{ imageInspectionData.summary.file_count }}</strong></span>
                         <span class="is-success">Perfect <strong>{{ imageInspectionData.summary.perfect_count }}</strong></span>
+                        <span class="is-success">Exact Ratio <strong>{{ imageInspectionData.summary.exact_ratio_count }}</strong></span>
                         <span class="is-danger">Ratio Error <strong>{{ imageInspectionData.summary.ratio_error_count }}</strong></span>
                         <span class="is-danger">Low Res <strong>{{ imageInspectionData.summary.pixel_insufficient_count }}</strong></span>
                     </div>
@@ -1706,6 +1707,11 @@
                                                             <strong>{{ scope.row[stage.key].target_ratio }}</strong>
                                                         </div>
                                                         <div v-if="stage.key !== 'final'"
+                                                             :title="`Target res: ${scope.row[stage.key].final_target}`">
+                                                            <span>Target res</span>
+                                                            <strong>{{ scope.row[stage.key].final_target }}</strong>
+                                                        </div>
+                                                        <div v-if="stage.key !== 'final'"
                                                              :title="`Center crop: ${scope.row[stage.key].crop_detail}`">
                                                             <span>Center crop</span>
                                                             <strong>{{ scope.row[stage.key].crop_detail }}</strong>
@@ -1714,6 +1720,16 @@
                                                              :title="'Crop loss: ' + (scope.row[stage.key].crop_area_percent === null ? '—' : Number(scope.row[stage.key].crop_area_percent).toFixed(2) + '%')">
                                                             <span>Crop loss</span>
                                                             <strong>{{ scope.row[stage.key].crop_area_percent === null ? '—' : `${Number(scope.row[stage.key].crop_area_percent).toFixed(2)}%` }}</strong>
+                                                        </div>
+                                                        <div v-if="stage.key !== 'final'"
+                                                             :title="`Resize scale: ${scope.row[stage.key].resize_scale_display}`">
+                                                            <span>Resize scale</span>
+                                                            <strong>{{ scope.row[stage.key].resize_scale_display }}</strong>
+                                                        </div>
+                                                        <div v-if="stage.key !== 'final'"
+                                                             :title="`Resize pixel loss: ${scope.row[stage.key].resize_pixel_loss_display}`">
+                                                            <span>Resize loss</span>
+                                                            <strong>{{ scope.row[stage.key].resize_pixel_loss_display }}</strong>
                                                         </div>
                                                     </div>
                                                 </template>
@@ -1857,7 +1873,8 @@
                 <li>
                     <strong>Geometry Status：</strong>
                     <ol class="image-inspection-rule-sublist">
-                        <li><code>Perfect</code>：像素足够，比例精确为 2:3 / 3:2。</li>
+                        <li><code>Perfect</code>：比例精确为 2:3 / 3:2，且尺寸正好命中当前 Final 像素档位。</li>
+                        <li><code>Exact Ratio</code>：像素足够且比例精确为 2:3 / 3:2，但尺寸不是 Final 档位，仍需 resize。</li>
                         <li><code>Slight Off</code>：像素足够，比例偏差，center crop loss ≤ {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
                         <li><code>Ratio Error</code>：像素足够，比例偏差，center crop loss &gt; {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
                         <li><code>Low Res</code>：像素不足。</li>
@@ -2156,6 +2173,7 @@
                             <span>Final <strong>{{ finalMetadataPlan.summary.final_count }}</strong></span>
                             <span>Original donor <strong>{{ finalMetadataPlan.summary.original_source_count }}</strong></span>
                             <span>Base fallback <strong>{{ finalMetadataPlan.summary.base_source_count }}</strong></span>
+                            <span>RAW fallback <strong>{{ finalMetadataPlan.summary.raw_source_count }}</strong></span>
                             <span>Fields <strong>{{ finalMetadataPlan.summary.field_count }}</strong></span>
                             <span>Selected <strong>{{ finalMetadataSelectedCount }}</strong></span>
                             <span :class="{'is-danger': finalMetadataPlan.summary.blocked_count}">Blocked <strong>{{ finalMetadataPlan.summary.blocked_count }}</strong></span>
@@ -2290,7 +2308,7 @@
         <el-dialog v-model="finalMetadataRulesVisible" title="Write Metadata Rules" width="720px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list">
                 <li><strong>默认选择：</strong>metadata 不完整且可写的 Final 默认选中；完整文件默认不选。最终以复选框为准。</li>
-                <li><strong>Profile：</strong>Original/JPG 优先，缺失时使用 Base Edit；保留 JFIF / ICC，只写当前白名单字段。</li>
+                <li><strong>Profile：</strong>Original/JPG 优先，缺失时使用 Base Edit；两者都缺失时使用 Original/RAW 的 CR3。保留 JFIF / ICC，只写当前白名单字段。</li>
                 <li><strong>Block：</strong>找不到唯一来源时停止该文件，不自动猜测。</li>
                 <li><strong>验证：</strong>在临时副本完成后再发布；JFIF / ICC、JPEG 图像数据和显示像素必须保持不变，也不能留下额外业务 metadata。</li>
             </ol>
@@ -2332,6 +2350,7 @@
                         <div style="font-size:12px; color:#606266; margin-bottom:5px;">Source Root</div>
                         <el-input v-model="photoImportForm.source_root"
                                   placeholder="/Users/flc/Pictures/Camera Exports/"
+                                  @input="schedulePhotoImportSourceRootSave"
                                   @keyup.enter="previewPhotoImport"></el-input>
                     </div>
                     <div style="width:150px;">

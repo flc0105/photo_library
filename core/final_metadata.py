@@ -32,6 +32,7 @@ from core.final_metadata_fields import (
 _SET_RE = re.compile(r'^\d{8}-.+-.+$')
 _FINAL_EXTENSIONS = {'.jpg', '.jpeg'}
 _DONOR_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+_ORIGINAL_RAW_EXTENSIONS = {'.cr3'}
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
 
@@ -196,6 +197,16 @@ def _original_jpg_files(set_dir: Path):
     )
 
 
+def _original_raw_files(set_dir: Path):
+    raw_dir = set_dir / '01_Original' / 'RAW'
+    if not raw_dir.is_dir():
+        return []
+    return sorted(
+        [path for path in raw_dir.rglob('*') if path.is_file() and not _is_appledouble(path) and path.suffix.lower() in _ORIGINAL_RAW_EXTENSIONS],
+        key=lambda path: _natural_key(path.relative_to(raw_dir).as_posix()),
+    )
+
+
 def _index_by_logical_id(paths):
     result = {}
     for path in paths:
@@ -219,25 +230,26 @@ def _choose_candidate(final_path: Path, candidates, stage_label):
     return None, f'{stage_label} 同一照片存在多个来源文件，无法唯一确定：{names}'
 
 
-def _resolve_donor(final_path: Path, base_index, original_index):
+def _donor_candidates(final_path: Path, base_index, original_index, raw_index):
     key = _logical_id(final_path.name).casefold()
+    candidates = []
 
-    # Original/JPG is the canonical metadata donor.  Edited PNGs can legally
-    # omit or reshape EXIF, so Base Edit is only a file-level fallback when the
-    # corresponding Original/JPG does not exist.
-    original_path, original_error = _choose_candidate(final_path, original_index.get(key, []), 'Original/JPG')
-    if original_error:
-        return None, None, original_error
-    if original_path is not None:
-        return original_path, 'Original/JPG', None
+    # Prefer the edited Base file when it has the full metadata contract.  A
+    # unique but incomplete file may fall through to Original/JPG, then CR3.
+    for index, stage_label in (
+        (base_index, 'Base Edit'),
+        (original_index, 'Original/JPG'),
+        (raw_index, 'Original/RAW'),
+    ):
+        path, error = _choose_candidate(final_path, index.get(key, []), stage_label)
+        if error:
+            return [], error
+        if path is not None:
+            candidates.append((path, stage_label))
 
-    base_path, base_error = _choose_candidate(final_path, base_index.get(key, []), 'Base Edit')
-    if base_error:
-        return None, None, base_error
-    if base_path is not None:
-        return base_path, 'Base Edit', None
-
-    return None, None, '01_Original/JPG 与 Base Edit 都没有对应来源文件'
+    if not candidates:
+        return [], 'Base Edit、01_Original/JPG 与 01_Original/RAW 都没有对应来源文件'
+    return candidates, None
 
 
 def _dependency_status():
@@ -356,6 +368,30 @@ def _field_rows(final_record, donor_record, fields):
     return rows
 
 
+def _missing_source_field_labels(record, fields):
+    missing = []
+    for field in fields:
+        if field_fixed_display(field):
+            continue
+        value, _source_tag = _record_value(record, field)
+        if not value:
+            missing.append(field['label'])
+    return missing
+
+
+def _select_qualified_donor(candidates, records, fields):
+    incomplete = []
+    for donor_path, donor_stage in candidates:
+        donor_record = records.get(str(donor_path.resolve()), {}) if records else {}
+        missing = _missing_source_field_labels(donor_record, fields)
+        if not missing:
+            return donor_path, donor_stage, None
+        incomplete.append(f'{donor_stage} 缺少配置字段：{", ".join(missing)}')
+
+    detail = '；'.join(incomplete)
+    return None, None, f'没有合格的 Metadata 来源文件；{detail}' if detail else '没有合格的 Metadata 来源文件'
+
+
 def _metadata_plan(source_id, set_dir: Path, set_rel: str):
     # The JSON contract is the single source for active fields and their exact
     # ExifTool read/write mapping.
@@ -368,37 +404,53 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
     finals = _final_files(set_dir)
     base_index = _index_by_logical_id(_base_files(set_dir))
     original_index = _index_by_logical_id(_original_jpg_files(set_dir))
+    raw_index = _index_by_logical_id(_original_raw_files(set_dir))
 
     signatures = {}
-    rows_internal = []
-    read_paths = list(finals)
-    donors = []
+    candidate_rows = []
+    candidate_paths = []
 
     for final_path in finals:
-        donor_path, donor_stage, donor_error = _resolve_donor(final_path, base_index, original_index)
-        if donor_path is not None:
-            donors.append(donor_path)
-            read_paths.append(donor_path)
-        rows_internal.append({
+        candidates, donor_error = _donor_candidates(final_path, base_index, original_index, raw_index)
+        candidate_rows.append({
             'id': uuid.uuid4().hex,
             'final_path': str(final_path),
+            'candidates': [(str(path), stage) for path, stage in candidates],
+            'donor_error': donor_error or '',
+        })
+        candidate_paths.extend(path for path, _stage in candidates)
+        signatures[str(final_path)] = _file_signature(final_path)
+
+    read_paths = list(dict.fromkeys([*finals, *candidate_paths]))
+    records = {}
+    if dependency['exiftool_path'] and read_paths:
+        # Read all viable stage candidates once so donor choice can fall through
+        # by metadata completeness without changing the Preview/Execute contract.
+        records = _run_exiftool_json(dependency['exiftool_path'], read_paths, fields, numeric=False)
+
+    rows_internal = []
+    for candidate_row in candidate_rows:
+        candidates = [(Path(path), stage) for path, stage in candidate_row['candidates']]
+        donor_error = candidate_row['donor_error']
+        if donor_error:
+            donor_path = None
+            donor_stage = None
+        else:
+            donor_path, donor_stage, donor_error = _select_qualified_donor(candidates, records, fields)
+        rows_internal.append({
+            'id': candidate_row['id'],
+            'final_path': candidate_row['final_path'],
             'donor_path': str(donor_path) if donor_path else '',
             'donor_stage': donor_stage or '',
             'donor_error': donor_error or '',
         })
-        signatures[str(final_path)] = _file_signature(final_path)
         if donor_path is not None:
             signatures[str(donor_path)] = _file_signature(donor_path)
-
-    records = {}
-    if dependency['exiftool_path'] and read_paths:
-        # Preview remains available with a non-frozen ExifTool version, but the
-        # configured field contract itself must already be valid.
-        records = _run_exiftool_json(dependency['exiftool_path'], read_paths, fields, numeric=False)
 
     public_rows = []
     base_count = 0
     original_count = 0
+    raw_count = 0
     blocked_count = 0
     for row in rows_internal:
         final_path = Path(row['final_path'])
@@ -412,6 +464,8 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
             base_count += 1
         elif row['donor_stage'] == 'Original/JPG':
             original_count += 1
+        elif row['donor_stage'] == 'Original/RAW':
+            raw_count += 1
 
         errors = []
         if row['donor_error']:
@@ -479,6 +533,7 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
             'final_count': len(finals),
             'base_source_count': base_count,
             'original_source_count': original_count,
+            'raw_source_count': raw_count,
             'blocked_count': blocked_count,
             'field_count': len(field_keys),
         },
@@ -783,8 +838,27 @@ def _publish_replacements(staged_items):
         raise
 
 
-def _thumbnail(path: Path):
-    with Image.open(path) as image:
+def _thumbnail(path: Path, exiftool_path=None):
+    preview_buffer = None
+    if path.suffix.lower() in _ORIGINAL_RAW_EXTENSIONS:
+        if not exiftool_path:
+            raise RuntimeError('RAW metadata donor 缩略图需要 ExifTool')
+        for tag in ('JpgFromRaw', 'PreviewImage', 'ThumbnailImage'):
+            result = subprocess.run(
+                [str(exiftool_path), '-b', f'-{tag}', str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout:
+                preview_buffer = io.BytesIO(result.stdout)
+                break
+        if preview_buffer is None:
+            raise RuntimeError(f'无法从 RAW metadata donor 提取 JPEG 预览：{path.name}')
+
+    image_source = preview_buffer if preview_buffer is not None else path
+    with Image.open(image_source) as image:
         image = ImageOps.exif_transpose(image)
         if image.mode != 'RGB':
             if image.mode in ('RGBA', 'LA'):
@@ -841,7 +915,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     'jfif': 'preserve existing JFIF APP0 byte-for-byte',
                     'icc': 'preserve existing canonical ICC byte-for-byte',
                     'icc_sha256': FINAL_SRGB_ICC_SHA256,
-                    'donor_rule': 'Original/JPG -> Base Edit -> Block',
+                    'donor_rule': 'Base Edit (complete) -> Original/JPG (complete) -> Original/RAW (CR3, complete) -> Block',
                 },
             })
         except Exception as exc:
@@ -871,7 +945,11 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
             expected = plan['signatures'].get(str(path))
             if not expected or _file_signature(path) != expected:
                 raise RuntimeError('图片在 Preview 后发生变化，请重新 Preview')
-            return send_file(_thumbnail(path), mimetype='image/jpeg', max_age=120)
+            return send_file(
+                _thumbnail(path, (plan.get('dependency') or {}).get('exiftool_path')),
+                mimetype='image/jpeg',
+                max_age=120,
+            )
         except Exception as exc:
             return jsonify({'error': str(exc)}), 404
 
