@@ -2,8 +2,10 @@ import hashlib
 import io
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -571,6 +573,8 @@ def _dependency_status():
         'libjpeg_turbo_required': _FINAL_RUNTIME['libjpeg_turbo'],
         'libjpeg_turbo_version': '',
         'cjpeg_path': '',
+        'image_transform_path': '',
+        'image_transform_sha256': '',
         'icc_profile_path': '',
         'icc_profile_sha256': '',
         'messages': [],
@@ -591,6 +595,13 @@ def _dependency_status():
     except Exception as exc:
         status['messages'].append(str(exc))
 
+    try:
+        transform_path = _image_transform_path()
+        status['image_transform_path'] = str(transform_path)
+        status['image_transform_sha256'] = hashlib.sha256(transform_path.read_bytes()).hexdigest()
+    except Exception as exc:
+        status['messages'].append(str(exc))
+
     cjpeg_candidates = _cjpeg_candidates()
     versions = [(path, _cjpeg_version(path)) for path in cjpeg_candidates]
     exact = next((item for item in versions if item[1] == _FINAL_RUNTIME['libjpeg_turbo']), None)
@@ -608,7 +619,11 @@ def _dependency_status():
         if actual and actual != expected:
             status['messages'].append(f'{label} {actual}（需要 {expected}）')
 
-    status['ready'] = all(actual == expected for _, actual, expected in checks) and bool(status['icc_profile_path'])
+    status['ready'] = (
+        all(actual == expected for _, actual, expected in checks)
+        and bool(status['icc_profile_path'])
+        and bool(status['image_transform_path'])
+    )
     return status
 
 
@@ -749,11 +764,6 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
     }
 
 
-def _load_pyvips():
-    import pyvips
-    return pyvips
-
-
 def _verify_srgb_inputs(items):
     failures = []
     for item in items:
@@ -780,99 +790,45 @@ def _verify_srgb_inputs(items):
         raise RuntimeError(f'执行前 sRGB 检查失败：{detail}')
 
 
-def _render_final(item, temp_dir: Path, cjpeg_path: str):
-    pyvips = _load_pyvips()
+
+def _image_transform_path():
+    path = Path(__file__).resolve().parents[1] / 'tools' / 'image_transform.py'
+    if not path.is_file():
+        raise RuntimeError('缺少图像变换脚本：tools/image_transform.py')
+    return path
+
+
+def _image_transform_argv(item):
     source_path = Path(item['source_path'])
     geometry = item['geometry']
-    icc_path = _fixed_srgb_icc_path()
-    jpeg_path = temp_dir / f'{uuid.uuid4().hex}.jpg'
-    command_trace = {
-        'pyvips': {
-            'mode': 'pyvips',
-            'source': item.get('source_relative_path') or source_path.name,
-            'operations': [],
-        },
-        'cjpeg': None,
-    }
-    operations = command_trace['pyvips']['operations']
-
-    image = pyvips.Image.new_from_file(str(source_path))
-    operations.append('Image.new_from_file(source)')
-    image = image.autorot()
-    operations.append('autorot()')
-    if image.width != item['source_width'] or image.height != item['source_height']:
-        raise RuntimeError(f'旋正后尺寸与 Preview 不一致：{image.width}×{image.height}')
-
-    if item.get('alpha_has_transparency'):
-        raise RuntimeError('源图存在实际透明像素，Preview 应已阻断')
-    if item.get('has_alpha'):
-        # Alpha is known to be fully opaque, so dropping it cannot alter visible pixels.
-        image = image.flatten()
-        operations.append('flatten()')
-
-    # Final v1 contract: source pixels are sRGB. The preflight verifies standard
-    # color declarations where available; files with no declaration use the
-    # project-level rule that this library's source pixels are already sRGB.
-    # Source profile bytes are not propagated. Every Final gets the same ICC.
-    if item.get('source_mode') == 'CMYK':
-        raise RuntimeError('CMYK 不符合 Final v1 的 sRGB 输入契约')
-    if image.bands == 1:
-        image = image.bandjoin([image, image])
-        operations.append('bandjoin(gray -> RGB)')
-    if image.bands != 3:
-        raise RuntimeError(f'sRGB 输入通道数异常：{image.bands}')
-    image = image.copy(interpretation='srgb')
-    operations.append("copy(interpretation='srgb')")
-
-    if geometry['crop_required']:
-        image = image.crop(
-            geometry['crop_left'],
-            geometry['crop_top'],
-            geometry['crop_width'],
-            geometry['crop_height'],
-        )
-        operations.append(
-            f"crop(left={geometry['crop_left']}, top={geometry['crop_top']}, "
-            f"width={geometry['crop_width']}, height={geometry['crop_height']})"
-        )
-    elif image.width != geometry['crop_width'] or image.height != geometry['crop_height']:
-        raise RuntimeError('Crop no-op 检查失败：当前尺寸与 Preview 不一致')
-
-    if geometry['resize_required']:
-        hscale = geometry['target_width'] / geometry['crop_width']
-        vscale = geometry['target_height'] / geometry['crop_height']
-        image = image.resize(hscale, vscale=vscale, kernel=_FINAL_PROFILE_BASE['resize_kernel'])
-        operations.append(
-            f"resize(hscale={hscale:.12g}, vscale={vscale:.12g}, "
-            f"kernel='{_FINAL_PROFILE_BASE['resize_kernel']}')"
-        )
-
-    if image.width != geometry['target_width'] or image.height != geometry['target_height']:
-        raise RuntimeError(
-            f'libvips Resize 输出尺寸异常：{image.width}×{image.height}，'
-            f'期望 {geometry["target_width"]}×{geometry["target_height"]}'
-        )
-    if image.bands != 3:
-        raise RuntimeError(f'sRGB 转换后通道数异常：{image.bands}')
-    if image.format != 'uchar':
-        image = image.cast('uchar', shift=True)
-        operations.append("cast('uchar', shift=True)")
-
-    # Feed a minimal binary PPM stream to cjpeg through stdin instead of asking
-    # libvips to save a .ppm file. The pyvips binary runtime does not guarantee
-    # that the PNM/PPM saver is compiled in. Building the P6 header ourselves
-    # keeps the bridge deterministic and still carries only normalized RGB
-    # pixels, so source ICC/EXIF/XMP/application markers cannot leak through.
-    pixels = image.write_to_memory()
-    operations.append('write_to_memory()')
-    expected_bytes = image.width * image.height * 3
-    if len(pixels) != expected_bytes:
-        raise RuntimeError(
-            f'libvips RGB 像素缓冲区大小异常：{len(pixels)} bytes，期望 {expected_bytes} bytes'
-        )
-    ppm_header = f'P6\n{image.width} {image.height}\n255\n'.encode('ascii')
-
     command = [
+        sys.executable,
+        str(_image_transform_path()),
+        '--source', str(item.get('source_relative_path') or source_path),
+        '--expected-width', str(item['source_width']),
+        '--expected-height', str(item['source_height']),
+        '--source-mode', str(item.get('source_mode') or ''),
+        '--crop-left', str(geometry['crop_left']),
+        '--crop-top', str(geometry['crop_top']),
+        '--crop-width', str(geometry['crop_width']),
+        '--crop-height', str(geometry['crop_height']),
+        '--target-width', str(geometry['target_width']),
+        '--target-height', str(geometry['target_height']),
+        '--kernel', _FINAL_PROFILE_BASE['resize_kernel'],
+    ]
+    if item.get('has_alpha'):
+        command.append('--has-alpha')
+    if item.get('alpha_has_transparency'):
+        command.append('--alpha-has-transparency')
+    return command
+
+
+def _render_final(item, temp_dir: Path, cjpeg_path: str, set_dir: Path):
+    icc_path = _fixed_srgb_icc_path()
+    transform_path = _image_transform_path()
+    jpeg_path = temp_dir / f'{uuid.uuid4().hex}.jpg'
+    renderer_command = _image_transform_argv(item)
+    cjpeg_command = [
         cjpeg_path,
         '-quality', str(_FINAL_PROFILE_BASE['quality']),
         '-sample', FINAL_JPEG_CJPEG_SAMPLE,
@@ -881,52 +837,90 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str):
         '-icc', str(icc_path),
         '-outfile', str(jpeg_path),
     ]
-    # build.json keeps a replay-oriented argv: the runtime writes to a staged
-    # temp file first, while the recorded output points at the final Set path.
-    # All encoder flags are the exact flags passed to cjpeg.
-    command_trace['cjpeg'] = {
-        'argv': [
-            cjpeg_path,
-            '-quality', str(_FINAL_PROFILE_BASE['quality']),
-            '-sample', FINAL_JPEG_CJPEG_SAMPLE,
-            '-optimize',
-            '-dct', 'int',
-            '-icc', str(icc_path),
-            '-outfile', str(item.get('output_relative_path') or item.get('output_name') or '05_Final/output.jpg'),
-        ],
-        'stdin': 'P6 PPM · RGB pixels from pyvips memory',
+    replay_cjpeg_argv = [
+        cjpeg_path,
+        '-quality', str(_FINAL_PROFILE_BASE['quality']),
+        '-sample', FINAL_JPEG_CJPEG_SAMPLE,
+        '-optimize',
+        '-dct', 'int',
+        '-icc', str(icc_path),
+        '-outfile', str(item.get('output_relative_path') or item.get('output_name') or '05_Final/output.jpg'),
+    ]
+    command_trace = {
+        'renderer': {
+            'tool': 'image_transform.py',
+            'engine': 'pyvips / libvips',
+            'argv': list(renderer_command),
+            'cwd': str(set_dir),
+            'script_sha256': hashlib.sha256(transform_path.read_bytes()).hexdigest(),
+            'stdout': 'P6 PPM · normalized RGB pixels',
+        },
+        'cjpeg': {
+            'argv': list(cjpeg_command),
+            'replay_argv': replay_cjpeg_argv,
+            'replay_cwd': str(set_dir),
+            'stdin': 'renderer stdout · P6 PPM',
+        },
+        'pipeline': {
+            'replay_shell': f'{shlex.join(renderer_command)} | {shlex.join(replay_cjpeg_argv)}',
+            'cwd': str(set_dir),
+            'argv_fields_are_authoritative': True,
+        },
     }
-    process = subprocess.Popen(
-        command,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    stderr = b''
-    try:
-        if process.stdin is None:
-            raise RuntimeError('无法打开 cjpeg stdin')
-        process.stdin.write(ppm_header)
-        process.stdin.write(pixels)
-        process.stdin.close()
-        process.stdin = None
-        _, stderr = process.communicate(timeout=300)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        _, stderr = process.communicate()
-        raise RuntimeError('libjpeg-turbo 编码超时（300 秒）')
-    except BrokenPipeError:
-        process.stdin = None
-        _, stderr = process.communicate()
-    finally:
-        del pixels
 
-    if process.returncode != 0 or not jpeg_path.is_file():
-        detail = (stderr or b'').decode('utf-8', errors='replace').strip()
-        raise RuntimeError(f'libjpeg-turbo 编码失败：{detail or "cjpeg returned non-zero"}')
+    renderer_stderr_file = tempfile.TemporaryFile()
+    renderer = None
+    cjpeg = None
+    cjpeg_stderr = b''
+    try:
+        renderer = subprocess.Popen(
+            renderer_command,
+            cwd=str(set_dir),
+            stdout=subprocess.PIPE,
+            stderr=renderer_stderr_file,
+        )
+        if renderer.stdout is None:
+            raise RuntimeError('无法打开 image_transform.py stdout')
+        cjpeg = subprocess.Popen(
+            cjpeg_command,
+            stdin=renderer.stdout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        # cjpeg owns the pipe now; closing the parent's copy lets EOF propagate.
+        renderer.stdout.close()
+        renderer.stdout = None
+        try:
+            _, cjpeg_stderr = cjpeg.communicate(timeout=300)
+            renderer.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            if cjpeg.poll() is None:
+                cjpeg.kill()
+                _, cjpeg_stderr = cjpeg.communicate()
+            if renderer.poll() is None:
+                renderer.kill()
+                renderer.wait()
+            raise RuntimeError('Final 图像变换 / 编码超时（300 秒）')
+
+        renderer_stderr_file.seek(0)
+        renderer_stderr = renderer_stderr_file.read().decode('utf-8', errors='replace').strip()
+        if renderer.returncode != 0 and renderer_stderr:
+            raise RuntimeError(f'图像变换失败：{renderer_stderr}')
+        if cjpeg.returncode != 0 or not jpeg_path.is_file():
+            detail = (cjpeg_stderr or b'').decode('utf-8', errors='replace').strip()
+            raise RuntimeError(f'libjpeg-turbo 编码失败：{detail or "cjpeg returned non-zero"}')
+        if renderer.returncode != 0:
+            raise RuntimeError('图像变换失败：image_transform.py returned non-zero')
+    finally:
+        if cjpeg is not None and cjpeg.poll() is None:
+            cjpeg.kill()
+            cjpeg.communicate()
+        if renderer is not None and renderer.poll() is None:
+            renderer.kill()
+            renderer.wait()
+        renderer_stderr_file.close()
 
     return jpeg_path, command_trace
-
 
 def _validate_output(path: Path, item):
     geometry = item['geometry']
@@ -1147,7 +1141,12 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                         for index, item in enumerate(plan['items'], start=1):
                             message = f'编码 {index}/{len(plan["items"])} · {item["source_name"]}'
                             _update_task(task_id, current=index, message=message, log=message)
-                            jpeg_path, command_trace = _render_final(item, temp_dir, dependency['cjpeg_path'])
+                            jpeg_path, command_trace = _render_final(
+                                item,
+                                temp_dir,
+                                dependency['cjpeg_path'],
+                                Path(plan['set_dir']),
+                            )
                             _validate_output(jpeg_path, item)
                             commands_by_stem[str(item.get('logical_id') or '')] = command_trace
                             staged.append((jpeg_path, item))
