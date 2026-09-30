@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
@@ -42,7 +43,8 @@ _SET_RE = re.compile(r'^\d{8}-.+-.+$')
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
 _FINAL_PROFILE_BASE = {
-    'resize_kernel': 'lanczos3',
+    'resize_filter': 'Lanczos',
+    'resize_lobes': 3,
     'quality': FINAL_JPEG_QUALITY,
     'chroma': FINAL_JPEG_CHROMA_SAMPLING,
     'huffman_optimize': FINAL_JPEG_HUFFMAN_OPTIMIZE,
@@ -77,6 +79,10 @@ _PLAN_LOCK = threading.Lock()
 _PLANS = {}
 _TASK_LOCK = threading.Lock()
 _TASKS = {}
+
+
+def _image_time_text():
+    return datetime.now().astimezone().isoformat(timespec='milliseconds')
 
 
 def _cleanup_state():
@@ -1151,6 +1157,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
             def worker():
                 staged = []
                 commands_by_stem = {}
+                built_at_by_stem = {}
                 try:
                     _update_task(task_id, status='running', message='开始生成 Final…')
                     manifest_ok, manifest_error = prepare_build_manifest(
@@ -1173,7 +1180,9 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                                 Path(plan['set_dir']),
                             )
                             _validate_output(jpeg_path, item)
-                            commands_by_stem[str(item.get('logical_id') or '')] = command_trace
+                            stem = str(item.get('logical_id') or '')
+                            commands_by_stem[stem] = command_trace
+                            built_at_by_stem[stem] = _image_time_text()
                             staged.append((jpeg_path, item))
                             _update_task(task_id, completed=index, current=index, message=message)
 
@@ -1187,6 +1196,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                     manifest_ok, manifest_error = record_build_success(
                         Path(plan['set_dir']),
                         plan['items'],
+                        built_at_by_stem,
                         commands_by_stem=commands_by_stem,
                         metadata_fields=plan['metadata_field_keys'],
                     )

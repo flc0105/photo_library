@@ -33,8 +33,8 @@ _PROFILE_BASE = {
         'landscape': '3:2',
     },
     'resize': {
-        'kernel': 'Lanczos3',
-        'upscale': False,
+        'filter': 'Lanczos',
+        'lobes': 3,
     },
     'jpeg': {
         'quality': FINAL_JPEG_QUALITY,
@@ -75,7 +75,7 @@ def file_sha256(path: Path):
 
 
 def _now_text():
-    return datetime.now().astimezone().isoformat(timespec='seconds')
+    return datetime.now().astimezone().isoformat(timespec='milliseconds')
 
 
 def _manifest_path(set_dir: Path):
@@ -334,15 +334,23 @@ def _build_geometry_record(item):
     }
 
 
-def record_build_success(set_dir: Path, items, commands_by_stem=None, metadata_fields=None):
+def record_build_success(
+    set_dir: Path,
+    items,
+    built_at_by_stem,
+    commands_by_stem=None,
+    metadata_fields=None,
+):
     set_dir = Path(set_dir)
-    built_at = _now_text()
 
     def updater(data):
         for item in items:
             stem = str(item.get('logical_id') or '').strip()
             if not stem:
                 continue
+            built_at = (built_at_by_stem or {}).get(stem)
+            if not built_at:
+                raise RuntimeError(f'缺少逐张 Final build time：{stem}')
             final_path = set_dir / str(item.get('output_relative_path') or f'05_Final/{stem}.jpg')
             data['images'][stem] = {
                 'source': _build_source_record(item),
@@ -421,14 +429,17 @@ def record_metadata_success(
     rows,
     public_by_id,
     image_data_md5_by_path,
+    written_at_by_row_id,
     commands_by_row_id=None,
     metadata_fields=None,
 ):
     set_dir = Path(set_dir)
-    written_at = _now_text()
 
     def updater(data):
         for row in rows:
+            written_at = (written_at_by_row_id or {}).get(row['id'])
+            if not written_at:
+                raise RuntimeError(f'缺少逐张 Final metadata time：{row["id"]}')
             final_path = Path(row['final_path'])
             stem = final_path.stem.split('-', 1)[0]
             public_row = public_by_id.get(row['id']) or {}

@@ -2069,7 +2069,7 @@
                                     </div>
                                     <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Crop skipped · already exact {{ scope.row.geometry.target_ratio }}</div>
                                     <div v-if="scope.row.geometry.pixel_insufficient" style="font-size:12px; color:#f56c6c; margin-top:4px;">Low Res · 目标尺寸像素不足</div>
-                                    <div v-else-if="scope.row.geometry.resize_required" style="font-size:12px; color:#909399; margin-top:4px;">Resize: Lanczos3 → {{ scope.row.geometry.target_width }}×{{ scope.row.geometry.target_height }}</div>
+                                    <div v-else-if="scope.row.geometry.resize_required" style="font-size:12px; color:#909399; margin-top:4px;">Resize: Lanczos · 3 lobes → {{ scope.row.geometry.target_width }}×{{ scope.row.geometry.target_height }}</div>
                                     <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Resize skipped · already target size</div>
                                 </template>
                                 <span v-else>—</span>
@@ -2142,7 +2142,7 @@
             <ol class="validation-rules-list">
                 <li><strong>默认选择：</strong>Revision 默认选中；Model Edit 只默认选择没有 Revision 的图片；Model Edit 与 Revision 都为空时，Base Edit 默认全选。最终以复选框为准。</li>
                 <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '—' }}。裁切超过 {{ finalBuilderSelection?.profile?.crop_warning_percent ?? '—' }}% 标记 Warning；像素不足则 Block。</li>
-                <li><strong>JPEG：</strong>Q{{ finalBuilderSelection?.profile?.quality ?? '—' }} · {{ finalBuilderSelection?.profile?.chroma || '—' }} · {{ finalBuilderSelection?.profile?.progressive ? 'Progressive JPEG' : 'Sequential JPEG' }} · {{ finalBuilderSelection?.profile?.huffman_optimize ? 'Huffman optimize' : 'No Huffman optimize' }} · {{ finalBuilderSelection?.profile?.icc_profile || '—' }} ICC；缩放使用 Lanczos3。</li>
+                <li><strong>JPEG：</strong>Q{{ finalBuilderSelection?.profile?.quality ?? '—' }} · {{ finalBuilderSelection?.profile?.chroma || '—' }} · {{ finalBuilderSelection?.profile?.progressive ? 'Progressive JPEG' : 'Sequential JPEG' }} · {{ finalBuilderSelection?.profile?.huffman_optimize ? 'Huffman optimize' : 'No Huffman optimize' }} · {{ finalBuilderSelection?.profile?.icc_profile || '—' }} ICC；缩放使用 Lanczos（lobes=3）。</li>
                 <li><strong>写入：</strong>Preview 后才执行；源文件不修改，已有同名 Final 或输出冲突会停止。</li>
             </ol>
             <template #footer><el-button @click="finalBuilderRulesVisible = false">关闭</el-button></template>
@@ -2172,7 +2172,6 @@
                         <div class="workflow-summary-strip" style="margin-bottom:0; flex:1;">
                             <span>Final <strong>{{ finalMetadataPlan.summary.final_count }}</strong></span>
                             <span>Original donor <strong>{{ finalMetadataPlan.summary.original_source_count }}</strong></span>
-                            <span>Base fallback <strong>{{ finalMetadataPlan.summary.base_source_count }}</strong></span>
                             <span>RAW fallback <strong>{{ finalMetadataPlan.summary.raw_source_count }}</strong></span>
                             <span>Fields <strong>{{ finalMetadataPlan.summary.field_count }}</strong></span>
                             <span>Selected <strong>{{ finalMetadataSelectedCount }}</strong></span>
@@ -2308,7 +2307,7 @@
         <el-dialog v-model="finalMetadataRulesVisible" title="Write Metadata Rules" width="720px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list">
                 <li><strong>默认选择：</strong>metadata 不完整且可写的 Final 默认选中；完整文件默认不选。最终以复选框为准。</li>
-                <li><strong>Profile：</strong>Original/JPG 优先，缺失时使用 Base Edit；两者都缺失时使用 Original/RAW 的 CR3。保留 JFIF / ICC，只写当前白名单字段。</li>
+                <li><strong>Profile：</strong>Original/JPG 优先；不存在或 metadata 不完整时使用 Original/RAW 的 CR3。保留 JFIF / ICC，只写当前白名单字段。</li>
                 <li><strong>Block：</strong>找不到唯一来源时停止该文件，不自动猜测。</li>
                 <li><strong>验证：</strong>在临时副本完成后再发布；JFIF / ICC、JPEG 图像数据和显示像素必须保持不变，也不能留下额外业务 metadata。</li>
             </ol>

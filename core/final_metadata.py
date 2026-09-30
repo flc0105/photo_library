@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
@@ -31,7 +32,6 @@ from core.final_metadata_fields import (
 
 _SET_RE = re.compile(r'^\d{8}-.+-.+$')
 _FINAL_EXTENSIONS = {'.jpg', '.jpeg'}
-_DONOR_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 _ORIGINAL_RAW_EXTENSIONS = {'.cr3'}
 _PLAN_TTL_SECONDS = 30 * 60
 _TASK_TTL_SECONDS = 60 * 60
@@ -40,6 +40,10 @@ _PLAN_LOCK = threading.Lock()
 _PLANS = {}
 _TASK_LOCK = threading.Lock()
 _TASKS = {}
+
+
+def _image_time_text():
+    return datetime.now().astimezone().isoformat(timespec='milliseconds')
 
 
 def _cleanup_state():
@@ -172,21 +176,6 @@ def _final_files(set_dir: Path):
     )
 
 
-def _base_files(set_dir: Path):
-    base_dir = set_dir / '02_Base_Edit'
-    if not base_dir.is_dir():
-        return []
-    result = []
-    for path in base_dir.rglob('*'):
-        if not path.is_file() or _is_appledouble(path) or path.suffix.lower() not in _DONOR_EXTENSIONS:
-            continue
-        relative_parts = [part.casefold() for part in path.relative_to(base_dir).parts[:-1]]
-        if 'discards' in relative_parts:
-            continue
-        result.append(path)
-    return sorted(result, key=lambda path: _natural_key(path.relative_to(base_dir).as_posix()))
-
-
 def _original_jpg_files(set_dir: Path):
     original_dir = set_dir / '01_Original' / 'JPG'
     if not original_dir.is_dir():
@@ -230,14 +219,13 @@ def _choose_candidate(final_path: Path, candidates, stage_label):
     return None, f'{stage_label} 同一照片存在多个来源文件，无法唯一确定：{names}'
 
 
-def _donor_candidates(final_path: Path, base_index, original_index, raw_index):
+def _donor_candidates(final_path: Path, original_index, raw_index):
     key = _logical_id(final_path.name).casefold()
     candidates = []
 
-    # Prefer the edited Base file when it has the full metadata contract.  A
-    # unique but incomplete file may fall through to Original/JPG, then CR3.
+    # Camera-origin metadata comes only from Original. Prefer the Original/JPG
+    # when it is unique and complete; otherwise fall through to the matching CR3.
     for index, stage_label in (
-        (base_index, 'Base Edit'),
         (original_index, 'Original/JPG'),
         (raw_index, 'Original/RAW'),
     ):
@@ -248,7 +236,7 @@ def _donor_candidates(final_path: Path, base_index, original_index, raw_index):
             candidates.append((path, stage_label))
 
     if not candidates:
-        return [], 'Base Edit、01_Original/JPG 与 01_Original/RAW 都没有对应来源文件'
+        return [], '01_Original/JPG 与 01_Original/RAW 都没有对应来源文件'
     return candidates, None
 
 
@@ -402,7 +390,6 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
     if dependency['exiftool_path']:
         validate_metadata_fields_with_exiftool(dependency['exiftool_path'], fields)
     finals = _final_files(set_dir)
-    base_index = _index_by_logical_id(_base_files(set_dir))
     original_index = _index_by_logical_id(_original_jpg_files(set_dir))
     raw_index = _index_by_logical_id(_original_raw_files(set_dir))
 
@@ -411,7 +398,7 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
     candidate_paths = []
 
     for final_path in finals:
-        candidates, donor_error = _donor_candidates(final_path, base_index, original_index, raw_index)
+        candidates, donor_error = _donor_candidates(final_path, original_index, raw_index)
         candidate_rows.append({
             'id': uuid.uuid4().hex,
             'final_path': str(final_path),
@@ -448,7 +435,6 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
             signatures[str(donor_path)] = _file_signature(donor_path)
 
     public_rows = []
-    base_count = 0
     original_count = 0
     raw_count = 0
     blocked_count = 0
@@ -460,9 +446,7 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
         field_rows = _field_rows(final_record, donor_record, fields)
         final_present = sum(1 for field in field_rows if field['final_value'])
         donor_present = sum(1 for field in field_rows if field['source_value'] or field['output_fixed'])
-        if row['donor_stage'] == 'Base Edit':
-            base_count += 1
-        elif row['donor_stage'] == 'Original/JPG':
+        if row['donor_stage'] == 'Original/JPG':
             original_count += 1
         elif row['donor_stage'] == 'Original/RAW':
             raw_count += 1
@@ -531,7 +515,6 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
         'rows': public_rows,
         'summary': {
             'final_count': len(finals),
-            'base_source_count': base_count,
             'original_source_count': original_count,
             'raw_source_count': raw_count,
             'blocked_count': blocked_count,
@@ -925,7 +908,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     'jfif': 'preserve existing JFIF APP0 byte-for-byte',
                     'icc': 'preserve existing canonical ICC byte-for-byte',
                     'icc_sha256': FINAL_SRGB_ICC_SHA256,
-                    'donor_rule': 'Base Edit (complete) -> Original/JPG (complete) -> Original/RAW (CR3, complete) -> Block',
+                    'donor_rule': 'Original/JPG (complete) -> Original/RAW (CR3, complete) -> Block',
                 },
             })
         except Exception as exc:
@@ -1018,6 +1001,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
 
             def worker():
                 commands_by_row_id = {}
+                written_at_by_row_id = {}
                 try:
                     _update_task(task_id, status='running', message='开始重建 Final metadata…')
                     with tempfile.TemporaryDirectory(prefix='.final-metadata-', dir=str(set_dir)) as temp_name:
@@ -1059,6 +1043,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                                 plan['fields'],
                             )
                             _validate_staged(dependency['exiftool_path'], final_path, staged_path, plan['fields'])
+                            written_at_by_row_id[row['id']] = _image_time_text()
                             staged_items.append({
                                 'staged_path': staged_path,
                                 'backup_path': backup_path,
@@ -1087,6 +1072,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                         selected_rows,
                         public_by_id,
                         image_data_md5_by_path,
+                        written_at_by_row_id,
                         commands_by_row_id=commands_by_row_id,
                         metadata_fields=plan['field_keys'],
                     )
