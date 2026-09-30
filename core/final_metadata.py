@@ -638,17 +638,27 @@ def _rebuild_staged_metadata(exiftool_path, staged_path: Path, donor_path: Path,
 
 
 def _manifest_metadata_commands(set_dir: Path, row, fields, exiftool_path):
-    # Runtime commands target a temporary staged copy.  build.json keeps the
-    # same argv in replay form with Set-relative donor/final paths so it remains
-    # readable and useful after the temp directory has been removed.
+    # build.json stores stable, replayable Set-relative commands.  Runtime still
+    # writes to a staged copy first and publishes only after validation.
     final_path = Path(row['final_path'])
     donor_path = Path(row['donor_path'])
     final_rel = Path(final_path.relative_to(set_dir).as_posix())
     donor_rel = Path(donor_path.relative_to(set_dir).as_posix())
     return {
-        'clear_argv': _clear_metadata_args(exiftool_path, final_rel),
-        'write_argv': _rebuild_metadata_args(exiftool_path, final_rel, donor_rel, fields),
-        'runtime_target': 'staged copy before publish',
+        'steps': [
+            {
+                'name': 'clear',
+                'tool': 'exiftool',
+                'argv': _clear_metadata_args(exiftool_path, final_rel),
+                'cwd': '.',
+            },
+            {
+                'name': 'write',
+                'tool': 'exiftool',
+                'argv': _rebuild_metadata_args(exiftool_path, final_rel, donor_rel, fields),
+                'cwd': '.',
+            },
+        ],
     }
 
 

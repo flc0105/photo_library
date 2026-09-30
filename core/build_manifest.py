@@ -8,7 +8,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from core.external_tools import EXIFTOOL_REQUIRED_VERSION
+from core.external_tools import (
+    EXIFTOOL_REQUIRED_VERSION,
+    IMAGEMAGICK_REQUIRED_QUANTUM,
+    IMAGEMAGICK_REQUIRED_VERSION,
+)
 from core.final_delivery_contract import (
     FINAL_JPEG_BASELINE,
     FINAL_JPEG_CHROMA_SAMPLING,
@@ -54,8 +58,7 @@ def _current_profile(metadata_fields=None):
 
 
 _TOOLS = {
-    'libvips': '8.18.6',
-    'pyvips': '3.2.0',
+    'imagemagick': f'{IMAGEMAGICK_REQUIRED_VERSION} {IMAGEMAGICK_REQUIRED_QUANTUM}',
     'libjpeg-turbo': '3.2.0',
     'exiftool': EXIFTOOL_REQUIRED_VERSION,
 }
@@ -154,6 +157,99 @@ def _empty_manifest(metadata_fields=None):
     }
 
 
+_SOURCE_RECORD_KEYS = {
+    'stage',
+    'path',
+    'sha256',
+    'width',
+    'height',
+    'orientation',
+}
+_COMMANDS_BUILD_KEYS = {'steps', 'pipeline'}
+_COMMANDS_METADATA_KEYS = {'steps'}
+_COMMAND_STEP_KEYS = {'name', 'tool', 'argv', 'cwd', 'stdin', 'stdout'}
+_PIPELINE_KEYS = {'replay_shell', 'cwd'}
+_BUILD_RECORD_KEYS = {'time', 'status', 'exit_code', 'error', 'commands'}
+_METADATA_RECORD_KEYS = {
+    'time', 'donor', 'donor_sha256', 'values', 'status', 'exit_code', 'error', 'commands'
+}
+
+
+def _validate_commands(section_name, commands):
+    if commands is None:
+        return
+    if not isinstance(commands, dict):
+        raise RuntimeError(f'build.json {section_name}.commands 结构无效')
+
+    allowed = _COMMANDS_BUILD_KEYS if section_name == 'build' else _COMMANDS_METADATA_KEYS
+    extra = sorted(set(commands) - allowed)
+    if extra:
+        raise RuntimeError(
+            f'build.json {section_name}.commands 包含当前 schema 未定义字段：{", ".join(extra)}'
+        )
+
+    steps = commands.get('steps')
+    if not isinstance(steps, list):
+        raise RuntimeError(f'build.json {section_name}.commands.steps 结构无效')
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise RuntimeError(f'build.json {section_name}.commands.steps[{index}] 结构无效')
+        extra_step = sorted(set(step) - _COMMAND_STEP_KEYS)
+        if extra_step:
+            raise RuntimeError(
+                f'build.json {section_name}.commands.steps[{index}] 包含当前 schema 未定义字段：'
+                f'{", ".join(extra_step)}'
+            )
+        if not isinstance(step.get('argv'), list):
+            raise RuntimeError(f'build.json {section_name}.commands.steps[{index}].argv 结构无效')
+
+    if section_name == 'build':
+        pipeline = commands.get('pipeline')
+        if not isinstance(pipeline, dict):
+            raise RuntimeError('build.json build.commands.pipeline 结构无效')
+        extra_pipeline = sorted(set(pipeline) - _PIPELINE_KEYS)
+        if extra_pipeline:
+            raise RuntimeError(
+                'build.json build.commands.pipeline 包含当前 schema 未定义字段：'
+                + ', '.join(extra_pipeline)
+            )
+        if not isinstance(pipeline.get('replay_shell'), str) or not pipeline['replay_shell'].strip():
+            raise RuntimeError('build.json build.commands.pipeline.replay_shell 结构无效')
+
+
+def _validate_current_manifest(data):
+    for stem, image in data['images'].items():
+        if not isinstance(image, dict):
+            raise RuntimeError(f'build.json images.{stem} 结构无效')
+
+        source = image.get('source')
+        if source is not None:
+            if not isinstance(source, dict):
+                raise RuntimeError(f'build.json images.{stem}.source 结构无效')
+            extra_source = sorted(set(source) - _SOURCE_RECORD_KEYS)
+            if extra_source:
+                raise RuntimeError(
+                    f'build.json images.{stem}.source 包含当前 schema 未定义字段：'
+                    + ', '.join(extra_source)
+                )
+
+        for section_name in ('build', 'metadata'):
+            section = image.get(section_name)
+            if section is None:
+                continue
+            if not isinstance(section, dict):
+                raise RuntimeError(f'build.json images.{stem}.{section_name} 结构无效')
+            allowed_section = _BUILD_RECORD_KEYS if section_name == 'build' else _METADATA_RECORD_KEYS
+            extra_section = sorted(set(section) - allowed_section)
+            if extra_section:
+                raise RuntimeError(
+                    f'build.json images.{stem}.{section_name} 包含当前 schema 未定义字段：'
+                    + ', '.join(extra_section)
+                )
+            if 'commands' in section:
+                _validate_commands(section_name, section.get('commands'))
+
+
 def _load_manifest(set_dir: Path, metadata_fields=None):
     path = _manifest_path(set_dir)
     if not path.exists():
@@ -166,19 +262,9 @@ def _load_manifest(set_dir: Path, metadata_fields=None):
         raise RuntimeError(f'无法读取 {path.name}')
     if not isinstance(data, dict) or not isinstance(data.get('images'), dict):
         raise RuntimeError(f'{path.name} 结构无效')
+    _validate_current_manifest(data)
     data['profile'] = _current_profile(metadata_fields)
     data['tools'] = dict(_TOOLS)
-    for image in data['images'].values():
-        if not isinstance(image, dict):
-            continue
-        for section_name in ('build', 'metadata'):
-            section = image.get(section_name)
-            if isinstance(section, dict):
-                section.pop('duration_ms', None)
-        build = image.get('build')
-        if isinstance(build, dict):
-            # resolution policy 只是当前代码的临时选择方式，不属于长期 provenance。
-            build.pop('resolution_policy', None)
     _prune_missing_final_records(set_dir, data)
     return data
 
@@ -226,7 +312,6 @@ def _build_source_record(item):
         'sha256': file_sha256(source_path),
         'width': int(item.get('source_width') or 0),
         'height': int(item.get('source_height') or 0),
-        'color': item.get('source_color_label') or '',
         'orientation': _source_orientation(source_path),
     }
 

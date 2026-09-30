@@ -2041,7 +2041,7 @@
                         <strong>Final JPEG Profile</strong>
                         <span>{{ finalBuilderPlan.profile.resolution_label }} · Q{{ finalBuilderPlan.profile.quality }} · {{ finalBuilderPlan.profile.chroma }} · {{ finalBuilderPlan.profile.icc_profile }}</span>
                         <strong style="margin-top:4px;">Runtime</strong>
-                        <span>pyvips {{ finalBuilderPlan.dependency.pyvips_version || 'missing' }} · libvips {{ finalBuilderPlan.dependency.libvips_version || 'missing' }} · libjpeg-turbo {{ finalBuilderPlan.dependency.libjpeg_turbo_version || 'missing' }}</span>
+                        <span>ImageMagick {{ finalBuilderPlan.dependency.imagemagick_version || 'missing' }} {{ finalBuilderPlan.dependency.imagemagick_quantum || '' }} · libjpeg-turbo {{ finalBuilderPlan.dependency.libjpeg_turbo_version || 'missing' }}</span>
                         <div v-for="(message, index) in finalBuilderPlan.dependency.messages" :key="index" style="font-size:12px; margin-top:3px;">{{ message }}</div>
                     </div>
 

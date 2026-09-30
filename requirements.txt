@@ -1,5 +1,4 @@
 Flask
 Pillow
 Flask-CORS
-pyvips==3.2.0
 send2trash

@@ -5,7 +5,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -27,6 +26,12 @@ from core.final_delivery_contract import (
     FINAL_SRGB_ICC_FILENAME,
     FINAL_SRGB_ICC_SHA256,
     FINAL_SRGB_PROFILE_DESCRIPTION,
+)
+from core.external_tools import (
+    IMAGEMAGICK_REQUIRED_QUANTUM,
+    IMAGEMAGICK_REQUIRED_VERSION,
+    probe_imagemagick,
+    resolve_imagemagick,
 )
 from core.final_metadata_fields import load_metadata_field_keys
 from core.final_resolution import choose_target_for_crop, current_policy
@@ -52,8 +57,8 @@ _FINAL_PROFILE_BASE = {
 }
 
 _FINAL_RUNTIME = {
-    'pyvips': '3.2.0',
-    'libvips': '8.18.6',
+    'imagemagick': IMAGEMAGICK_REQUIRED_VERSION,
+    'imagemagick_quantum': IMAGEMAGICK_REQUIRED_QUANTUM,
     'libjpeg_turbo': '3.2.0',
 }
 
@@ -566,39 +571,44 @@ def _cjpeg_version(cjpeg_path):
 def _dependency_status():
     status = {
         'ready': False,
-        'pyvips_required': _FINAL_RUNTIME['pyvips'],
-        'pyvips_version': '',
-        'libvips_required': _FINAL_RUNTIME['libvips'],
-        'libvips_version': '',
+        'imagemagick_required': _FINAL_RUNTIME['imagemagick'],
+        'imagemagick_quantum_required': _FINAL_RUNTIME['imagemagick_quantum'],
+        'imagemagick_version': '',
+        'imagemagick_quantum': '',
+        'imagemagick_banner': '',
+        'magick_path': '',
         'libjpeg_turbo_required': _FINAL_RUNTIME['libjpeg_turbo'],
         'libjpeg_turbo_version': '',
         'cjpeg_path': '',
-        'image_transform_path': '',
-        'image_transform_sha256': '',
         'icc_profile_path': '',
         'icc_profile_sha256': '',
         'messages': [],
     }
 
-    try:
-        import pyvips
-        from importlib.metadata import version as package_version
-        status['pyvips_version'] = package_version('pyvips')
-        status['libvips_version'] = '.'.join(str(pyvips.version(index)) for index in range(3))
-    except Exception as exc:
-        status['messages'].append(f'pyvips / libvips 不可用：{exc}')
+    magick_path = resolve_imagemagick()
+    magick_info = probe_imagemagick(magick_path)
+    status['magick_path'] = magick_path
+    status['imagemagick_version'] = magick_info['version']
+    status['imagemagick_quantum'] = magick_info['quantum']
+    status['imagemagick_banner'] = magick_info['banner']
+    if not magick_path:
+        status['messages'].append(
+            f'找不到 ImageMagick {IMAGEMAGICK_REQUIRED_VERSION} {IMAGEMAGICK_REQUIRED_QUANTUM}'
+        )
+    else:
+        if magick_info['version'] != IMAGEMAGICK_REQUIRED_VERSION:
+            status['messages'].append(
+                f'ImageMagick {magick_info["version"] or "unknown"}（需要 {IMAGEMAGICK_REQUIRED_VERSION}）'
+            )
+        if magick_info['quantum'] != IMAGEMAGICK_REQUIRED_QUANTUM:
+            status['messages'].append(
+                f'ImageMagick {magick_info["quantum"] or "unknown build"}（需要 {IMAGEMAGICK_REQUIRED_QUANTUM}）'
+            )
 
     try:
         icc_path = _fixed_srgb_icc_path()
         status['icc_profile_path'] = str(icc_path)
         status['icc_profile_sha256'] = FINAL_SRGB_ICC_SHA256
-    except Exception as exc:
-        status['messages'].append(str(exc))
-
-    try:
-        transform_path = _image_transform_path()
-        status['image_transform_path'] = str(transform_path)
-        status['image_transform_sha256'] = hashlib.sha256(transform_path.read_bytes()).hexdigest()
     except Exception as exc:
         status['messages'].append(str(exc))
 
@@ -608,21 +618,19 @@ def _dependency_status():
     chosen = exact or (versions[0] if versions else ('', ''))
     status['cjpeg_path'], status['libjpeg_turbo_version'] = chosen
     if not status['cjpeg_path']:
-        status['messages'].append('找不到 cjpeg（libjpeg-turbo）；macOS 可安装官方 3.2.0 DMG，默认路径 /opt/libjpeg-turbo/bin/cjpeg')
-
-    checks = [
-        ('pyvips', status['pyvips_version'], _FINAL_RUNTIME['pyvips']),
-        ('libvips', status['libvips_version'], _FINAL_RUNTIME['libvips']),
-        ('libjpeg-turbo', status['libjpeg_turbo_version'], _FINAL_RUNTIME['libjpeg_turbo']),
-    ]
-    for label, actual, expected in checks:
-        if actual and actual != expected:
-            status['messages'].append(f'{label} {actual}（需要 {expected}）')
+        status['messages'].append(
+            '找不到 cjpeg（libjpeg-turbo）；macOS 可安装官方 3.2.0 DMG，默认路径 /opt/libjpeg-turbo/bin/cjpeg'
+        )
+    elif status['libjpeg_turbo_version'] != _FINAL_RUNTIME['libjpeg_turbo']:
+        status['messages'].append(
+            f'libjpeg-turbo {status["libjpeg_turbo_version"] or "unknown"}（需要 {_FINAL_RUNTIME["libjpeg_turbo"]}）'
+        )
 
     status['ready'] = (
-        all(actual == expected for _, actual, expected in checks)
+        status['imagemagick_version'] == IMAGEMAGICK_REQUIRED_VERSION
+        and status['imagemagick_quantum'] == IMAGEMAGICK_REQUIRED_QUANTUM
+        and status['libjpeg_turbo_version'] == _FINAL_RUNTIME['libjpeg_turbo']
         and bool(status['icc_profile_path'])
-        and bool(status['image_transform_path'])
     )
     return status
 
@@ -791,43 +799,58 @@ def _verify_srgb_inputs(items):
 
 
 
-def _image_transform_path():
-    path = Path(__file__).resolve().parents[1] / 'tools' / 'image_transform.py'
-    if not path.is_file():
-        raise RuntimeError('缺少图像变换脚本：tools/image_transform.py')
-    return path
-
-
-def _image_transform_argv(item):
-    source_path = Path(item['source_path'])
+def _magick_argv(item, magick_path):
     geometry = item['geometry']
+    source_path = Path(item['source_path'])
+    source_arg = str(item.get('source_relative_path') or source_path)
     command = [
-        sys.executable,
-        str(_image_transform_path()),
-        '--source', str(item.get('source_relative_path') or source_path),
-        '--expected-width', str(item['source_width']),
-        '--expected-height', str(item['source_height']),
-        '--source-mode', str(item.get('source_mode') or ''),
-        '--crop-left', str(geometry['crop_left']),
-        '--crop-top', str(geometry['crop_top']),
-        '--crop-width', str(geometry['crop_width']),
-        '--crop-height', str(geometry['crop_height']),
-        '--target-width', str(geometry['target_width']),
-        '--target-height', str(geometry['target_height']),
-        '--kernel', _FINAL_PROFILE_BASE['resize_kernel'],
+        magick_path,
+        source_arg,
+        '-auto-orient',
+        '-alpha', 'off',
+        '-set', 'colorspace', 'sRGB',
     ]
-    if item.get('has_alpha'):
-        command.append('--has-alpha')
-    if item.get('alpha_has_transparency'):
-        command.append('--alpha-has-transparency')
+
+    if geometry['crop_required']:
+        command.extend([
+            '-crop',
+            f'{geometry["crop_width"]}x{geometry["crop_height"]}+{geometry["crop_left"]}+{geometry["crop_top"]}',
+            '+repage',
+        ])
+
+    if geometry['resize_required']:
+        command.extend([
+            '-filter', 'Lanczos',
+            '-define', 'filter:lobes=3',
+            '-resize', f'{geometry["target_width"]}x{geometry["target_height"]}!',
+        ])
+
+    command.extend([
+        '-depth', '8',
+        '-type', 'TrueColor',
+        'ppm:-',
+    ])
     return command
 
 
-def _render_final(item, temp_dir: Path, cjpeg_path: str, set_dir: Path):
+def _command_step(name, tool, argv, *, stdin=None, stdout=None):
+    step = {
+        'name': name,
+        'tool': tool,
+        'argv': list(argv),
+        'cwd': '.',
+    }
+    if stdin:
+        step['stdin'] = stdin
+    if stdout:
+        step['stdout'] = stdout
+    return step
+
+
+def _render_final(item, temp_dir: Path, magick_path: str, cjpeg_path: str, set_dir: Path):
     icc_path = _fixed_srgb_icc_path()
-    transform_path = _image_transform_path()
     jpeg_path = temp_dir / f'{uuid.uuid4().hex}.jpg'
-    renderer_command = _image_transform_argv(item)
+    magick_command = _magick_argv(item, magick_path)
     cjpeg_command = [
         cjpeg_path,
         '-quality', str(_FINAL_PROFILE_BASE['quality']),
@@ -837,7 +860,7 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str, set_dir: Path):
         '-icc', str(icc_path),
         '-outfile', str(jpeg_path),
     ]
-    replay_cjpeg_argv = [
+    replay_cjpeg_command = [
         cjpeg_path,
         '-quality', str(_FINAL_PROFILE_BASE['quality']),
         '-sample', FINAL_JPEG_CJPEG_SAMPLE,
@@ -847,42 +870,42 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str, set_dir: Path):
         '-outfile', str(item.get('output_relative_path') or item.get('output_name') or '05_Final/output.jpg'),
     ]
     command_trace = {
-        'renderer': {
-            'tool': 'image_transform.py',
-            'engine': 'pyvips / libvips',
-            'argv': list(renderer_command),
-            'cwd': str(set_dir),
-            'script_sha256': hashlib.sha256(transform_path.read_bytes()).hexdigest(),
-            'stdout': 'P6 PPM · normalized RGB pixels',
-        },
-        'cjpeg': {
-            'argv': list(cjpeg_command),
-            'replay_argv': replay_cjpeg_argv,
-            'replay_cwd': str(set_dir),
-            'stdin': 'renderer stdout · P6 PPM',
-        },
+        'steps': [
+            _command_step(
+                'transform',
+                'magick',
+                magick_command,
+                stdout='P6 PPM · 8-bit RGB',
+            ),
+            _command_step(
+                'encode',
+                'cjpeg',
+                replay_cjpeg_command,
+                stdin='magick stdout · P6 PPM',
+            ),
+        ],
         'pipeline': {
-            'replay_shell': f'{shlex.join(renderer_command)} | {shlex.join(replay_cjpeg_argv)}',
-            'cwd': str(set_dir),
-            'argv_fields_are_authoritative': True,
+            'replay_shell': f'{shlex.join(magick_command)} | {shlex.join(replay_cjpeg_command)}',
+            'cwd': '.',
         },
     }
 
-    renderer_stderr_file = tempfile.TemporaryFile()
+    magick_stderr_file = tempfile.TemporaryFile()
     renderer = None
     cjpeg = None
     cjpeg_stderr = b''
     try:
         renderer = subprocess.Popen(
-            renderer_command,
+            magick_command,
             cwd=str(set_dir),
             stdout=subprocess.PIPE,
-            stderr=renderer_stderr_file,
+            stderr=magick_stderr_file,
         )
         if renderer.stdout is None:
-            raise RuntimeError('无法打开 image_transform.py stdout')
+            raise RuntimeError('无法打开 ImageMagick stdout')
         cjpeg = subprocess.Popen(
             cjpeg_command,
+            cwd=str(set_dir),
             stdin=renderer.stdout,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -902,15 +925,15 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str, set_dir: Path):
                 renderer.wait()
             raise RuntimeError('Final 图像变换 / 编码超时（300 秒）')
 
-        renderer_stderr_file.seek(0)
-        renderer_stderr = renderer_stderr_file.read().decode('utf-8', errors='replace').strip()
+        magick_stderr_file.seek(0)
+        renderer_stderr = magick_stderr_file.read().decode('utf-8', errors='replace').strip()
         if renderer.returncode != 0 and renderer_stderr:
-            raise RuntimeError(f'图像变换失败：{renderer_stderr}')
+            raise RuntimeError(f'ImageMagick 图像变换失败：{renderer_stderr}')
         if cjpeg.returncode != 0 or not jpeg_path.is_file():
             detail = (cjpeg_stderr or b'').decode('utf-8', errors='replace').strip()
             raise RuntimeError(f'libjpeg-turbo 编码失败：{detail or "cjpeg returned non-zero"}')
         if renderer.returncode != 0:
-            raise RuntimeError('图像变换失败：image_transform.py returned non-zero')
+            raise RuntimeError('ImageMagick 图像变换失败：magick returned non-zero')
     finally:
         if cjpeg is not None and cjpeg.poll() is None:
             cjpeg.kill()
@@ -918,9 +941,10 @@ def _render_final(item, temp_dir: Path, cjpeg_path: str, set_dir: Path):
         if renderer is not None and renderer.poll() is None:
             renderer.kill()
             renderer.wait()
-        renderer_stderr_file.close()
+        magick_stderr_file.close()
 
     return jpeg_path, command_trace
+
 
 def _validate_output(path: Path, item):
     geometry = item['geometry']
@@ -1144,6 +1168,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                             jpeg_path, command_trace = _render_final(
                                 item,
                                 temp_dir,
+                                dependency['magick_path'],
                                 dependency['cjpeg_path'],
                                 Path(plan['set_dir']),
                             )
