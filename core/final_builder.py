@@ -49,7 +49,7 @@ _FINAL_PROFILE_BASE = {
     'chroma': FINAL_JPEG_CHROMA_SAMPLING,
     'huffman_optimize': FINAL_JPEG_HUFFMAN_OPTIMIZE,
     'progressive': FINAL_JPEG_PROGRESSIVE,
-    'dct': 'accurate integer',
+    'dct': 'int',
     'icc': 'fixed sRGB',
     'source_color_contract': 'verify sRGB from ICC / PNG signals / EXIF; otherwise use project sRGB assumption',
     'icc_profile': FINAL_SRGB_PROFILE_DESCRIPTION,
@@ -839,12 +839,12 @@ def _magick_argv(item, magick_path):
     return command
 
 
-def _command_step(name, tool, argv, *, stdin=None, stdout=None):
+def _command_step(name, tool, argv, *, cwd, stdin=None, stdout=None):
     step = {
         'name': name,
         'tool': tool,
         'argv': list(argv),
-        'cwd': '.',
+        'cwd': str(cwd),
     }
     if stdin:
         step['stdin'] = stdin
@@ -875,18 +875,23 @@ def _render_final(item, temp_dir: Path, magick_path: str, cjpeg_path: str, set_d
         '-icc', str(icc_path),
         '-outfile', str(item.get('output_relative_path') or item.get('output_name') or '05_Final/output.jpg'),
     ]
+    # steps[].argv is runtime provenance: it records the exact argv passed to
+    # Popen, including the temporary staged output path. replay_shell is the
+    # separate stable Set-relative command intended for later reproduction.
     command_trace = {
         'steps': [
             _command_step(
                 'transform',
                 'magick',
                 magick_command,
+                cwd=set_dir,
                 stdout='P6 PPM · 8-bit RGB',
             ),
             _command_step(
                 'encode',
                 'cjpeg',
-                replay_cjpeg_command,
+                cjpeg_command,
+                cwd=set_dir,
                 stdin='magick stdout · P6 PPM',
             ),
         ],

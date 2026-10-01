@@ -41,6 +41,7 @@ _PROFILE_BASE = {
         'sampling': FINAL_JPEG_CHROMA_SAMPLING,
         'baseline': FINAL_JPEG_BASELINE,
         'huffman_optimize': FINAL_JPEG_HUFFMAN_OPTIMIZE,
+        'dct': 'int',
     },
     'icc': {
         'name': FINAL_SRGB_PROFILE_DESCRIPTION,

@@ -620,26 +620,23 @@ def _rebuild_staged_metadata(exiftool_path, staged_path: Path, donor_path: Path,
     )
 
 
-def _manifest_metadata_commands(set_dir: Path, row, fields, exiftool_path):
-    # build.json stores stable, replayable Set-relative commands.  Runtime still
-    # writes to a staged copy first and publishes only after validation.
-    final_path = Path(row['final_path'])
-    donor_path = Path(row['donor_path'])
-    final_rel = Path(final_path.relative_to(set_dir).as_posix())
-    donor_rel = Path(donor_path.relative_to(set_dir).as_posix())
+def _runtime_metadata_commands(staged_path: Path, donor_path: Path, fields, exiftool_path, runtime_cwd):
+    # steps[].argv is runtime provenance.  Keep the actual temporary staged path
+    # and donor path exactly as passed to ExifTool; unlike Build, Metadata has no
+    # separate replay command in build.json.
     return {
         'steps': [
             {
                 'name': 'clear',
                 'tool': 'exiftool',
-                'argv': _clear_metadata_args(exiftool_path, final_rel),
-                'cwd': '.',
+                'argv': _clear_metadata_args(exiftool_path, staged_path),
+                'cwd': str(runtime_cwd),
             },
             {
                 'name': 'write',
                 'tool': 'exiftool',
-                'argv': _rebuild_metadata_args(exiftool_path, final_rel, donor_rel, fields),
-                'cwd': '.',
+                'argv': _rebuild_metadata_args(exiftool_path, staged_path, donor_path, fields),
+                'cwd': str(runtime_cwd),
             },
         ],
     }
@@ -1024,16 +1021,17 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                             shutil.copy2(final_path, backup_path)
 
                             try:
-                                commands_by_row_id[row['id']] = _manifest_metadata_commands(
-                                    set_dir,
-                                    row,
+                                commands_by_row_id[row['id']] = _runtime_metadata_commands(
+                                    staged_path,
+                                    donor_path,
                                     plan['fields'],
                                     dependency['exiftool_path'],
+                                    Path.cwd(),
                                 )
                             except Exception:
                                 # build.json is optional provenance.  Failing to
-                                # format a replay command must never block the
-                                # real staged metadata workflow.
+                                # format the runtime command trace must never block
+                                # the real staged metadata workflow.
                                 commands_by_row_id[row['id']] = None
                             _clear_staged_metadata(dependency['exiftool_path'], staged_path)
                             _rebuild_staged_metadata(
