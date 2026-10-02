@@ -102,9 +102,11 @@
         };
 
         const protectOriginalsLabel = computed(() => {
-            return protectOriginalsStatus.value?.all_protected
-                ? 'Protect Originals · 已设置保护'
-                : 'Protect Originals';
+            if (protectOriginalsStatus.value?.all_protected) return 'Protect Originals · 已设置保护';
+            if ((protectOriginalsStatus.value?.protected_original_count || 0) > 0) {
+                return 'Protect Originals · 部分已保护';
+            }
+            return 'Protect Originals';
         });
 
         const handleWorkflowMenuVisible = (visible) => {
@@ -495,7 +497,7 @@
             return false;
         });
 
-        const confirmationText = () => {
+        const confirmationText = (action = 'execute') => {
             const data = previewData.value || {};
             if (previewKind.value === 'visual_rename') {
                 return `将按当前预览重命名 ${data.summary?.rename_count || 0} 个 03_Model_Edit 文件。执行前已固定映射，文件发生变化时会拒绝执行。`;
@@ -507,23 +509,32 @@
                 return `请再次确认你已经检查过预览列表。最终将有 ${data.summary?.trash_count || 0} 个文件随 Deleted 进入系统回收站，其中 ${data.summary?.move_count || 0} 个会先从当前目录移动进 Deleted。不会调用永久删除。`;
             }
             if (previewKind.value === 'protect_originals') {
+                if (action === 'unprotect') {
+                    return `将取消当前 Set 的 01_Original/JPG + RAW 中全部 ${data.summary?.protected_original_count || 0} 个 uchg 保护。只移除 user immutable flag，不修改图片内容、EXIF/XMP、文件名或其他 filesystem flags。`;
+                }
                 return `将对当前预览中的 ${data.summary?.candidate_count || 0} 个 Original JPG/RAW 确认设置 macOS user immutable (uchg) 保护。不会修改图片内容、EXIF/XMP 或文件名；已保护文件也会再次确认设置。`;
             }
             return `将把 ${data.summary?.copy_count || 0} 个收藏 JPG 对应的 CR3 复制到 01_Original/Selects。已有同名 RAW 不会覆盖。`;
         };
 
-        const startCurrent = async () => {
-            if (!canExecute.value) return;
+        const startCurrent = async (action = 'execute') => {
+            const unprotectOriginals = previewKind.value === 'protect_originals' && action === 'unprotect';
+            if (unprotectOriginals) {
+                if ((previewData.value?.summary?.protected_original_count || 0) <= 0) return;
+            } else if (!canExecute.value) {
+                return;
+            }
+
             let ctx;
             try {
                 ctx = context();
                 await ElMessageBox.confirm(
-                    confirmationText(),
-                    '确认执行',
+                    confirmationText(action),
+                    unprotectOriginals ? '确认取消保护' : '确认执行',
                     {
-                        confirmButtonText: '执行',
+                        confirmButtonText: unprotectOriginals ? '全部取消保护' : '执行',
                         cancelButtonText: '取消',
-                        type: previewKind.value === 'sync_originals' ? 'warning' : 'info'
+                        type: unprotectOriginals || previewKind.value === 'sync_originals' ? 'warning' : 'info'
                     }
                 );
             } catch (error) {
@@ -539,9 +550,13 @@
             if (previewKind.value === 'protect_originals') endpoint = 'protect-originals/start';
 
             try {
+                const payload = {path: ctx.path, plan_id: previewData.value.plan_id};
+                if (previewKind.value === 'protect_originals') {
+                    payload.action = unprotectOriginals ? 'unprotect' : 'protect';
+                }
                 const data = await postJson(
                     `/api/library/workflow/sources/${ctx.sourceId}/${endpoint}`,
-                    {path: ctx.path, plan_id: previewData.value.plan_id}
+                    payload
                 );
                 previewVisible.value = false;
                 refreshedTaskId = '';

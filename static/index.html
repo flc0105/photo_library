@@ -1573,6 +1573,7 @@
                         <span>RAW <strong>{{ workflowPreviewData.summary.raw_count }}</strong></span>
                         <span>Protected <strong>{{ workflowPreviewData.summary.protected_count }}</strong></span>
                         <span v-if="workflowPreviewData.summary.unprotected_count" class="is-warning">To protect <strong>{{ workflowPreviewData.summary.unprotected_count }}</strong></span>
+                        <span v-if="workflowPreviewData.summary.protected_original_count">Protected in Set <strong>{{ workflowPreviewData.summary.protected_original_count }}</strong></span>
                     </div>
                     <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
                         <el-table-column label="Original file" min-width="360">
@@ -1592,6 +1593,7 @@
                     </el-table>
                     <div v-if="workflowPreviewData && workflowPreviewData.summary.all_protected" class="workflow-empty-result">已设置保护。仍可再次执行，系统会按当前文件重新确认并设置保护。</div>
                     <div v-else-if="workflowPreviewData && workflowPreviewData.summary.candidate_count === 0" class="workflow-empty-result">Base Edit / Model Edit 中没有可对应到 Original JPG/RAW 的同 stem 文件。</div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.protected_original_count" class="workflow-empty-result">“全部取消保护”会解除当前 Set 的 01_Original/JPG 和 01_Original/RAW 中全部 {{ workflowPreviewData.summary.protected_original_count }} 个 <code>uchg</code>，包括当前不再与 Base/Model 同 stem 的旧保护文件。</div>
                 </template>
 
                 <template v-else-if="workflowPreviewKind === 'select_raw'">
@@ -1629,7 +1631,12 @@
             </div>
             <template #footer>
                 <el-button @click="workflowPreviewVisible = false" :disabled="workflowPreviewLoading">取消</el-button>
-                <el-button type="primary" @click="startWorkflowOperation" :disabled="!workflowCanExecute || workflowPreviewLoading">{{ workflowPreviewKind === 'protect_originals' ? '设置保护' : '执行预览结果' }}</el-button>
+                <el-button v-if="workflowPreviewKind === 'protect_originals'"
+                           type="danger"
+                           plain
+                           @click="startWorkflowOperation('unprotect')"
+                           :disabled="workflowPreviewLoading || !workflowPreviewData || !workflowPreviewData.summary.protected_original_count">全部取消保护</el-button>
+                <el-button type="primary" @click="startWorkflowOperation()" :disabled="!workflowCanExecute || workflowPreviewLoading">{{ workflowPreviewKind === 'protect_originals' ? '设置保护' : '执行预览结果' }}</el-button>
             </template>
         </el-dialog>
 
