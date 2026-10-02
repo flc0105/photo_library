@@ -1678,6 +1678,41 @@
                                     </details>
 
                                     <details class="image-inspection-group" open>
+                                        <summary>File / Color</summary>
+                                        <div class="image-inspection-stage-card-grid">
+                                            <section v-for="stage in [
+                                                    {key: 'base_edit', label: 'Base Edit'},
+                                                    {key: 'model_edit', label: 'Model Edit'},
+                                                    {key: 'revision', label: 'Revision'},
+                                                    {key: 'final', label: 'Final'}
+                                                ]"
+                                                :key="stage.key"
+                                                class="image-inspection-detail-column image-inspection-group-stage-card">
+                                                <div class="image-inspection-detail-title-row">
+                                                    <div class="image-inspection-detail-title">{{ stage.label }}</div>
+                                                </div>
+                                                <template v-if="scope.row[stage.key]">
+                                                    <div class="image-inspection-expand-grid">
+                                                        <div :title="`File size: ${scope.row[stage.key].size_bytes === null ? '—' : workflowFormatSize(scope.row[stage.key].size_bytes)}`">
+                                                            <span>File size</span>
+                                                            <strong>{{ scope.row[stage.key].size_bytes === null ? '—' : workflowFormatSize(scope.row[stage.key].size_bytes) }}</strong>
+                                                        </div>
+                                                        <div :title="'Color space: ' + scope.row[stage.key].color_space_display + (scope.row[stage.key].color_space_evidence ? ' · ' + scope.row[stage.key].color_space_evidence : '')">
+                                                            <span>Color space</span>
+                                                            <strong>{{ scope.row[stage.key].color_space_display }}</strong>
+                                                        </div>
+                                                        <div :title="`Bit depth: ${scope.row[stage.key].bit_depth_display}`">
+                                                            <span>Bit depth</span>
+                                                            <strong>{{ scope.row[stage.key].bit_depth_display }}</strong>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <div v-else class="workflow-empty-result">No matching file.</div>
+                                            </section>
+                                        </div>
+                                    </details>
+
+                                    <details class="image-inspection-group" open>
                                         <summary>Geometry</summary>
                                         <div class="image-inspection-stage-card-grid">
                                             <section v-for="stage in [
@@ -1769,6 +1804,14 @@
                                         <div class="image-inspection-file-tags">
                                             <el-tag size="small"
                                                     :type="scope.row.base_edit.display_status_level === 'success' ? 'success' : (scope.row.base_edit.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.base_edit.display_status_text }}</el-tag>
+                                            <el-tag v-if="scope.row.base_edit.color_space_status === 'non_srgb'"
+                                                    size="small"
+                                                    type="danger"
+                                                    :title="`Color space: ${scope.row.base_edit.color_space_display}`">{{ scope.row.base_edit.color_space_tag }}</el-tag>
+                                            <el-tag v-if="scope.row.base_edit.bit_depth_status === 'warning'"
+                                                    size="small"
+                                                    type="warning"
+                                                    :title="`Bit depth: ${scope.row.base_edit.bit_depth_display}`">{{ scope.row.base_edit.bit_depth_tag }}</el-tag>
                                         </div>
                                     </div>
                                     <div class="image-inspection-stage-metrics">
@@ -1792,6 +1835,14 @@
                                         <div class="image-inspection-file-tags">
                                             <el-tag size="small"
                                                     :type="scope.row.model_edit.display_status_level === 'success' ? 'success' : (scope.row.model_edit.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.model_edit.display_status_text }}</el-tag>
+                                            <el-tag v-if="scope.row.model_edit.color_space_status === 'non_srgb'"
+                                                    size="small"
+                                                    type="danger"
+                                                    :title="`Color space: ${scope.row.model_edit.color_space_display}`">{{ scope.row.model_edit.color_space_tag }}</el-tag>
+                                            <el-tag v-if="scope.row.model_edit.bit_depth_status === 'warning'"
+                                                    size="small"
+                                                    type="warning"
+                                                    :title="`Bit depth: ${scope.row.model_edit.bit_depth_display}`">{{ scope.row.model_edit.bit_depth_tag }}</el-tag>
                                         </div>
                                     </div>
                                     <div class="image-inspection-stage-metrics">
@@ -1815,6 +1866,14 @@
                                         <div class="image-inspection-file-tags">
                                             <el-tag size="small"
                                                     :type="scope.row.revision.display_status_level === 'success' ? 'success' : (scope.row.revision.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.revision.display_status_text }}</el-tag>
+                                            <el-tag v-if="scope.row.revision.color_space_status === 'non_srgb'"
+                                                    size="small"
+                                                    type="danger"
+                                                    :title="`Color space: ${scope.row.revision.color_space_display}`">{{ scope.row.revision.color_space_tag }}</el-tag>
+                                            <el-tag v-if="scope.row.revision.bit_depth_status === 'warning'"
+                                                    size="small"
+                                                    type="warning"
+                                                    :title="`Bit depth: ${scope.row.revision.bit_depth_display}`">{{ scope.row.revision.bit_depth_tag }}</el-tag>
                                         </div>
                                     </div>
                                     <div class="image-inspection-stage-metrics">
@@ -1838,6 +1897,14 @@
                                         <div class="image-inspection-file-tags">
                                             <el-tag size="small"
                                                     :type="scope.row.final.display_status_level === 'success' ? 'success' : (scope.row.final.display_status_level === 'warning' ? 'warning' : 'danger')">{{ scope.row.final.display_status_text }}</el-tag>
+                                            <el-tag v-if="scope.row.final.color_space_status === 'non_srgb'"
+                                                    size="small"
+                                                    type="danger"
+                                                    :title="`Color space: ${scope.row.final.color_space_display}`">{{ scope.row.final.color_space_tag }}</el-tag>
+                                            <el-tag v-if="scope.row.final.bit_depth_status === 'warning'"
+                                                    size="small"
+                                                    type="warning"
+                                                    :title="`Bit depth: ${scope.row.final.bit_depth_display}`">{{ scope.row.final.bit_depth_tag }}</el-tag>
                                         </div>
                                     </div>
                                     <div class="image-inspection-stage-metrics">
@@ -1878,11 +1945,12 @@
                         <li><code>Slight Off</code>：像素足够，比例偏差，center crop loss ≤ {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
                         <li><code>Ratio Error</code>：像素足够，比例偏差，center crop loss &gt; {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
                         <li><code>Low Res</code>：像素不足。</li>
+                        <li><code>Read Error</code>：无法读取有效尺寸。</li>
                     </ol>
-                    <div class="image-inspection-rule-note"><code>Read Error</code>：无法读取有效尺寸。</div>
+
                 </li>
-                <li><strong>像素档位：</strong><code>3200×4800</code> / <code>3600×5400</code> / <code>4000×6000</code>（横图转置）。</li>
-                <li><strong>Key EXIF：</strong>与 Write Metadata 共用 <code>data/final_metadata_settings.json</code>。Base / Model / Revision 读取配置 source tags；Final 必须精确符合 output tags，且不得有额外业务 metadata。</li>
+                <li><strong>Key EXIF：</strong>与 Write Metadata 共用 <code>data/final_metadata_settings.json</code>。</li>
+                <li><strong>File / Color：</strong>显示实际文件大小、色彩空间/profile 与每通道 bit depth；sRGB / 8-bit 不额外标记。只有明确识别为非 sRGB 时文件名旁显示红色 tag，明确非 8-bit 时显示黄色 warning tag；缺失或无法确认的颜色信息不作为异常。</li>
                 <li>
                     <strong>Final delivery QC：</strong>
                     <ul class="image-inspection-qc-rule-list">
@@ -2533,16 +2601,16 @@
                     <h4>Issue</h4>
                     <ol>
                         <li>Set 必须使用标准目录结构：<code>01_Original/JPG</code>、<code>01_Original/RAW</code>、<code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code>。缺少标准目录或出现额外目录均为 Issue。</li>
-                        <li>Original JPG 只允许 JPG/JPEG，RAW 只允许 CR3。两边都有文件时，stem 必须一一对应；JPG 的 <code>-dpp</code> 后缀允许，并按去掉后缀后的 stem 对应。</li>
-                        <li>Revision 中的图片必须全部为 PNG。</li>
+                        <li>Original JPG 只允许 JPG，RAW 只允许 CR3。两边都有文件时，stem 必须一一对应；JPG 的 <code>-dpp</code> 后缀允许，并按去掉后缀后的 stem 对应。</li>
                         <li>Original RAW 不能为空。</li>
+                        <li>Revision 必须全部为 PNG。</li>
                     </ol>
                 </section>
                 <section class="validation-rules-group validation-rules-warning">
                     <h4>Warning</h4>
                     <ol>
                         <li>Base Edit 与 Model Edit 都有图片时，stem 必须一一对应。</li>
-                        <li>Base Edit、Model Edit、Revision 的文件 stem 必须与 Original 文件名完全一致，不允许附加 keyword 或版本后缀。</li>
+                        <li>Base Edit、Model Edit、Revision 的文件 stem 必须与 Original 文件名完全一致。</li>
                     </ol>
                 </section>
                 <section class="validation-rules-group validation-rules-normal">
@@ -2556,7 +2624,8 @@
                     <h4>OK</h4>
                     <p>未发现以上问题。</p>
                 </section>
-                <p class="validation-rules-footnote">同一 Set 命中多项时，按 Issue → Warning → Normal → OK 显示最高严重度。Validation 只检查，不修改文件。</p>
+                <!--
+                <p class="validation-rules-footnote">同一 Set 命中多项时，按 Issue → Warning → Normal → OK 显示最高严重度。Validation 只检查，不修改文件。</p>-->
             </div>
             <template #footer><el-button @click="validationRulesVisible = false">关闭</el-button></template>
         </el-dialog>

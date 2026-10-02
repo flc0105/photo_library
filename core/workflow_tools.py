@@ -1176,6 +1176,155 @@ def _record_group_value(record, group: str, tag: str):
     return record.get(f'{group}:{tag}')
 
 
+def _record_first_text(record, keys):
+    for key in keys:
+        text = _metadata_value_text(record.get(key)).strip()
+        if text:
+            return text
+    return ''
+
+
+def _is_srgb_label(value: str):
+    normalized = re.sub(r'[^a-z0-9]+', '', value.casefold())
+    return 'nonsrgb' not in normalized and ('srgb' in normalized or 'iec6196621' in normalized)
+
+
+def _image_color_space_analysis(record):
+    """Return conservative color-space information for Image Inspection.
+
+    An embedded ICC profile is the strongest named-space evidence. With no ICC,
+    only explicit sRGB / Adobe RGB declarations are treated as conclusive;
+    missing, uncalibrated, or otherwise ambiguous EXIF stays unknown so the UI
+    does not raise a false non-sRGB warning.
+    """
+    profile_description = _record_first_text(record, [
+        'ICC_Profile:ProfileDescription',
+        'ICC_Profile:ProfileName',
+    ])
+    if profile_description:
+        if _is_srgb_label(profile_description):
+            return {
+                'status': 'srgb',
+                'display': 'sRGB',
+                'tag': '',
+                'evidence': 'ICC profile',
+            }
+        return {
+            'status': 'non_srgb',
+            'display': profile_description,
+            'tag': profile_description,
+            'evidence': 'ICC profile',
+        }
+
+    # A PNG sRGB chunk is an explicit standard declaration.
+    if _record_first_text(record, ['PNG:SRGBRendering', 'PNG:sRGBRendering']):
+        return {
+            'status': 'srgb',
+            'display': 'sRGB',
+            'tag': '',
+            'evidence': 'PNG sRGB',
+        }
+
+    interop_index = _record_first_text(record, [
+        'InteropIFD:InteropIndex',
+        'EXIF:InteropIndex',
+    ])
+    interop_upper = interop_index.upper()
+    if interop_upper.startswith('R98'):
+        return {
+            'status': 'srgb',
+            'display': 'sRGB',
+            'tag': '',
+            'evidence': 'EXIF InteropIndex',
+        }
+    if interop_upper.startswith('R03'):
+        return {
+            'status': 'non_srgb',
+            'display': 'Adobe RGB',
+            'tag': 'Adobe RGB',
+            'evidence': 'EXIF InteropIndex',
+        }
+
+    explicit_srgb = False
+    explicit_non_srgb = []
+    for key, value in record.items():
+        if key.rsplit(':', 1)[-1].casefold() != 'colorspace':
+            continue
+        color_space = _metadata_value_text(value).strip()
+        if not color_space:
+            continue
+        color_cf = color_space.casefold()
+        if _is_srgb_label(color_space):
+            explicit_srgb = True
+            continue
+        if any(token in color_cf for token in (
+            'adobe rgb',
+            'wide gamut rgb',
+            'display p3',
+            'dci-p3',
+            'prophoto',
+            'romm',
+            'rec.2020',
+            'bt.2020',
+        )):
+            explicit_non_srgb.append(color_space)
+
+    if explicit_non_srgb and not explicit_srgb:
+        color_space = explicit_non_srgb[0]
+        return {
+            'status': 'non_srgb',
+            'display': color_space,
+            'tag': color_space,
+            'evidence': 'ColorSpace tag',
+        }
+    if explicit_srgb and not explicit_non_srgb:
+        return {
+            'status': 'srgb',
+            'display': 'sRGB',
+            'tag': '',
+            'evidence': 'ColorSpace tag',
+        }
+
+    return {
+        'status': 'unknown',
+        'display': 'Unknown',
+        'tag': '',
+        'evidence': '',
+    }
+
+
+def _image_bit_depth_analysis(record):
+    raw_value = None
+    for key in (
+        'File:BitsPerSample',
+        'PNG:BitDepth',
+        'JPEG:BitsPerSample',
+        'IFD0:BitsPerSample',
+        'ExifIFD:BitsPerSample',
+    ):
+        if key in record and _metadata_value_text(record.get(key)).strip():
+            raw_value = record.get(key)
+            break
+
+    if raw_value is None:
+        return {'status': 'unknown', 'display': 'Unknown', 'tag': ''}
+
+    text = _metadata_value_text(raw_value).strip()
+    values = [int(value) for value in re.findall(r'(?<![.\d])\d+(?![.\d])', text)]
+    if not values:
+        return {'status': 'unknown', 'display': text or 'Unknown', 'tag': ''}
+
+    unique = sorted(set(values))
+    if len(unique) == 1:
+        display = f'{unique[0]}-bit'
+    else:
+        display = '/'.join(str(value) for value in unique) + '-bit'
+
+    if all(value == 8 for value in values):
+        return {'status': 'standard', 'display': '8-bit', 'tag': ''}
+    return {'status': 'warning', 'display': display, 'tag': display}
+
+
 def _canonical_final_exif_analysis(record, metadata_fields, field_defs):
     fields = []
     missing = []
@@ -1825,6 +1974,12 @@ def _build_image_inspection(set_dir: Path):
             if value['present']:
                 focus_present += 1
         metadata_fields = _embedded_metadata_fields(record)
+        color_space = _image_color_space_analysis(record)
+        bit_depth = _image_bit_depth_analysis(record)
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            size_bytes = None
         final_qc = {}
         if entry['stage'] == 'final':
             canonical_exif = _canonical_final_exif_analysis(record, metadata_fields, field_defs)
@@ -1845,6 +2000,14 @@ def _build_image_inspection(set_dir: Path):
             'width': width,
             'height': height,
             'resolution': f'{width}×{height}' if width and height else '—',
+            'size_bytes': size_bytes,
+            'color_space_status': color_space['status'],
+            'color_space_display': color_space['display'],
+            'color_space_tag': color_space['tag'],
+            'color_space_evidence': color_space['evidence'],
+            'bit_depth_status': bit_depth['status'],
+            'bit_depth_display': bit_depth['display'],
+            'bit_depth_tag': bit_depth['tag'],
             **ratio,
             'metadata_field_count': len(metadata_fields),
             'metadata_focus_present': focus_present,
