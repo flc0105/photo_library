@@ -6,6 +6,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -761,6 +762,121 @@ def _build_discard_unreturned_base_plan(source_id, set_dir: Path, set_rel: str):
             'matched_count': len(base_files) - len(files_to_move),
         },
     }
+
+
+def _user_immutable_mask():
+    mask = getattr(stat, 'UF_IMMUTABLE', None)
+    if mask is None or not hasattr(os, 'chflags'):
+        raise RuntimeError('Protect Originals 需要 macOS/BSD user immutable file flag 支持')
+    return int(mask)
+
+
+def _file_is_user_immutable(path: Path) -> bool:
+    """Read the real filesystem protection state; no database mirror is kept."""
+    flags = getattr(path.stat(), 'st_flags', None)
+    if flags is None:
+        raise RuntimeError('当前文件系统无法读取 user immutable flag')
+    return bool(int(flags) & _user_immutable_mask())
+
+
+def _ensure_user_immutable(path: Path):
+    """Add UF_IMMUTABLE while preserving every other existing file flag."""
+    st = path.stat()
+    flags = getattr(st, 'st_flags', None)
+    if flags is None:
+        raise RuntimeError('当前文件系统无法读取 user immutable flag')
+    os.chflags(path, int(flags) | _user_immutable_mask())
+
+
+def _direct_files_with_extensions(directory: Path, extensions):
+    if not directory.is_dir():
+        return []
+    allowed = {str(ext).casefold() for ext in extensions}
+    return sorted(
+        [
+            path
+            for path in directory.iterdir()
+            if path.is_file() and not path.is_symlink() and path.suffix.casefold() in allowed
+        ],
+        key=lambda path: path.name.casefold(),
+    )
+
+
+def _protect_originals_snapshot(set_dir: Path):
+    paths = {
+        'base': _list_top_level_images(set_dir / '02_Base_Edit'),
+        'model': _list_top_level_images(set_dir / '03_Model_Edit'),
+        'jpg': _direct_files_with_extensions(set_dir / '01_Original' / 'JPG', ('.jpg', '.jpeg')),
+        'raw': _direct_files_with_extensions(set_dir / '01_Original' / 'RAW', ('.cr3',)),
+    }
+    return {
+        key: [path.name for path in values]
+        for key, values in paths.items()
+    }, paths
+
+
+def _build_protect_originals_plan(source_id, set_dir: Path, set_rel: str):
+    """Protect Original JPG/RAW when the same exact stem exists in Base or Model Edit."""
+    _user_immutable_mask()
+    snapshot, paths = _protect_originals_snapshot(set_dir)
+    downstream_stages = {}
+    for stage_label, stage_files in (('Base', paths['base']), ('Model', paths['model'])):
+        for path in stage_files:
+            downstream_stages.setdefault(path.stem.casefold(), set()).add(stage_label)
+
+    candidates = []
+    signatures = {}
+    for kind, original_files, is_jpg in (
+        ('JPG', paths['jpg'], True),
+        ('RAW', paths['raw'], False),
+    ):
+        for path in original_files:
+            stem_key = original_stem_key(path, is_jpg=is_jpg)
+            matched = downstream_stages.get(stem_key)
+            if not matched:
+                continue
+            protected = _file_is_user_immutable(path)
+            signatures[str(path)] = _file_signature(path)
+            candidates.append({
+                'path': str(path),
+                'name': path.name,
+                'relative_path': path.relative_to(set_dir).as_posix(),
+                'kind': kind,
+                'stem': path.stem[:-4] if is_jpg and path.stem.casefold().endswith('-dpp') else path.stem,
+                'matched_stages': sorted(matched),
+                'size': int(path.stat().st_size),
+                'status': 'protected' if protected else 'protect',
+            })
+
+    candidates.sort(key=lambda item: (item['stem'].casefold(), item['kind'], item['name'].casefold()))
+    protected_count = sum(1 for item in candidates if item['status'] == 'protected')
+    jpg_count = sum(1 for item in candidates if item['kind'] == 'JPG')
+    raw_count = sum(1 for item in candidates if item['kind'] == 'RAW')
+    candidate_count = len(candidates)
+    return {
+        'kind': 'protect_originals',
+        'source_id': int(source_id),
+        'set_rel': set_rel,
+        'set_dir': str(set_dir),
+        'items': candidates,
+        'paths': [item['path'] for item in candidates],
+        'signatures': signatures,
+        'snapshot': snapshot,
+        'summary': {
+            'candidate_count': candidate_count,
+            'jpg_count': jpg_count,
+            'raw_count': raw_count,
+            'protected_count': protected_count,
+            'unprotected_count': candidate_count - protected_count,
+            'all_protected': candidate_count > 0 and protected_count == candidate_count,
+        },
+    }
+
+
+def _verify_protect_originals_snapshot(plan, set_dir: Path):
+    current_snapshot, _ = _protect_originals_snapshot(set_dir)
+    if current_snapshot != plan.get('snapshot'):
+        raise RuntimeError('Base/Model 或 Original 文件列表在预览后发生变化，请重新预览')
 
 
 def _scan_by_stem(directory: Path, extensions, excluded_dir_names=None, *, is_jpg=False):
@@ -2310,6 +2426,89 @@ def create_workflow_blueprint(admin_guard, get_source, resolve_path, get_db_conn
                     )
                 except Exception as exc:
                     _update_task(task_id, status='error', message='移动未返图 Base 失败', error=str(exc), log=f'ERROR: {exc}')
+
+            threading.Thread(target=worker, daemon=True).start()
+            return jsonify({'task_id': task_id})
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 409
+
+    @bp.route('/api/library/workflow/sources/<int:source_id>/protect-originals/status', methods=['POST'])
+    def protect_originals_status(source_id):
+        denied = admin_guard()
+        if denied:
+            return denied
+        try:
+            source, root, set_dir, set_rel = require_set(source_id)
+            plan = _build_protect_originals_plan(source_id, set_dir, set_rel)
+            return jsonify({'summary': plan['summary']})
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 400
+
+    @bp.route('/api/library/workflow/sources/<int:source_id>/protect-originals/preview', methods=['POST'])
+    def protect_originals_preview(source_id):
+        denied = admin_guard()
+        if denied:
+            return denied
+        try:
+            source, root, set_dir, set_rel = require_set(source_id)
+            plan = _build_protect_originals_plan(source_id, set_dir, set_rel)
+            plan_id = _remember_plan(plan)
+            return jsonify({
+                'plan_id': plan_id,
+                'items': plan['items'],
+                'summary': plan['summary'],
+            })
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 400
+
+    @bp.route('/api/library/workflow/sources/<int:source_id>/protect-originals/start', methods=['POST'])
+    def protect_originals_start(source_id):
+        denied = admin_guard()
+        if denied:
+            return denied
+        try:
+            source, root, set_dir, set_rel = require_set(source_id)
+            data = request.get_json(silent=True) or {}
+            plan = _get_plan(str(data.get('plan_id') or ''), 'protect_originals', source_id, set_rel)
+            _verify_signatures(plan['signatures'])
+            _verify_protect_originals_snapshot(plan, set_dir)
+            paths = [Path(path) for path in plan['paths']]
+            if not paths:
+                raise ValueError('当前没有需要保护的 Original JPG/RAW')
+            task_id = _new_task('protect_originals', len(paths))
+
+            def worker():
+                newly_protected = 0
+                already_protected = 0
+                try:
+                    _update_task(task_id, status='running', message='开始设置 Original 保护…')
+                    for index, path in enumerate(paths, start=1):
+                        if not path.is_file():
+                            raise FileNotFoundError(f'Original 文件不存在: {path.name}')
+                        was_protected = _file_is_user_immutable(path)
+                        _ensure_user_immutable(path)
+                        if not _file_is_user_immutable(path):
+                            raise RuntimeError(f'保护设置未生效: {path.name}')
+                        if was_protected:
+                            already_protected += 1
+                            message = f'{path.name} · 已设置保护'
+                        else:
+                            newly_protected += 1
+                            message = f'{path.name} · 已设置保护'
+                        _update_task(task_id, completed=index, current=index, message=message, log=message)
+                    result = {
+                        'protected_count': len(paths),
+                        'newly_protected_count': newly_protected,
+                        'already_protected_count': already_protected,
+                    }
+                    _update_task(
+                        task_id,
+                        status='done',
+                        message=f'完成：已确认保护 {len(paths)} 个 Original 文件',
+                        result=result,
+                    )
+                except Exception as exc:
+                    _update_task(task_id, status='error', message='设置 Original 保护失败', error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})

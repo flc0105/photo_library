@@ -9,6 +9,8 @@
         const previewTitle = ref('Advanced Feature');
         const previewData = ref(null);
         const threshold = ref(0.8);
+        const protectOriginalsStatus = ref(null);
+        let protectOriginalsStatusRequest = 0;
 
         const inspectionVisible = ref(false);
         const inspectionRulesVisible = ref(false);
@@ -75,6 +77,39 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload || {})
         });
+
+        const refreshProtectOriginalsStatus = async () => {
+            const requestId = ++protectOriginalsStatusRequest;
+            protectOriginalsStatus.value = null;
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                protectOriginalsStatus.value = null;
+                return;
+            }
+            try {
+                const data = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/protect-originals/status`,
+                    {path: ctx.path}
+                );
+                if (requestId === protectOriginalsStatusRequest) {
+                    protectOriginalsStatus.value = data.summary || null;
+                }
+            } catch (error) {
+                if (requestId === protectOriginalsStatusRequest) protectOriginalsStatus.value = null;
+            }
+        };
+
+        const protectOriginalsLabel = computed(() => {
+            return protectOriginalsStatus.value?.all_protected
+                ? 'Protect Originals · 已设置保护'
+                : 'Protect Originals';
+        });
+
+        const handleWorkflowMenuVisible = (visible) => {
+            if (visible) void refreshProtectOriginalsStatus();
+        };
 
         const openImageInspection = async () => {
             let ctx;
@@ -215,6 +250,34 @@
             } catch (error) {
                 previewData.value = null;
                 ElMessage.error(error.message || '同步预览失败');
+            } finally {
+                previewLoading.value = false;
+            }
+        };
+
+        const openProtectOriginals = async () => {
+            let ctx;
+            try {
+                ctx = context();
+            } catch (error) {
+                ElMessage.error(error.message);
+                return;
+            }
+            previewKind.value = 'protect_originals';
+            previewTitle.value = 'Protect Originals';
+            previewData.value = null;
+            previewVisible.value = true;
+            previewLoading.value = true;
+            try {
+                const data = await postJson(
+                    `/api/library/workflow/sources/${ctx.sourceId}/protect-originals/preview`,
+                    {path: ctx.path}
+                );
+                previewData.value = data;
+                protectOriginalsStatus.value = data.summary || null;
+            } catch (error) {
+                previewData.value = null;
+                ElMessage.error(error.message || 'Original 保护预览失败');
             } finally {
                 previewLoading.value = false;
             }
@@ -428,6 +491,7 @@
             }
             if (previewKind.value === 'sync_originals') return (data.summary?.trash_count || 0) > 0;
             if (previewKind.value === 'select_raw') return (data.summary?.copy_count || 0) > 0;
+            if (previewKind.value === 'protect_originals') return (data.summary?.candidate_count || 0) > 0;
             return false;
         });
 
@@ -441,6 +505,9 @@
             }
             if (previewKind.value === 'sync_originals') {
                 return `请再次确认你已经检查过预览列表。最终将有 ${data.summary?.trash_count || 0} 个文件随 Deleted 进入系统回收站，其中 ${data.summary?.move_count || 0} 个会先从当前目录移动进 Deleted。不会调用永久删除。`;
+            }
+            if (previewKind.value === 'protect_originals') {
+                return `将对当前预览中的 ${data.summary?.candidate_count || 0} 个 Original JPG/RAW 确认设置 macOS user immutable (uchg) 保护。不会修改图片内容、EXIF/XMP 或文件名；已保护文件也会再次确认设置。`;
             }
             return `将把 ${data.summary?.copy_count || 0} 个收藏 JPG 对应的 CR3 复制到 01_Original/Selects。已有同名 RAW 不会覆盖。`;
         };
@@ -469,6 +536,7 @@
             if (previewKind.value === 'discard_unreturned_base') endpoint = 'discard-unreturned/start';
             if (previewKind.value === 'sync_originals') endpoint = 'sync/start';
             if (previewKind.value === 'select_raw') endpoint = 'select-raw/start';
+            if (previewKind.value === 'protect_originals') endpoint = 'protect-originals/start';
 
             try {
                 const data = await postJson(
@@ -510,6 +578,9 @@
                         ElMessage.warning('文件已安全留在 Deleted；系统回收站调用失败，请查看进度日志。');
                     } else {
                         ElMessage.success(data.message || '操作完成');
+                    }
+                    if (data.status === 'done' && data.kind === 'protect_originals') {
+                        await refreshProtectOriginalsStatus();
                     }
                     if (refreshedTaskId !== data.id && options.refreshCurrent) {
                         refreshedTaskId = data.id;
@@ -556,7 +627,9 @@
             move_to_discards: 'Move',
             destination_exists: 'Conflict',
             move_to_deleted: 'Move',
-            already_in_deleted: 'In Deleted'
+            already_in_deleted: 'In Deleted',
+            protect: 'Protect',
+            protected: 'Protected'
         }[status] || status || '—');
 
         const statusType = (status) => ({
@@ -570,7 +643,9 @@
             move_to_discards: 'warning',
             destination_exists: 'danger',
             move_to_deleted: 'warning',
-            already_in_deleted: 'info'
+            already_in_deleted: 'info',
+            protect: 'warning',
+            protected: 'success'
         }[status] || 'info');
 
         const formatSize = (bytes) => {
@@ -588,6 +663,8 @@
             previewTitle,
             previewData,
             threshold,
+            protectOriginalsLabel,
+            handleWorkflowMenuVisible,
             inspectionVisible,
             inspectionRulesVisible,
             inspectionLoading,
@@ -617,6 +694,7 @@
             openVisualRename,
             analyzeVisualRename,
             openDiscardUnreturnedBase,
+            openProtectOriginals,
             openSyncRawByJpg: () => openSync('raw_by_jpg'),
             openSyncJpgByRaw: () => openSync('jpg_by_raw'),
             openSelectRaw,

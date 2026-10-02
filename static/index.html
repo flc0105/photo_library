@@ -249,7 +249,7 @@
                         <el-button v-if="isSetDirectory" @click="openManifestEditor">
                             {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
                         </el-button>
-                        <el-dropdown v-if="isSetDirectory" trigger="click" placement="bottom-end">
+                        <el-dropdown v-if="isSetDirectory" trigger="click" placement="bottom-end" @visible-change="handleWorkflowMenuVisible">
                             <el-button title="Workflow" aria-label="Workflow">Workflow</el-button>
                             <template #dropdown>
                                 <el-dropdown-menu>
@@ -257,6 +257,7 @@
                                     <el-dropdown-item @click="openSyncJpgByRawTool">Delete Extra JPG</el-dropdown-item>
                                     <el-dropdown-item @click="openSyncRawByJpgTool">Delete Extra RAW</el-dropdown-item>
                                     <el-dropdown-item @click="openSelectRawTool">Pick RAW</el-dropdown-item>
+                                    <el-dropdown-item @click="openProtectOriginalsTool">{{ workflowProtectOriginalsLabel }}</el-dropdown-item>
                                     <el-dropdown-item divided @click="openVisualRenameTool">Match Rename</el-dropdown-item>
                                     <el-dropdown-item @click="openDiscardUnreturnedBaseTool">Discard Unreturned</el-dropdown-item>
                                     <el-dropdown-item @click="openImageInspectionTool">Image Inspection</el-dropdown-item>
@@ -1561,6 +1562,38 @@
                     <div v-if="workflowPreviewData && workflowPreviewData.summary.trash_count === 0" class="workflow-empty-result">两边文件名已经对应，无需处理。</div>
                 </template>
 
+                <template v-else-if="workflowPreviewKind === 'protect_originals'">
+                    <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
+                        <strong>01_Original JPG + RAW</strong>
+                        <span>只保护 Base Edit 或 Model Edit 中存在同 stem 的 Original 文件。执行会设置 macOS <code>uchg</code>（user immutable），不会修改图片字节、EXIF/XMP 或文件名。Finder 仍可在明确的 Locked 警告后手动覆盖；本功能用于防误删。</span>
+                    </div>
+                    <div v-if="workflowPreviewData" class="workflow-summary-strip">
+                        <span>Original <strong>{{ workflowPreviewData.summary.candidate_count }}</strong></span>
+                        <span>JPG <strong>{{ workflowPreviewData.summary.jpg_count }}</strong></span>
+                        <span>RAW <strong>{{ workflowPreviewData.summary.raw_count }}</strong></span>
+                        <span>Protected <strong>{{ workflowPreviewData.summary.protected_count }}</strong></span>
+                        <span v-if="workflowPreviewData.summary.unprotected_count" class="is-warning">To protect <strong>{{ workflowPreviewData.summary.unprotected_count }}</strong></span>
+                    </div>
+                    <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
+                        <el-table-column label="Original file" min-width="360">
+                            <template #default="scope"><code>{{ scope.row.relative_path }}</code></template>
+                        </el-table-column>
+                        <el-table-column label="Matched" width="150">
+                            <template #default="scope">{{ scope.row.matched_stages.join(' / ') }}</template>
+                        </el-table-column>
+                        <el-table-column label="Status" width="135">
+                            <template #default="scope">
+                                <el-tag size="small" :type="workflowStatusType(scope.row.status)">{{ workflowStatusLabel(scope.row.status) }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Size" width="130" align="right">
+                            <template #default="scope">{{ workflowFormatSize(scope.row.size) }}</template>
+                        </el-table-column>
+                    </el-table>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.all_protected" class="workflow-empty-result">已设置保护。仍可再次执行，系统会按当前文件重新确认并设置保护。</div>
+                    <div v-else-if="workflowPreviewData && workflowPreviewData.summary.candidate_count === 0" class="workflow-empty-result">Base Edit / Model Edit 中没有可对应到 Original JPG/RAW 的同 stem 文件。</div>
+                </template>
+
                 <template v-else-if="workflowPreviewKind === 'select_raw'">
                     <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
                         <strong>Destination: {{ workflowPreviewData.destination }}</strong>
@@ -1596,7 +1629,7 @@
             </div>
             <template #footer>
                 <el-button @click="workflowPreviewVisible = false" :disabled="workflowPreviewLoading">取消</el-button>
-                <el-button type="primary" @click="startWorkflowOperation" :disabled="!workflowCanExecute || workflowPreviewLoading">执行预览结果</el-button>
+                <el-button type="primary" @click="startWorkflowOperation" :disabled="!workflowCanExecute || workflowPreviewLoading">{{ workflowPreviewKind === 'protect_originals' ? '设置保护' : '执行预览结果' }}</el-button>
             </template>
         </el-dialog>
 
