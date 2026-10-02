@@ -13,9 +13,14 @@ const app = createApp({
         const showEditAlbumDialog = ref(false);
         const showUploadDialog = ref(false);
 
-        const SMART_ALBUM_DEFAULT_CODE = `# \`photos\` contains all indexed photos from enabled Library Sources.
-# Return Photo objects through \`result\`.
-result = list(photos)
+        const SMART_ALBUM_DEFAULT_CODE = `SOURCE = "2026"
+result = [
+    photo
+    for photo in photos
+    if photo.source.name == SOURCE
+    and photo.state.favorite
+    and photo.stage == "final"
+]
 `;
 
         const newAlbum = ref({

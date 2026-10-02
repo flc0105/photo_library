@@ -102,9 +102,9 @@
         };
 
         const protectOriginalsLabel = computed(() => {
-            if (protectOriginalsStatus.value?.all_protected) return 'Protect Originals · 已设置保护';
+            if (protectOriginalsStatus.value?.all_protected) return 'Protect Originals ✓';
             if ((protectOriginalsStatus.value?.protected_original_count || 0) > 0) {
-                return 'Protect Originals · 部分已保护';
+                return 'Protect Originals ◐';
             }
             return 'Protect Originals';
         });
