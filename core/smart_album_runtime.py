@@ -307,14 +307,17 @@ def _execute_query(code, payloads):
         photos.append(photo)
         by_id[photo.id] = photo
 
-    globals_dict = _query_globals(photos)
-    locals_dict = {}
+    # Execute the script like a normal Python module: top-level assignments and
+    # functions share one namespace.  Using separate globals/locals breaks real
+    # Python semantics because functions cannot see variables assigned at the
+    # script top level (for example ``seed`` or ``threshold``).
+    namespace = _query_globals(photos)
     compiled = compile(tree, '<smart-album>', 'exec')
-    exec(compiled, globals_dict, locals_dict)
+    exec(compiled, namespace, namespace)
 
-    if 'result' not in locals_dict and 'result' not in globals_dict:
+    if 'result' not in namespace:
         raise ValueError('Python code 必须给变量 result 赋值。')
-    result = locals_dict.get('result', globals_dict.get('result'))
+    result = namespace.get('result')
     if result is None:
         return []
     if isinstance(result, PhotoRecord):
