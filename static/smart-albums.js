@@ -44,6 +44,9 @@
         async refreshIndex() {
             return requestJson('/api/smart-albums/index/refresh', {method: 'POST'});
         },
+        async indexProgress() {
+            return requestJson('/api/smart-albums/index/progress');
+        },
         async indexStatus() {
             return requestJson('/api/smart-albums/index/status');
         }

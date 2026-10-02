@@ -1,12 +1,14 @@
+import copy
 import json
 import os
 import re
 import sqlite3
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image
 from flask import Blueprint, jsonify, request
 
 from core.external_tools import probe_exiftool_version, resolve_exiftool
@@ -17,25 +19,48 @@ from core.smart_album_runtime import run_query
 SMART_ALBUM_DB_FILENAME = 'smart_albums.db'
 SMART_ALBUM_ENGINE_VERSION = 1
 SMART_ALBUM_QUERY_TIMEOUT_SECONDS = 10
-SMART_ALBUM_EXIF_BATCH_SIZE = 100
+SMART_ALBUM_EXIF_BATCH_SIZE = 25  # Smaller batches keep index progress visibly granular without changing query semantics.
 
-_SET_FOLDER_RE = re.compile(r'^\d{8}-.+-.+$')
-_DISPLAY_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff'}
-_RAW_EXTENSIONS = {'.cr3', '.cr2', '.dng', '.nef', '.arw', '.raf', '.rw2', '.orf'}
-_STAGE_DEFS = (
-    ('original_jpg', '01_Original/JPG'),
+# --- Smart Album indexing policy -------------------------------------------------
+# v1 intentionally keeps 01_Original out of the index. The archive can contain
+# very large Original JPG/RAW collections and Smart Album is currently focused on
+# edited/final assets. To make Original JPG queryable later, add this tuple to
+# SMART_ALBUM_INDEX_STAGE_DEFS:
+#     ('original_jpg', '01_Original/JPG'),
+SMART_ALBUM_INDEX_STAGE_DEFS = (
     ('base_edit', '02_Base_Edit'),
     ('model_edit', '03_Model_Edit'),
     ('revision', '04_Revision'),
     ('final', '05_Final'),
 )
+
+# Capture metadata policy. Keep this at 'asset' to avoid touching 01_Original at
+# all: photo.capture.* is then derived from the indexed asset's own EXIF.
+# Later, if trusted Original donor metadata is worth the extra I/O, change to:
+#     'original_jpg'      -> matching 01_Original/JPG donor only
+#     'original_jpg_raw'  -> JPG donor first, RAW fallback
+SMART_ALBUM_CAPTURE_METADATA_SOURCE = 'asset'
+
+_SET_FOLDER_RE = re.compile(r'^\d{8}-.+-.+$')
+_DISPLAY_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff'}
+_RAW_EXTENSIONS = {'.cr3', '.cr2', '.dng', '.nef', '.arw', '.raf', '.rw2', '.orf'}
+_STAGE_DEFS = SMART_ALBUM_INDEX_STAGE_DEFS
 _SKIP_DIR_NAMES = {'deleted', 'discards', 'intermediates'}
+_CAPTURE_METADATA_MODES = {'asset', 'original_jpg', 'original_jpg_raw'}
 
 DEFAULT_QUERY_CODE = """# `photos` contains all indexed photos from enabled Library Sources.\n# Return Photo objects through `result`.\nresult = list(photos)\n"""
 
 
 def _now_iso():
     return datetime.now().isoformat(timespec='seconds')
+
+
+def _index_policy_signature():
+    """Invalidate only the Smart Album cache when indexing policy changes."""
+    return json.dumps({
+        'stages': list(_STAGE_DEFS),
+        'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
+    }, ensure_ascii=False, sort_keys=True)
 
 
 def _connect(path):
@@ -216,9 +241,9 @@ def _logical_id(path):
     return Path(path).stem.split('-', 1)[0]
 
 
-def _original_indexes(set_dir):
+def _original_indexes(set_dir, *, include_raw=True):
     jpg_files = _walk_files(set_dir / '01_Original' / 'JPG', {'.jpg', '.jpeg'})
-    raw_files = _walk_files(set_dir / '01_Original' / 'RAW', _RAW_EXTENSIONS)
+    raw_files = _walk_files(set_dir / '01_Original' / 'RAW', _RAW_EXTENSIONS) if include_raw else []
     jpg_index = {}
     raw_index = {}
     for path in jpg_files:
@@ -237,7 +262,7 @@ def _choose_donor(candidates, logical_id):
     return exact[0] if len(exact) == 1 else None
 
 
-def _run_exiftool_records(exiftool_path, files):
+def _run_exiftool_records(exiftool_path, files, *, progress_callback=None):
     if not exiftool_path or not files:
         return {}
     records_by_path = {}
@@ -248,7 +273,8 @@ def _run_exiftool_records(exiftool_path, files):
         if key not in seen:
             seen.add(key)
             unique.append(Path(path))
-    for offset in range(0, len(unique), SMART_ALBUM_EXIF_BATCH_SIZE):
+    total = len(unique)
+    for offset in range(0, total, SMART_ALBUM_EXIF_BATCH_SIZE):
         chunk = unique[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
         command = [
             exiftool_path,
@@ -275,6 +301,8 @@ def _run_exiftool_records(exiftool_path, files):
             source = record.get('SourceFile')
             if source:
                 records_by_path[str(Path(source).resolve())] = record
+        if progress_callback:
+            progress_callback(min(offset + len(chunk), total), total)
     return records_by_path
 
 
@@ -448,16 +476,77 @@ def _capture_fields(record):
     }
 
 
-def _image_facts(path):
-    width = height = None
-    mode = None
+def _int_value(value):
+    number = _number(value)
+    if number is None:
+        return None
     try:
-        with Image.open(path) as image:
-            mode = image.mode
-            image = ImageOps.exif_transpose(image)
-            width, height = image.size
-    except Exception:
-        pass
+        return int(number)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _record_image_mode(record):
+    """Derive a common Pillow-like mode without decoding image pixels."""
+    color_type = _record_first_text(record, ['PNG:ColorType', 'ColorType']).casefold()
+    if color_type:
+        if 'rgba' in color_type or ('rgb' in color_type and 'alpha' in color_type):
+            return 'RGBA'
+        if 'rgb' in color_type:
+            return 'RGB'
+        if 'grayscale' in color_type and 'alpha' in color_type:
+            return 'LA'
+        if 'grayscale' in color_type or 'greyscale' in color_type:
+            return 'L'
+        if 'palette' in color_type:
+            return 'P'
+
+    components = _int_value(_record_first(record, ['File:ColorComponents', 'ColorComponents']))
+    if components == 1:
+        return 'L'
+    if components == 3:
+        return 'RGB'
+    if components == 4:
+        return 'CMYK'
+    return None
+
+
+def _image_facts(path, record=None):
+    """Read geometry cheaply; never transpose/decode the full image for the index."""
+    record = record or {}
+    width = _int_value(_record_first(record, [
+        'File:ImageWidth', 'PNG:ImageWidth', 'JPEG:ImageWidth',
+        'ExifIFD:ExifImageWidth', 'EXIF:ExifImageWidth', 'ImageWidth',
+    ]))
+    height = _int_value(_record_first(record, [
+        'File:ImageHeight', 'PNG:ImageHeight', 'JPEG:ImageHeight',
+        'ExifIFD:ExifImageHeight', 'EXIF:ExifImageHeight', 'ImageHeight',
+    ]))
+    mode = _record_image_mode(record)
+    orientation_text = _record_first_text(record, [
+        'IFD0:Orientation', 'EXIF:Orientation', 'Orientation',
+    ]).casefold()
+
+    if width is None or height is None or mode is None:
+        try:
+            # Header fallback only. Avoid ImageOps.exif_transpose(), which may
+            # decode/copy the full image for every indexed asset.
+            with Image.open(path) as image:
+                if width is None or height is None:
+                    width, height = image.size
+                    try:
+                        orientation_value = image.getexif().get(274)
+                        if orientation_value in {5, 6, 7, 8}:
+                            width, height = height, width
+                    except Exception:
+                        pass
+                if mode is None:
+                    mode = image.mode
+        except Exception:
+            pass
+    elif width and height and ('90' in orientation_text or '270' in orientation_text):
+        width, height = height, width
+
     ratio = (float(width) / float(height)) if width and height else None
     if width and height:
         if width > height:
@@ -482,8 +571,111 @@ def _read_manifest(root, set_path):
         return {}
 
 
-def _refresh_index(smart_db_path, main_db_path):
+def _new_index_steps():
+    return [
+        {
+            'id': 'discover_sets',
+            'label': '扫描 Source / Set',
+            'status': 'pending',
+            'current': 0,
+            'total': 0,
+            'unit': 'Source',
+            'detail': '等待开始',
+        },
+        {
+            'id': 'plan_assets',
+            'label': '统计候选图片',
+            'status': 'pending',
+            'current': 0,
+            'total': 0,
+            'unit': 'Set',
+            'detail': '等待 Set 扫描完成',
+        },
+        {
+            'id': 'index_assets',
+            'label': '读取图片 Metadata / EXIF 并写入索引',
+            'status': 'pending',
+            'current': 0,
+            'total': 0,
+            'unit': '图片',
+            'detail': '包含尺寸、方向、Color Space、Bit Depth 与 capture metadata',
+        },
+        {
+            'id': 'verify',
+            'label': '完成校验',
+            'status': 'pending',
+            'current': 0,
+            'total': 1,
+            'unit': '项',
+            'detail': '等待索引写入完成',
+        },
+    ]
+
+
+def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
+    if SMART_ALBUM_CAPTURE_METADATA_SOURCE not in _CAPTURE_METADATA_MODES:
+        raise RuntimeError(
+            'SMART_ALBUM_CAPTURE_METADATA_SOURCE must be one of: ' +
+            ', '.join(sorted(_CAPTURE_METADATA_MODES))
+        )
+
+    steps = _new_index_steps()
+    step_map = {step['id']: step for step in steps}
+    summary = {
+        'overall_dimension': 'image',
+        'source_total': 0,
+        'source_available': 0,
+        'set_total': 0,
+        'asset_total': 0,
+        'stage_counts': {stage: 0 for stage, _ in _STAGE_DEFS},
+        'manifest_mode': 'live',
+        'state_mode': 'live',
+        'originals_indexed': any(stage == 'original_jpg' for stage, _ in _STAGE_DEFS),
+        'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
+    }
+    overall_current = 0
+    overall_total = 0
+    overall_ready = False
+
+    def emit(phase, message, *, current=None, total=None, percent=None):
+        nonlocal overall_current, overall_total, overall_ready
+        if current is not None:
+            overall_current = int(current)
+        if total is not None:
+            overall_total = int(total)
+        if percent is None:
+            if overall_total > 0:
+                percent = 100.0 * overall_current / overall_total
+            else:
+                percent = 0.0
+            # Reserve 100% for the completed state so the bar never reaches
+            # 100 and then moves backward while final verification is running.
+            if overall_ready and phase != 'done':
+                percent = min(percent, 99.0)
+        payload = {
+            # Keep legacy top-level fields for the existing API shape, but from
+            # planning onward current/total always mean indexed images.
+            'percent': max(0, min(100, int(round(percent)))),
+            'phase': phase,
+            'message': message,
+            'current': overall_current,
+            'total': overall_total,
+            'overall': {
+                'dimension': 'image',
+                'label': '图片总进度',
+                'current': overall_current,
+                'total': overall_total,
+                'percent': max(0, min(100, int(round(percent)))),
+                'ready': overall_ready,
+            },
+            'steps': copy.deepcopy(steps),
+            'summary': copy.deepcopy(summary),
+        }
+        if progress_callback:
+            progress_callback(payload)
+
     sources = _enabled_sources(main_db_path)
+    summary['source_total'] = len(sources)
     exiftool = resolve_exiftool()
     exiftool_version = probe_exiftool_version(exiftool) if exiftool else ''
     warnings = []
@@ -495,36 +687,127 @@ def _refresh_index(smart_db_path, main_db_path):
     set_count = 0
     asset_count = 0
     unavailable_sources = []
+    source_jobs = []
+
+    # First discover projects (Sets), then fix the image denominator. The overall
+    # bar never switches to Source/Set counts.
+    discover_step = step_map['discover_sets']
+    discover_step.update(status='active', current=0, total=len(sources), detail='开始扫描 enabled Library Sources')
+    emit('discover_sets', '扫描 Source / Set')
+
+    for source_index, source in enumerate(sources, start=1):
+        root = Path(source['root_path']).expanduser().resolve()
+        if not root.is_dir():
+            unavailable_sources.append(source['name'])
+            discover_step['current'] = source_index
+            discover_step['detail'] = f"跳过不可用 Source：{source['name']}"
+            emit('discover_sets', discover_step['detail'])
+            continue
+
+        set_dirs = _discover_sets(root)
+        summary['source_available'] += 1
+        set_count += len(set_dirs)
+        source_jobs.append({
+            'source': source,
+            'root': root,
+            'set_dirs': set_dirs,
+            'plans': [],
+        })
+        discover_step['current'] = source_index
+        discover_step['detail'] = f"{source['name']}：发现 {len(set_dirs)} 个 Set；累计 {set_count} 个 Set"
+        emit('discover_sets', discover_step['detail'])
+
+    summary['set_total'] = set_count
+    discover_step.update(
+        status='done',
+        current=len(sources),
+        total=len(sources),
+        detail=f'扫描完成：{summary["source_available"]} 个可用 Source，{set_count} 个 Set',
+    )
+
+    plan_step = step_map['plan_assets']
+    plan_step.update(status='active', current=0, total=set_count, detail='统计 Base / Model / Revision / Final 候选图片')
+    emit('plan_assets', '统计候选图片')
+    planned_sets = 0
+
+    for job in source_jobs:
+        root = job['root']
+        plans = []
+        for set_dir in job['set_dirs']:
+            set_rel = set_dir.relative_to(root).as_posix()
+            candidates = _set_candidates(set_dir)
+
+            jpg_index = raw_index = {}
+            if candidates and SMART_ALBUM_CAPTURE_METADATA_SOURCE != 'asset':
+                include_raw = SMART_ALBUM_CAPTURE_METADATA_SOURCE == 'original_jpg_raw'
+                _jpg_files, _raw_files, jpg_index, raw_index = _original_indexes(
+                    set_dir,
+                    include_raw=include_raw,
+                )
+
+            for stage, path in candidates:
+                logical_id = _logical_id(path)
+                donor = path
+                if SMART_ALBUM_CAPTURE_METADATA_SOURCE != 'asset':
+                    key = logical_id.casefold()
+                    donor = _choose_donor(jpg_index.get(key, []), logical_id)
+                    if donor is None and SMART_ALBUM_CAPTURE_METADATA_SOURCE == 'original_jpg_raw':
+                        donor = _choose_donor(raw_index.get(key, []), logical_id)
+                plans.append((set_dir, set_rel, stage, path, logical_id, donor))
+                summary['stage_counts'][stage] = summary['stage_counts'].get(stage, 0) + 1
+
+            planned_sets += 1
+            plan_step['current'] = planned_sets
+            plan_step['detail'] = f'已统计 {planned_sets} / {set_count} 个 Set；候选图片 {sum(summary["stage_counts"].values())} 张'
+            emit('plan_assets', plan_step['detail'])
+
+        job['plans'] = plans
+
+    total_assets = sum(len(job['plans']) for job in source_jobs)
+    summary['asset_total'] = total_assets
+    overall_total = total_assets
+    overall_ready = True
+    plan_step.update(status='done', current=set_count, total=set_count, detail=f'候选图片共 {total_assets} 张')
+    emit('plan_assets', f'候选图片统计完成：{total_assets} 张', current=0, total=total_assets, percent=0)
+
+    index_step = step_map['index_assets']
+    index_step.update(status='active', current=0, total=total_assets, detail='准备读取图片 Metadata / EXIF')
+
     conn.execute('BEGIN IMMEDIATE')
     try:
         conn.execute('DELETE FROM smart_album_assets')
-        for source in sources:
-            root = Path(source['root_path']).expanduser().resolve()
-            if not root.is_dir():
-                unavailable_sources.append(source['name'])
-                continue
-            set_dirs = _discover_sets(root)
-            for set_dir in set_dirs:
-                set_count += 1
-                set_rel = set_dir.relative_to(root).as_posix()
-                candidates = _set_candidates(set_dir)
-                if not candidates:
-                    continue
-                jpg_files, raw_files, jpg_index, raw_index = _original_indexes(set_dir)
-                all_metadata_files = [path for _, path in candidates] + jpg_files + raw_files
-                exif_by_path = _run_exiftool_records(exiftool, all_metadata_files) if exiftool else {}
+        indexed_done = 0
+        for job in source_jobs:
+            source = job['source']
+            root = job['root']
+            plans = job['plans']
 
-                for stage, path in candidates:
+            for offset in range(0, len(plans), SMART_ALBUM_EXIF_BATCH_SIZE):
+                batch_plans = plans[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
+                metadata_files = []
+                for _set_dir, _set_rel, _stage, path, _logical_id_value, donor in batch_plans:
+                    metadata_files.append(path)
+                    if donor is not None and donor != path:
+                        metadata_files.append(donor)
+
+                batch_start = indexed_done + 1 if batch_plans else indexed_done
+                batch_end = indexed_done + len(batch_plans)
+                index_step['detail'] = (
+                    f"{source['name']}：读取第 {batch_start}–{batch_end} / {total_assets} 张图片的 Metadata / EXIF"
+                    if total_assets else f"{source['name']}：没有候选图片"
+                )
+                emit('index_assets', index_step['detail'], current=indexed_done, total=total_assets)
+
+                exif_by_path = _run_exiftool_records(exiftool, metadata_files) if exiftool else {}
+
+                for set_dir, set_rel, stage, path, logical_id, donor in batch_plans:
                     relative_path = path.relative_to(root).as_posix()
-                    logical_id = _logical_id(path)
-                    key = logical_id.casefold()
-                    donor = _choose_donor(jpg_index.get(key, []), logical_id)
-                    if donor is None:
-                        donor = _choose_donor(raw_index.get(key, []), logical_id)
-                    asset_record = exif_by_path.get(str(path.resolve()), {})
-                    capture_record = exif_by_path.get(str(donor.resolve()), {}) if donor else {}
+                    path_key = str(path.resolve())
+                    donor_key = str(donor.resolve()) if donor else None
+                    asset_record = exif_by_path.get(path_key, {})
+                    capture_record = exif_by_path.get(donor_key, {}) if donor_key else {}
                     capture = _capture_fields(capture_record)
-                    width, height, ratio, orientation, mode = _image_facts(path)
+                    width, height, ratio, orientation, mode = _image_facts(path, asset_record)
                     color_space, color_status = _color_space_analysis(asset_record)
                     bit_depth = _bit_depth(asset_record)
                     stat = path.stat()
@@ -557,6 +840,21 @@ def _refresh_index(smart_db_path, main_db_path):
                         ),
                     )
                     asset_count += 1
+                    indexed_done += 1
+
+                index_step['current'] = indexed_done
+                index_step['detail'] = f'已完成 {indexed_done} / {total_assets} 张图片'
+                emit('index_assets', index_step['detail'], current=indexed_done, total=total_assets)
+
+        index_step.update(status='done', current=total_assets, total=total_assets, detail=f'图片索引完成：{total_assets} 张')
+
+        verify_step = step_map['verify']
+        verify_step.update(status='active', current=0, total=1, detail='校验写入数量与索引配置')
+        emit('verify', '完成校验', current=overall_current, total=overall_total, percent=99 if overall_ready else 0)
+
+        row_count = conn.execute('SELECT COUNT(*) AS count FROM smart_album_assets').fetchone()['count']
+        if int(row_count) != int(asset_count):
+            raise RuntimeError(f'Smart Album 索引校验失败：写入 {asset_count} 张，但数据库中为 {row_count} 张')
 
         if unavailable_sources:
             warnings.append('不可用 Source：' + ', '.join(unavailable_sources))
@@ -565,21 +863,29 @@ def _refresh_index(smart_db_path, main_db_path):
         _meta_set(conn, 'set_count', set_count)
         _meta_set(conn, 'exiftool_version', exiftool_version)
         _meta_set(conn, 'warnings_json', json.dumps(warnings, ensure_ascii=False))
+        _meta_set(conn, 'index_policy_signature', _index_policy_signature())
         conn.commit()
+
+        verify_step.update(status='done', current=1, total=1, detail=f'校验通过：{asset_count} 张图片')
     except Exception:
         conn.rollback()
+        for step in steps:
+            if step['status'] == 'active':
+                step['status'] = 'error'
         raise
     finally:
         conn.close()
 
+    emit('done', f'Smart Album 索引完成：{asset_count} 张图片', current=asset_count, total=asset_count, percent=100)
     return {
         'last_refresh_at': indexed_at,
         'asset_count': asset_count,
         'set_count': set_count,
         'exiftool_version': exiftool_version,
         'warnings': warnings,
+        'index_stages': [stage for stage, _ in _STAGE_DEFS],
+        'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
     }
-
 
 def _index_status(smart_db_path):
     conn = _connect(smart_db_path)
@@ -587,18 +893,25 @@ def _index_status(smart_db_path):
     asset_count = int(_meta_get(conn, 'asset_count', '0') or 0)
     set_count = int(_meta_get(conn, 'set_count', '0') or 0)
     exiftool_version = _meta_get(conn, 'exiftool_version')
+    stored_policy = _meta_get(conn, 'index_policy_signature')
+    current_policy = _index_policy_signature()
     try:
         warnings = json.loads(_meta_get(conn, 'warnings_json', '[]') or '[]')
     except json.JSONDecodeError:
         warnings = []
     conn.close()
+    policy_matches = stored_policy == current_policy
+    if last_refresh_at and not policy_matches:
+        warnings = [*warnings, 'Smart Album 索引配置已变化，请重新刷新索引。']
     return {
-        'ready': bool(last_refresh_at),
+        'ready': bool(last_refresh_at) and policy_matches,
         'last_refresh_at': last_refresh_at or None,
         'asset_count': asset_count,
         'set_count': set_count,
         'exiftool_version': exiftool_version,
         'warnings': warnings,
+        'index_stages': [stage for stage, _ in _STAGE_DEFS],
+        'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
     }
 
 
@@ -649,15 +962,12 @@ def _asset_payloads(smart_db_path, main_db_path):
         except json.JSONDecodeError:
             bit_depth = None
 
-        actual_path = (Path(source['root_path']).expanduser() / row['relative_path']).resolve()
-        if not actual_path.is_file():
-            continue
-        try:
-            current_stat = actual_path.stat()
-            file_size = current_stat.st_size
-            file_mtime = datetime.fromtimestamp(current_stat.st_mtime).isoformat(timespec='seconds')
-        except OSError:
-            continue
+        # Query execution stays index-backed. Refresh Index is the explicit
+        # boundary for filesystem-derived fields; do not re-stat every asset on
+        # the external volume for each Python query.
+        actual_path = Path(source['root_path']).expanduser() / row['relative_path']
+        file_size = row['file_size']
+        file_mtime = row['file_mtime']
         absolute_path = str(actual_path)
         gps = None
         if row['capture_gps_lat'] is not None and row['capture_gps_lng'] is not None:
@@ -747,8 +1057,7 @@ def _album_dict(row):
 def _run_album_query(smart_db_path, main_db_path, album_row):
     status = _index_status(smart_db_path)
     if not status['ready']:
-        status = _refresh_index(smart_db_path, main_db_path)
-        status['ready'] = True
+        raise RuntimeError('SMART_ALBUM_INDEX_REQUIRED')
 
     payloads, result_rows = _asset_payloads(smart_db_path, main_db_path)
     ordered_ids = run_query(
@@ -785,6 +1094,79 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
     smart_db_path = main_db_path.parent / SMART_ALBUM_DB_FILENAME
     _init_smart_db(smart_db_path)
     bp = Blueprint('smart_albums', __name__)
+
+    # Index refresh is intentionally isolated inside the Smart Album module.
+    # Progress is process-local because this Gallery is a personal/local app;
+    # restarting the app simply clears the transient progress state, not the index.
+    index_job_lock = threading.Lock()
+    index_job = {
+        'active': False,
+        'percent': 0,
+        'phase': 'idle',
+        'message': '',
+        'current': 0,
+        'total': 0,
+        'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
+        'steps': _new_index_steps(),
+        'summary': {
+            'overall_dimension': 'image',
+            'source_total': 0,
+            'source_available': 0,
+            'set_total': 0,
+            'asset_total': 0,
+            'stage_counts': {stage: 0 for stage, _ in _STAGE_DEFS},
+            'manifest_mode': 'live',
+            'state_mode': 'live',
+            'originals_indexed': any(stage == 'original_jpg' for stage, _ in _STAGE_DEFS),
+            'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
+        },
+        'error': '',
+        'index': None,
+    }
+
+    def index_job_snapshot():
+        with index_job_lock:
+            return copy.deepcopy(index_job)
+
+    def update_index_job(**changes):
+        with index_job_lock:
+            index_job.update(changes)
+
+    def run_index_refresh_job():
+        try:
+            status = _refresh_index(
+                smart_db_path,
+                main_db_path,
+                progress_callback=lambda progress: update_index_job(**progress),
+            )
+            snapshot = index_job_snapshot()
+            overall = dict(snapshot.get('overall') or {})
+            overall.update({'current': status['asset_count'], 'total': status['asset_count'], 'percent': 100, 'ready': True})
+            update_index_job(
+                active=False,
+                percent=100,
+                phase='done',
+                message=f"Smart Album 索引完成：{status['asset_count']} 张图片",
+                current=status['asset_count'],
+                total=status['asset_count'],
+                overall=overall,
+                error='',
+                index={**status, 'ready': True},
+            )
+        except Exception as exc:
+            snapshot = index_job_snapshot()
+            failed_steps = copy.deepcopy(snapshot.get('steps') or [])
+            for step in failed_steps:
+                if step.get('status') == 'active':
+                    step['status'] = 'error'
+            update_index_job(
+                active=False,
+                phase='error',
+                message='Smart Album 索引刷新失败',
+                steps=failed_steps,
+                error=str(exc),
+                index=_index_status(smart_db_path),
+            )
 
     def guard():
         return admin_guard()
@@ -913,6 +1295,13 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 'index': status,
             })
         except Exception as exc:
+            if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
+                return jsonify({
+                    'error': 'Smart Album 索引尚未建立，请先点击“刷新索引”。',
+                    'code': 'smart_album_index_required',
+                    'index': _index_status(smart_db_path),
+                    'traceback': '',
+                }), 409
             return jsonify({
                 'error': str(exc),
                 'traceback': getattr(exc, 'smart_traceback', ''),
@@ -930,10 +1319,42 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         denied = guard()
         if denied:
             return denied
-        try:
-            return jsonify(_refresh_index(smart_db_path, main_db_path))
-        except Exception as exc:
-            return jsonify({'error': str(exc)}), 400
+        with index_job_lock:
+            if index_job['active']:
+                return jsonify(dict(index_job)), 202
+            index_job.update({
+                'active': True,
+                'percent': 0,
+                'phase': 'starting',
+                'message': '准备刷新 Smart Album 索引',
+                'current': 0,
+                'total': 0,
+                'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
+                'steps': _new_index_steps(),
+                'summary': {
+                    'overall_dimension': 'image',
+                    'source_total': 0,
+                    'source_available': 0,
+                    'set_total': 0,
+                    'asset_total': 0,
+                    'stage_counts': {stage: 0 for stage, _ in _STAGE_DEFS},
+                    'manifest_mode': 'live',
+                    'state_mode': 'live',
+                    'originals_indexed': any(stage == 'original_jpg' for stage, _ in _STAGE_DEFS),
+                    'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
+                },
+                'error': '',
+                'index': _index_status(smart_db_path),
+            })
+        threading.Thread(target=run_index_refresh_job, daemon=True).start()
+        return jsonify(index_job_snapshot()), 202
+
+    @bp.route('/api/smart-albums/index/progress', methods=['GET'])
+    def smart_album_index_progress():
+        denied = guard()
+        if denied:
+            return denied
+        return jsonify(index_job_snapshot())
 
     @bp.route('/api/smart-albums/runtime', methods=['GET'])
     def smart_album_runtime_contract():
@@ -948,7 +1369,9 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 'photos contains indexed photos from currently enabled Library Sources.',
                 'result must be a Photo object or an iterable of Photo objects.',
                 'import/file/process/network/database mutation capabilities are not exposed.',
-                'photo.exif is the indexed asset metadata; photo.capture.exif comes from the matching Original donor when uniquely resolvable.',
+                f"Indexed stages: {', '.join(stage for stage, _ in _STAGE_DEFS)}.",
+                f"photo.capture.* metadata source: {SMART_ALBUM_CAPTURE_METADATA_SOURCE}.",
+                'Edit the Smart Album indexing-policy constants near the top of core/smart_albums.py to enable Original indexing/donors later.',
             ],
             'photo_contract': [
                 'photo.id',

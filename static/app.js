@@ -31,13 +31,38 @@ result = list(photos)
 
         // Smart Album stays separate from uploaded albums and Library browsing.
         // Only a few hooks live here; API/runtime/index logic is isolated in smart-albums.js + core/smart_albums.py.
+        const emptySmartAlbumIndexProgress = () => ({
+            active: false,
+            percent: 0,
+            phase: 'idle',
+            message: '',
+            current: 0,
+            total: 0,
+            overall: {dimension: 'image', label: '图片总进度', current: 0, total: 0, percent: 0, ready: false},
+            steps: [],
+            summary: {
+                overall_dimension: 'image',
+                source_total: 0,
+                source_available: 0,
+                set_total: 0,
+                asset_total: 0,
+                stage_counts: {},
+                manifest_mode: 'live',
+                state_mode: 'live',
+                originals_indexed: false,
+                capture_metadata_source: 'asset'
+            },
+            error: ''
+        });
         const smartAlbums = ref([]);
         const currentSmartAlbum = ref({});
         const smartAlbumImages = ref([]);
         const smartAlbumLoading = ref(false);
         const smartAlbumIndexRefreshing = ref(false);
+        const smartAlbumIndexProgress = ref(emptySmartAlbumIndexProgress());
         const smartAlbumIndex = ref({ready: false, asset_count: 0, set_count: 0, last_refresh_at: null, warnings: []});
         const smartAlbumQueryError = ref('');
+        const showSmartAlbumIndexDialog = ref(false);
         const showEditSmartAlbumDialog = ref(false);
         const smartAlbumEditor = ref({id: null, name: '', description: '', python_code: SMART_ALBUM_DEFAULT_CODE});
 
@@ -331,6 +356,11 @@ result = list(photos)
 
         const runSmartAlbum = async () => {
             if (!currentSmartAlbum.value?.id || !window.SmartAlbumApi) return;
+            if (!smartAlbumIndex.value?.ready) {
+                smartAlbumImages.value = [];
+                smartAlbumQueryError.value = 'Smart Album 索引尚未建立。请先点击“刷新索引”，完成后再运行查询。';
+                return;
+            }
             smartAlbumLoading.value = true;
             smartAlbumQueryError.value = '';
             try {
@@ -341,27 +371,100 @@ result = list(photos)
                 await loadSmartAlbums();
             } catch (error) {
                 smartAlbumImages.value = [];
+                if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
                 const trace = error?.payload?.traceback || '';
                 smartAlbumQueryError.value = trace ? `${error.message}
 
 ${trace}` : (error.message || 'Smart Album 执行失败');
-                ElMessage.error(error.message || 'Smart Album 执行失败');
+                if (error?.payload?.code === 'smart_album_index_required') {
+                    ElMessage.warning(error.message || '请先刷新 Smart Album 索引');
+                } else {
+                    ElMessage.error(error.message || 'Smart Album 执行失败');
+                }
             } finally {
                 smartAlbumLoading.value = false;
             }
         };
 
+        const smartAlbumStepStatusText = (step) => {
+            const status = step?.status || 'pending';
+            if (status === 'done') return '已完成';
+            if (status === 'active') return '进行中';
+            if (status === 'error') return '失败';
+            return '等待中';
+        };
+
+        const smartAlbumStepTagType = (step) => {
+            const status = step?.status || 'pending';
+            if (status === 'done') return 'success';
+            if (status === 'error') return 'danger';
+            if (status === 'active') return 'warning';
+            return 'info';
+        };
+
+        const smartAlbumStepPercent = (step) => {
+            const total = Number(step?.total || 0);
+            const current = Number(step?.current || 0);
+            if (total <= 0) return step?.status === 'done' ? 100 : 0;
+            return Math.max(0, Math.min(100, Math.round(current * 100 / total)));
+        };
+
+        const smartAlbumStepSummary = (steps) => {
+            const list = Array.isArray(steps) ? steps : [];
+            const done = list.filter(step => step?.status === 'done').length;
+            const remaining = list.filter(step => !['done', 'error'].includes(step?.status)).length;
+            return `已完成 ${done} / ${list.length} 步 · 剩余 ${remaining} 步`;
+        };
+
+        const formatSmartAlbumStageCounts = (summary) => {
+            const counts = summary?.stage_counts || {};
+            const labels = [
+                ['base_edit', 'Base'],
+                ['model_edit', 'Model'],
+                ['revision', 'Revision'],
+                ['final', 'Final'],
+                ['original_jpg', 'Original JPG']
+            ];
+            return labels
+                .filter(([key]) => Object.prototype.hasOwnProperty.call(counts, key))
+                .map(([key, label]) => `${label} ${counts[key] || 0}`)
+                .join(' · ');
+        };
+
+        const waitForSmartAlbumIndex = async () => {
+            while (true) {
+                const progress = await window.SmartAlbumApi.indexProgress();
+                smartAlbumIndexProgress.value = progress;
+                if (!progress.active) {
+                    if (progress.error) throw new Error(progress.error);
+                    return progress.index || await window.SmartAlbumApi.indexStatus();
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        };
+
         const refreshSmartAlbumIndex = async () => {
             if (!window.SmartAlbumApi) return;
+            showSmartAlbumIndexDialog.value = true;
+            if (smartAlbumIndexRefreshing.value) return;
             smartAlbumIndexRefreshing.value = true;
+            smartAlbumIndexProgress.value = {
+                ...emptySmartAlbumIndexProgress(),
+                active: true,
+                phase: 'starting',
+                message: '准备刷新 Smart Album 索引'
+            };
             try {
-                const status = await window.SmartAlbumApi.refreshIndex();
+                const started = await window.SmartAlbumApi.refreshIndex();
+                smartAlbumIndexProgress.value = started;
+                const status = await waitForSmartAlbumIndex();
                 smartAlbumIndex.value = {...status, ready: true};
                 ElMessage.success(`Smart Album 索引已刷新：${status.asset_count || 0} 张图片`);
                 if (currentView.value === 'smart-album' && currentSmartAlbum.value?.id) {
                     await runSmartAlbum();
                 }
             } catch (error) {
+                smartAlbumIndexProgress.value = {...smartAlbumIndexProgress.value, active: false, phase: 'error', error: error.message || '刷新失败'};
                 ElMessage.error(error.message || '刷新 Smart Album 索引失败');
             } finally {
                 smartAlbumIndexRefreshing.value = false;
@@ -4349,7 +4452,14 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartAlbumImages,
             smartAlbumLoading,
             smartAlbumIndexRefreshing,
+            smartAlbumIndexProgress,
             smartAlbumIndex,
+            showSmartAlbumIndexDialog,
+            smartAlbumStepStatusText,
+            smartAlbumStepTagType,
+            smartAlbumStepPercent,
+            smartAlbumStepSummary,
+            formatSmartAlbumStageCounts,
             smartAlbumQueryError,
             showEditSmartAlbumDialog,
             smartAlbumEditor,

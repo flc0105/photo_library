@@ -652,6 +652,7 @@
                 <span>结果 {{ smartAlbumImages.length }} 张</span>
                 <span> · 索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set</span>
                 <span v-if="smartAlbumIndex.last_refresh_at"> · {{ formatDate(smartAlbumIndex.last_refresh_at) }}</span>
+                <span v-else style="color:#e6a23c;"> · 尚未建立索引，请先刷新索引</span>
                 <div v-if="smartAlbumIndex.warnings && smartAlbumIndex.warnings.length" style="color:#e6a23c;">
                     {{ smartAlbumIndex.warnings.join('；') }}
                 </div>
@@ -1379,6 +1380,63 @@
             <template #footer>
                 <el-button @click="showCreateAlbumDialog = false">取消</el-button>
                 <el-button type="primary" @click="createAlbum">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Smart Album 索引刷新：总进度固定按图片，Set 只负责发现/组织。 -->
+        <el-dialog v-model="showSmartAlbumIndexDialog" title="刷新 Smart Album 索引" width="760px"
+                   :close-on-click-modal="!smartAlbumIndexRefreshing" :close-on-press-escape="!smartAlbumIndexRefreshing">
+            <div style="line-height:1.6;">
+                <div style="padding:14px; border:1px solid #ebeef5; border-radius:8px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                        <strong>总进度 · 按图片</strong>
+                        <span v-if="smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.ready" style="font-size:12px; color:#606266;">
+                            {{ smartAlbumIndexProgress.overall.current || 0 }} / {{ smartAlbumIndexProgress.overall.total || 0 }} 张
+                        </span>
+                        <span v-else style="font-size:12px; color:#909399;">正在先扫描 Set 并统计候选图片…</span>
+                    </div>
+                    <el-progress :percentage="(smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.percent) || 0"
+                                 :status="smartAlbumIndexProgress.error ? 'exception' : (smartAlbumIndexProgress.phase === 'done' ? 'success' : '')"></el-progress>
+                    <div style="margin-top:8px; font-size:12px; color:#606266; display:flex; justify-content:space-between; gap:12px;">
+                        <span>{{ smartAlbumIndexProgress.message || '等待开始' }}</span>
+                        <span>{{ smartAlbumStepSummary(smartAlbumIndexProgress.steps) }}</span>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:16px; padding:12px 14px; background:#f5f7fa; border-radius:8px; font-size:12px; color:#606266;">
+                    <div><strong>索引顺序：</strong>先扫描 Source / Set，再统计图片；候选图片总数确定后，总进度始终只按图片计算，不再切换维度。</div>
+                    <div style="margin-top:4px;"><strong>当前索引：</strong>{{ formatSmartAlbumStageCounts(smartAlbumIndexProgress.summary) || '等待统计' }}</div>
+                    <div style="margin-top:4px;"><strong>Manifest：</strong>查询时实时读取，本次刷新不缓存 Manifest。</div>
+                    <div style="margin-top:4px;"><strong>Favorite / Description：</strong>查询时实时读取主数据库，本次刷新不缓存。</div>
+                    <div style="margin-top:4px;"><strong>Original JPG / RAW：</strong>{{ smartAlbumIndexProgress.summary && smartAlbumIndexProgress.summary.originals_indexed ? '当前配置会索引' : '当前配置不扫描' }}</div>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div v-for="(step, index) in (smartAlbumIndexProgress.steps || [])" :key="step.id"
+                         style="padding:12px 14px; border:1px solid #ebeef5; border-radius:8px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span style="width:24px; height:24px; border-radius:50%; background:#f2f3f5; display:inline-flex; align-items:center; justify-content:center; font-size:12px; color:#606266; flex:0 0 auto;">{{ index + 1 }}</span>
+                            <strong style="flex:1;">{{ step.label }}</strong>
+                            <el-tag size="small" :type="smartAlbumStepTagType(step)">{{ smartAlbumStepStatusText(step) }}</el-tag>
+                        </div>
+                        <div style="margin:6px 0 0 34px; font-size:12px; color:#606266;">{{ step.detail || '—' }}</div>
+                        <div v-if="step.total" style="margin:8px 0 0 34px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px; color:#909399;">
+                                <span>{{ step.current || 0 }} / {{ step.total }} {{ step.unit || '' }}</span>
+                                <span>{{ smartAlbumStepPercent(step) }}%</span>
+                            </div>
+                            <el-progress :percentage="smartAlbumStepPercent(step)" :show-text="false" :stroke-width="5"></el-progress>
+                        </div>
+                    </div>
+                </div>
+
+                <el-alert v-if="smartAlbumIndexProgress.error" style="margin-top:16px;" type="error" :closable="false"
+                          :title="smartAlbumIndexProgress.error"></el-alert>
+            </div>
+            <template #footer>
+                <el-button @click="showSmartAlbumIndexDialog = false">
+                    {{ smartAlbumIndexRefreshing ? '隐藏' : '关闭' }}
+                </el-button>
             </template>
         </el-dialog>
 
@@ -3452,7 +3510,7 @@
 <script src="final-builder.js?v=20260928-01"></script>
 <script src="final-metadata.js?v=20260928-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script src="smart-albums.js?v=20261002-01"></script>
-<script type="module" src="app.js?v=20261002-01"></script>
+<script src="smart-albums.js?v=20261002-02"></script>
+<script type="module" src="app.js?v=20261002-02"></script>
 </body>
 </html>
