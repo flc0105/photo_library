@@ -13,14 +13,33 @@ const app = createApp({
         const showEditAlbumDialog = ref(false);
         const showUploadDialog = ref(false);
 
+        const SMART_ALBUM_DEFAULT_CODE = `# \`photos\` contains all indexed photos from enabled Library Sources.
+# Return Photo objects through \`result\`.
+result = list(photos)
+`;
+
         const newAlbum = ref({
+            type: 'uploaded',
             name: '',
             description: '',
             shoot_date: '',
             model_name: '',
             location: '',
-            group_ids: [] // 所属分组ID列表
+            group_ids: [], // 所属分组ID列表
+            python_code: SMART_ALBUM_DEFAULT_CODE
         });
+
+        // Smart Album stays separate from uploaded albums and Library browsing.
+        // Only a few hooks live here; API/runtime/index logic is isolated in smart-albums.js + core/smart_albums.py.
+        const smartAlbums = ref([]);
+        const currentSmartAlbum = ref({});
+        const smartAlbumImages = ref([]);
+        const smartAlbumLoading = ref(false);
+        const smartAlbumIndexRefreshing = ref(false);
+        const smartAlbumIndex = ref({ready: false, asset_count: 0, set_count: 0, last_refresh_at: null, warnings: []});
+        const smartAlbumQueryError = ref('');
+        const showEditSmartAlbumDialog = ref(false);
+        const smartAlbumEditor = ref({id: null, name: '', description: '', python_code: SMART_ALBUM_DEFAULT_CODE});
 
 
         const detailImageList = computed(() => filteredImages.value);
@@ -286,9 +305,140 @@ const app = createApp({
         };
 
 
+        const loadSmartAlbums = async () => {
+            if (!isAdmin.value || !window.SmartAlbumApi) {
+                smartAlbums.value = [];
+                return;
+            }
+            try {
+                const data = await window.SmartAlbumApi.list();
+                smartAlbums.value = Array.isArray(data.albums) ? data.albums : [];
+                if (data.index) smartAlbumIndex.value = data.index;
+            } catch (error) {
+                console.error('加载 Smart Album 失败:', error);
+            }
+        };
+
+        const openSmartAlbum = async (album) => {
+            if (!album) return;
+            currentSmartAlbum.value = {...album};
+            smartAlbumImages.value = [];
+            smartAlbumQueryError.value = '';
+            currentFilter.value = 'all';
+            currentView.value = 'smart-album';
+            await runSmartAlbum();
+        };
+
+        const runSmartAlbum = async () => {
+            if (!currentSmartAlbum.value?.id || !window.SmartAlbumApi) return;
+            smartAlbumLoading.value = true;
+            smartAlbumQueryError.value = '';
+            try {
+                const data = await window.SmartAlbumApi.run(currentSmartAlbum.value.id);
+                if (data.album) currentSmartAlbum.value = {...currentSmartAlbum.value, ...data.album};
+                smartAlbumImages.value = (data.images || []).map(image => ({...image, smart_album_id: currentSmartAlbum.value.id}));
+                if (data.index) smartAlbumIndex.value = data.index;
+                await loadSmartAlbums();
+            } catch (error) {
+                smartAlbumImages.value = [];
+                const trace = error?.payload?.traceback || '';
+                smartAlbumQueryError.value = trace ? `${error.message}
+
+${trace}` : (error.message || 'Smart Album 执行失败');
+                ElMessage.error(error.message || 'Smart Album 执行失败');
+            } finally {
+                smartAlbumLoading.value = false;
+            }
+        };
+
+        const refreshSmartAlbumIndex = async () => {
+            if (!window.SmartAlbumApi) return;
+            smartAlbumIndexRefreshing.value = true;
+            try {
+                const status = await window.SmartAlbumApi.refreshIndex();
+                smartAlbumIndex.value = {...status, ready: true};
+                ElMessage.success(`Smart Album 索引已刷新：${status.asset_count || 0} 张图片`);
+                if (currentView.value === 'smart-album' && currentSmartAlbum.value?.id) {
+                    await runSmartAlbum();
+                }
+            } catch (error) {
+                ElMessage.error(error.message || '刷新 Smart Album 索引失败');
+            } finally {
+                smartAlbumIndexRefreshing.value = false;
+            }
+        };
+
+        const editSmartAlbum = (album = currentSmartAlbum.value) => {
+            if (!album?.id) return;
+            smartAlbumEditor.value = {
+                id: album.id,
+                name: album.name || '',
+                description: album.description || '',
+                python_code: album.python_code || SMART_ALBUM_DEFAULT_CODE
+            };
+            showEditSmartAlbumDialog.value = true;
+        };
+
+        const saveSmartAlbum = async () => {
+            if (!smartAlbumEditor.value.id || !smartAlbumEditor.value.name.trim()) {
+                ElMessage.warning('请输入相册名称');
+                return;
+            }
+            try {
+                const data = await window.SmartAlbumApi.update(smartAlbumEditor.value.id, {
+                    name: smartAlbumEditor.value.name,
+                    description: smartAlbumEditor.value.description,
+                    python_code: smartAlbumEditor.value.python_code
+                });
+                showEditSmartAlbumDialog.value = false;
+                if (data.album) currentSmartAlbum.value = {...currentSmartAlbum.value, ...data.album};
+                await loadSmartAlbums();
+                if (currentView.value === 'smart-album') await runSmartAlbum();
+                ElMessage.success('Smart Album 已保存');
+            } catch (error) {
+                ElMessage.error(error.message || '保存 Smart Album 失败');
+            }
+        };
+
+        const deleteSmartAlbum = async (album = currentSmartAlbum.value) => {
+            if (!album?.id) return;
+            try {
+                await ElMessageBox.confirm(
+                    `确定删除 Smart Album “${album.name || ''}”吗？只会删除查询定义，不会删除任何照片。`,
+                    '删除 Smart Album',
+                    {confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning'}
+                );
+                await window.SmartAlbumApi.remove(album.id);
+                ElMessage.success('Smart Album 已删除');
+                if (currentView.value === 'smart-album') backToAlbums();
+                else await loadSmartAlbums();
+            } catch (error) {
+                if (error !== 'cancel' && error !== 'close') {
+                    ElMessage.error(error.message || '删除 Smart Album 失败');
+                }
+            }
+        };
+
         const createAlbum = async () => {
             if (!newAlbum.value.name) {
                 ElMessage.warning('请输入相册名称');
+                return;
+            }
+
+            if (newAlbum.value.type === 'smart') {
+                try {
+                    await window.SmartAlbumApi.create({
+                        name: newAlbum.value.name,
+                        description: newAlbum.value.description,
+                        python_code: newAlbum.value.python_code || SMART_ALBUM_DEFAULT_CODE
+                    });
+                    ElMessage.success('Smart Album 创建成功');
+                    showCreateAlbumDialog.value = false;
+                    resetNewAlbumForm(false);
+                    await loadSmartAlbums();
+                } catch (error) {
+                    ElMessage.error('创建 Smart Album 失败: ' + (error.message || '未知错误'));
+                }
                 return;
             }
 
@@ -305,14 +455,7 @@ const app = createApp({
                 if (response.ok) {
                     ElMessage.success('相册创建成功');
                     showCreateAlbumDialog.value = false;
-                    newAlbum.value = {
-                        name: '',
-                        description: '',
-                        shoot_date: '',
-                        model_name: '',
-                        location: '',
-                        group_ids: [],
-                    };
+                    resetNewAlbumForm(false);
                     loadAlbums();
                 } else {
                     // 获取后端返回的错误信息
@@ -390,6 +533,9 @@ const app = createApp({
         const backToAlbums = () => {
             currentView.value = 'albums';
             currentAlbum.value = {};
+            currentSmartAlbum.value = {};
+            smartAlbumImages.value = [];
+            smartAlbumQueryError.value = '';
             images.value = [];
             selectionMode.value = false;
             selectedImages.value = [];
@@ -398,9 +544,15 @@ const app = createApp({
             currentFilter.value = 'all';
 
             loadAlbums();
+            if (isAdmin.value) loadSmartAlbums();
         };
 
         const backToAlbum = () => {
+            if (currentImage.value && currentImage.value.smart_album_id) {
+                currentView.value = 'smart-album';
+                currentImage.value = {};
+                return;
+            }
             if (currentImage.value && currentImage.value.source_type === 'library-share') {
                 currentView.value = 'library-share';
                 currentImage.value = {};
@@ -1836,6 +1988,14 @@ const app = createApp({
                     description: data.description
                 };
             }
+            const smartIndex = smartAlbumImages.value.findIndex(i => i.id === data.id);
+            if (smartIndex !== -1) {
+                smartAlbumImages.value[smartIndex] = {
+                    ...smartAlbumImages.value[smartIndex],
+                    is_favorited: data.is_favorited,
+                    description: data.description
+                };
+            }
         };
 
         const hydrateCurrentImage = async (item) => {
@@ -1895,7 +2055,7 @@ const app = createApp({
         };
 
         const viewLibraryImage = async (item, changeView = true) => {
-            if (!currentLibrarySource.value || !item) return;
+            if (!item) return;
             showLibraryDetailImmediately(item, changeView);
             await hydrateCurrentImage(item);
         };
@@ -1921,6 +2081,8 @@ const app = createApp({
                 image.is_favorited = data.is_favorited;
                 const sourceItem = (libraryListing.value.items || []).find(i => i.relative_path === image.relative_path);
                 if (sourceItem) sourceItem.is_favorited = data.is_favorited;
+                const smartItem = smartAlbumImages.value.find(i => i.id === image.id);
+                if (smartItem) smartItem.is_favorited = data.is_favorited;
                 ElMessage.success(data.is_favorited ? '收藏成功' : '取消收藏');
             } catch (error) {
                 ElMessage.error('操作失败');
@@ -2083,6 +2245,8 @@ const app = createApp({
                 currentImage.value.description = data.description || '';
                 const sourceItem = (libraryListing.value.items || []).find(i => i.relative_path === image.relative_path);
                 if (sourceItem) sourceItem.description = data.description || '';
+                const smartItem = smartAlbumImages.value.find(i => i.id === image.id);
+                if (smartItem) smartItem.description = data.description || '';
                 ElMessage.success('描述保存成功');
                 return true;
             } catch (error) {
@@ -2562,6 +2726,7 @@ const app = createApp({
 
             if (isAdmin.value) {
                 await loadLibrarySources();
+                await loadSmartAlbums();
             }
 
             if (sourceId && isAdmin.value) {
@@ -3603,7 +3768,10 @@ const app = createApp({
         // 修改 filteredImages 计算属性，同时考虑筛选和排序
         const filteredImages = computed(() => {
             let result;
-            if (currentView.value === 'library-share' || (currentImage.value && currentImage.value.source_type === 'library-share')) {
+            const isSmartResult = currentView.value === 'smart-album' || (currentImage.value && currentImage.value.smart_album_id);
+            if (isSmartResult) {
+                result = smartAlbumImages.value;
+            } else if (currentView.value === 'library-share' || (currentImage.value && currentImage.value.source_type === 'library-share')) {
                 result = shareImages.value;
             } else if (currentView.value === 'library' || (currentImage.value && currentImage.value.source_type === 'library')) {
                 result = libraryImages.value;
@@ -3617,6 +3785,10 @@ const app = createApp({
             } else if (currentFilter.value === 'not_favorited') {
                 result = result.filter(img => !img.is_favorited);
             }
+
+            // Smart Album 的 Python `result` 顺序本身就是查询结果的一部分，
+            // 不再用 Gallery 的默认文件名排序覆盖它。
+            if (isSmartResult) return [...result];
 
             // 应用排序（复制数组避免修改原数组）
             result = [...result].sort((a, b) => {
@@ -3762,6 +3934,7 @@ const app = createApp({
                     showAdminLogin.value = false;
                     adminPassword.value = '';
                     await loadLibrarySources();
+                    await loadSmartAlbums();
                     ElMessage.success('管理员登录成功');
                 } else {
                     const errorData = await response.json();
@@ -3782,6 +3955,9 @@ const app = createApp({
             adminToken.value = '';
             librarySources.value = [];
             currentLibrarySource.value = null;
+            smartAlbums.value = [];
+            currentSmartAlbum.value = {};
+            smartAlbumImages.value = [];
             localStorage.removeItem('admin_token');
             ElMessage.success('已退出管理员模式');
         };
@@ -4137,44 +4313,53 @@ const app = createApp({
             }
         };
 
-// 显示在特定分组中创建相册
-        const showCreateAlbumInGroup = (group) => {
-            // 排除未分组
-            if (group.is_ungrouped) {
-                newAlbum.value.group_ids = [];
-            } else {
-                newAlbum.value.group_ids = [group.id];
-            }
-
-            // 清空其他字段
-            newAlbum.value.name = '';
-            newAlbum.value.description = '';
-            newAlbum.value.shoot_date = '';
-            newAlbum.value.model_name = '';
-            newAlbum.value.location = '';
-
-            showCreateAlbumDialog.value = true;
-        };
-
-
-        const resetAlbumDialog = () => {
-            // 重置表单数据
+        const resetNewAlbumForm = (showDialog = true) => {
             newAlbum.value = {
+                type: 'uploaded',
                 name: '',
                 description: '',
                 shoot_date: '',
                 model_name: '',
                 location: '',
-                group_ids: []
+                group_ids: [],
+                python_code: SMART_ALBUM_DEFAULT_CODE
             };
+            if (showDialog) showCreateAlbumDialog.value = true;
+        };
 
-            // 显示对话框
+// 显示在特定分组中创建相册
+        const showCreateAlbumInGroup = (group) => {
+            resetNewAlbumForm(false);
+            // Group shortcuts always create a traditional uploaded album.
+            newAlbum.value.type = 'uploaded';
+            newAlbum.value.group_ids = group.is_ungrouped ? [] : [group.id];
             showCreateAlbumDialog.value = true;
+        };
+
+
+        const resetAlbumDialog = () => {
+            resetNewAlbumForm(true);
         };
 
 
         return {
             currentView,
+            smartAlbums,
+            currentSmartAlbum,
+            smartAlbumImages,
+            smartAlbumLoading,
+            smartAlbumIndexRefreshing,
+            smartAlbumIndex,
+            smartAlbumQueryError,
+            showEditSmartAlbumDialog,
+            smartAlbumEditor,
+            loadSmartAlbums,
+            openSmartAlbum,
+            runSmartAlbum,
+            refreshSmartAlbumIndex,
+            editSmartAlbum,
+            saveSmartAlbum,
+            deleteSmartAlbum,
             librarySources,
             currentLibrarySource,
             libraryListing,

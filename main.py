@@ -24,6 +24,7 @@ from core.workflow_tools import create_workflow_blueprint
 from core.final_builder import create_final_builder_blueprint
 from core.final_metadata import create_final_metadata_blueprint
 from core.set_insights import create_set_insights_blueprint
+from core.smart_albums import create_smart_album_blueprint
 from tools.folder_compare import create_folder_compare_blueprint
 
 app = Flask(__name__)
@@ -3037,6 +3038,14 @@ app.register_blueprint(create_set_insights_blueprint(
     _get_library_source,
     _resolve_library_path,
     get_db_connection,
+))
+
+
+# Smart Albums are isolated in their own module/database; the main Gallery only
+# exposes the existing Library Source/state database path as a read-only input.
+app.register_blueprint(create_smart_album_blueprint(
+    _library_admin_guard,
+    DATABASE,
 ))
 
 

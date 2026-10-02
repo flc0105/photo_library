@@ -119,6 +119,42 @@
             </div>
 
 
+            <!-- Smart Album：保存 Python 查询定义，不拥有也不复制照片。 -->
+            <div v-if="isAdmin" class="album-group smart-album-group">
+                <div class="group-header">
+                    <div class="group-title">
+                        <h2>智能相册 <span class="album-count">({{ smartAlbums.length }}个相册)</span></h2>
+                    </div>
+                    <div class="group-actions">
+                        <el-button size="small" @click="refreshSmartAlbumIndex" :loading="smartAlbumIndexRefreshing">刷新索引</el-button>
+                    </div>
+                </div>
+                <div class="group-content">
+                    <div v-if="smartAlbums.length" class="album-grid">
+                        <div v-for="album in smartAlbums" :key="album.id" class="album-card smart-album-card"
+                             @click="openSmartAlbum(album)">
+                            <div class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
+                                <el-icon class="lock-icon"><DataAnalysis /></el-icon>
+                                <span class="lock-text">Python</span>
+                            </div>
+                            <div class="album-info">
+                                <div class="album-name">{{ album.name }}</div>
+                                <div class="album-meta">
+                                    <div>结果: {{ album.last_result_count == null ? '—' : album.last_result_count }}</div>
+                                    <div>更新: {{ formatDate(album.updated_at) }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state">
+                        <p>还没有 Smart Album。通过“新建相册 → 智能相册”创建。</p>
+                    </div>
+                    <div v-if="smartAlbumIndex.last_refresh_at" style="margin-top:8px; color:#909399; font-size:12px;">
+                        索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set · {{ formatDate(smartAlbumIndex.last_refresh_at) }}
+                    </div>
+                </div>
+            </div>
+
             <!-- 本地文件系统 Source：仅管理员看到完整目录。分享访客只走随机 token 页面。 -->
             <div v-if="isAdmin" class="album-group library-source-group">
                 <div class="group-header">
@@ -149,7 +185,7 @@
                 </div>
             </div>
 
-            <div v-if="albumGroups.length === 0 && (!ungroupedAlbums || ungroupedAlbums.length === 0)"
+            <div v-if="albumGroups.length === 0 && (!ungroupedAlbums || ungroupedAlbums.length === 0) && (!isAdmin || (smartAlbums.length === 0 && librarySources.length === 0))"
                  class="empty-state">
                 <p>还没有相册，创建一个吧！</p>
             </div>
@@ -593,6 +629,97 @@
             </template>
         </div>
 
+        <!-- Smart Album 结果：复用 Library 图片语义，不拥有实际文件。 -->
+        <div v-if="currentView === 'smart-album'" v-loading="smartAlbumLoading">
+            <div class="back-button">
+                <el-button @click="backToAlbums">返回相册列表</el-button>
+            </div>
+
+            <div class="header">
+                <div>
+                    <h1>{{ currentSmartAlbum.name }}</h1>
+                    <div v-if="currentSmartAlbum.description" style="color:#606266; margin-top:6px;">{{ currentSmartAlbum.description }}</div>
+                </div>
+                <div class="album-actions">
+                    <el-button @click="runSmartAlbum">运行查询</el-button>
+                    <el-button @click="refreshSmartAlbumIndex" :loading="smartAlbumIndexRefreshing">刷新索引</el-button>
+                    <el-button v-if="isAdmin" @click="editSmartAlbum()">编辑</el-button>
+                    <el-button v-if="isAdmin" type="danger" @click="deleteSmartAlbum()">删除</el-button>
+                </div>
+            </div>
+
+            <div style="margin:0 0 16px; color:#909399; font-size:12px; line-height:1.7;">
+                <span>结果 {{ smartAlbumImages.length }} 张</span>
+                <span> · 索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set</span>
+                <span v-if="smartAlbumIndex.last_refresh_at"> · {{ formatDate(smartAlbumIndex.last_refresh_at) }}</span>
+                <div v-if="smartAlbumIndex.warnings && smartAlbumIndex.warnings.length" style="color:#e6a23c;">
+                    {{ smartAlbumIndex.warnings.join('；') }}
+                </div>
+            </div>
+
+            <pre v-if="smartAlbumQueryError" style="white-space:pre-wrap; padding:12px; border:1px solid #fbc4c4; border-radius:6px; background:#fef0f0; color:#c45656; overflow:auto;">{{ smartAlbumQueryError }}</pre>
+
+            <div v-if="smartAlbumImages.length > 0">
+                <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
+                    <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
+                    <span>顺序: Python result</span>
+                </div>
+
+                <div v-if="viewMode === 'grid'" class="image-grid">
+                    <div v-for="image in filteredImages" :key="image.id" class="image-item" @click="handleImageClick(image.id)">
+                        <img :src="detailImageUrl(image, 'thumbnail')" :alt="image.original_filename" class="image-thumb" />
+                        <div class="image-actions" :class="{ 'always-visible': image.is_favorited }">
+                            <button class="action-button"
+                                    :class="{ 'favorited': image.is_favorited }"
+                                    @click.stop="toggleImageFavorite(image)"
+                                    :title="image.is_favorited ? '取消收藏' : '收藏'">
+                                <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'"><Star/></el-icon>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="viewMode === 'waterfall'" class="pl-waterfall">
+                    <div v-for="image in filteredImages" :key="image.id" class="pl-item" @click="handleImageClick(image.id)">
+                        <img :src="detailImageUrl(image, 'compressed')"
+                             :alt="image.original_filename"
+                             class="w-100 shadow-1-strong rounded pl-img" />
+                        <div class="overlay"
+                             @mouseenter="showExifOnHover ? loadExifOnHover(image) : null"
+                             @mouseleave="showExifOnHover ? clearExifTimer(image.id) : null">
+                            <div class="caption">
+                                <template v-if="showExifOnHover">
+                                    <div class="exif-content" v-if="hasExifInfo(image.id)">
+                                        <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
+                                            <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                        </div>
+                                        <div class="exposure-line">
+                                            <span class="exposure-item"><span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span></span>
+                                            <span class="exposure-sep">｜</span>
+                                            <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span></span>
+                                            <span class="exposure-sep">｜</span>
+                                            <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span></span>
+                                            <span class="exposure-sep">｜</span>
+                                            <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '焦距') }}</span></span>
+                                        </div>
+                                    </div>
+                                    <div class="exif-loading" v-else-if="exifLoading[image.id]"><div class="loading-spinner"></div></div>
+                                    <div class="file-info" v-else>{{ image.original_filename }}</div>
+                                </template>
+                                <template v-else><div class="file-info">{{ image.original_filename }}</div></template>
+                            </div>
+                            <div class="favorite-button" @click.stop="toggleImageFavorite(image)">
+                                <el-icon :size="18" :color="image.is_favorited ? '#f56c6c' : 'rgba(255,255,255,0.8)'"><Star/></el-icon>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div v-else-if="!smartAlbumQueryError && !smartAlbumLoading" class="empty-state">
+                <p>当前查询没有结果。</p>
+            </div>
+        </div>
+
         <div v-if="currentView === 'album-detail'">
             <div class="back-button">
                 <el-button @click="backToAlbums">返回相册列表</el-button>
@@ -858,7 +985,7 @@
         <!-- 图片详情页面 -->
         <div v-if="currentView === 'image-detail'">
             <div class="back-button">
-                <el-button @click="backToAlbum">{{ currentImage.source_type === 'library-share' ? '返回分享' : (currentImage.source_type === 'library' ? '返回目录' : '返回相册') }}</el-button>
+                <el-button @click="backToAlbum">{{ currentImage.smart_album_id ? '返回智能相册' : (currentImage.source_type === 'library-share' ? '返回分享' : (currentImage.source_type === 'library' ? '返回目录' : '返回相册')) }}</el-button>
             </div>
 
             <div class="image-detail-layout">
@@ -894,7 +1021,7 @@
                                 <Delete/>
                             </el-icon>
                         </el-button>
-                        <el-button v-if="isAdmin && currentImage.source_type === 'library'"
+                        <el-button v-if="isAdmin && currentImage.source_type === 'library' && !currentImage.smart_album_id"
                                    circle
                                    type="danger"
                                    @click="softDeleteCurrentLibraryImage"
@@ -924,7 +1051,7 @@
                         <div class="info-content" style="margin-top:30px">
 
 
-                            <div class="info-item" @dblclick="isAdmin && currentImage.source_type !== 'library-share' ? editImageFilename(currentImage) : null"
+                            <div class="info-item" @dblclick="isAdmin && currentImage.source_type !== 'library-share' && !currentImage.smart_album_id ? editImageFilename(currentImage) : null"
                                  style="cursor: pointer;">
                                 <strong>文件名: </strong>
 
@@ -1104,7 +1231,7 @@
 
         <!-- 相册详情页面悬浮工具窗 -->
         <div class="album-detail-floating-toolbar"
-             v-if="(currentView === 'album-detail' && images.length > 0) || (currentView === 'library' && libraryImages.length > 0) || (currentView === 'library-share' && !shareNeedsPassword && shareImages.length > 0)">
+             v-if="(currentView === 'album-detail' && images.length > 0) || (currentView === 'smart-album' && smartAlbumImages.length > 0) || (currentView === 'library' && libraryImages.length > 0) || (currentView === 'library-share' && !shareNeedsPassword && shareImages.length > 0)">
             <div class="toolbar-content">
 
                 <el-button
@@ -1153,7 +1280,7 @@
 
 
                 <!-- 排序按钮 -->
-                <el-dropdown @command="changeSort" trigger="click">
+                <el-dropdown v-if="currentView !== 'smart-album' && !(currentImage && currentImage.smart_album_id)" @command="changeSort" trigger="click">
                     <el-button class="toolbar-btn" size="small">
                         排序
                     </el-button>
@@ -1197,40 +1324,88 @@
 
 
         <!-- 创建相册对话框 -->
-        <el-dialog v-model="showCreateAlbumDialog" title="新建相册">
-            <el-form :model="newAlbum">
+        <el-dialog v-model="showCreateAlbumDialog" title="新建相册" width="720px">
+            <el-form :model="newAlbum" label-width="90px">
+                <el-form-item label="类型">
+                    <el-radio-group v-model="newAlbum.type">
+                        <el-radio-button value="uploaded">上传相册</el-radio-button>
+                        <el-radio-button value="smart">智能相册</el-radio-button>
+                    </el-radio-group>
+                </el-form-item>
                 <el-form-item label="相册名称">
                     <el-input v-model="newAlbum.name" placeholder="请输入相册名称"></el-input>
                 </el-form-item>
-                <el-form-item label="所属分组">
-                    <el-select v-model="newAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
-                        <el-option
-                                v-for="group in allGroups"
-                                :key="group.id"
-                                :label="group.name"
-                                :value="group.id"
-                        >
-                        </el-option>
-                    </el-select>
-                </el-form-item>
-                <el-form-item label="拍摄日期">
-                    <el-date-picker v-model="newAlbum.shoot_date" type="date"
-                                    placeholder="选择拍摄日期"></el-date-picker>
-                </el-form-item>
+                <template v-if="newAlbum.type === 'uploaded'">
+                    <el-form-item label="所属分组">
+                        <el-select v-model="newAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
+                            <el-option
+                                    v-for="group in allGroups"
+                                    :key="group.id"
+                                    :label="group.name"
+                                    :value="group.id"
+                            >
+                            </el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="拍摄日期">
+                        <el-date-picker v-model="newAlbum.shoot_date" type="date"
+                                        placeholder="选择拍摄日期"></el-date-picker>
+                    </el-form-item>
 
-                <el-form-item label="模特">
-                    <el-input v-model="newAlbum.model_name" placeholder="请输入模特名字"></el-input>
-                </el-form-item>
-                <el-form-item label="地点">
-                    <el-input v-model="newAlbum.location" placeholder="请输入拍摄地点"></el-input>
-                </el-form-item>
+                    <el-form-item label="模特">
+                        <el-input v-model="newAlbum.model_name" placeholder="请输入模特名字"></el-input>
+                    </el-form-item>
+                    <el-form-item label="地点">
+                        <el-input v-model="newAlbum.location" placeholder="请输入拍摄地点"></el-input>
+                    </el-form-item>
+                </template>
                 <el-form-item label="描述">
                     <el-input v-model="newAlbum.description" type="textarea" placeholder="请输入相册描述"></el-input>
                 </el-form-item>
+                <template v-if="newAlbum.type === 'smart'">
+                    <el-form-item label="Python">
+                        <el-input v-model="newAlbum.python_code" type="textarea" :rows="16"
+                                  resize="vertical"
+                                  style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"
+                                  placeholder="result = [...]">
+                        </el-input>
+                    </el-form-item>
+                    <div style="margin:-8px 0 0 90px; color:#909399; font-size:12px; line-height:1.6;">
+                        <div>预置变量：<code>photos</code>。代码必须给 <code>result</code> 赋值；结果只能包含 <code>photos</code> 中的 Photo 对象。</div>
+                        <div>第一版候选池来自所有已启用 Library Source；Source 本身通过 <code>photo.source</code> 自由筛选。</div>
+                    </div>
+                </template>
             </el-form>
             <template #footer>
                 <el-button @click="showCreateAlbumDialog = false">取消</el-button>
                 <el-button type="primary" @click="createAlbum">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Smart Album 编辑：底层始终保存真实 Python code。 -->
+        <el-dialog v-model="showEditSmartAlbumDialog" title="编辑 Smart Album" width="760px">
+            <el-form :model="smartAlbumEditor" label-width="90px">
+                <el-form-item label="相册名称">
+                    <el-input v-model="smartAlbumEditor.name"></el-input>
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input v-model="smartAlbumEditor.description" type="textarea" :rows="2"></el-input>
+                </el-form-item>
+                <el-form-item label="Python">
+                    <el-input v-model="smartAlbumEditor.python_code" type="textarea" :rows="20"
+                              resize="vertical"
+                              style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
+                    </el-input>
+                </el-form-item>
+                <div style="margin:-8px 0 0 90px; color:#909399; font-size:12px; line-height:1.7;">
+                    <div><code>photo.file.size</code> 为 bytes；<code>photo.file.mtime</code> / <code>photo.capture.time</code> 为 datetime。</div>
+                    <div>常用：<code>photo.image.width/height/aspect_ratio/orientation/mode/color_space/bit_depth</code>。</div>
+                    <div>完整数据：<code>photo.exif</code>、<code>photo.capture.exif</code>、<code>photo.set.manifest</code>；Source 通过 <code>photo.source</code> 筛选。</div>
+                </div>
+            </el-form>
+            <template #footer>
+                <el-button @click="showEditSmartAlbumDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveSmartAlbum">保存并运行</el-button>
             </template>
         </el-dialog>
 
@@ -3277,6 +3452,7 @@
 <script src="final-builder.js?v=20260928-01"></script>
 <script src="final-metadata.js?v=20260928-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script type="module" src="app.js?v=20260928-01"></script>
+<script src="smart-albums.js?v=20261002-01"></script>
+<script type="module" src="app.js?v=20261002-01"></script>
 </body>
 </html>
