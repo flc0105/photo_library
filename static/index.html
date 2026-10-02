@@ -1374,6 +1374,7 @@
                     <div style="margin:-8px 0 0 90px; color:#909399; font-size:12px; line-height:1.6;">
                         <div>预置变量：<code>photos</code>。代码必须给 <code>result</code> 赋值；结果只能包含 <code>photos</code> 中的 Photo 对象。</div>
                         <div>第一版候选池来自所有已启用 Library Source；Source 本身通过 <code>photo.source</code> 自由筛选。</div>
+                        <div>阶段去重助手：<code>preferred_versions(items)</code> 默认按 Revision → Model Edit → Base Edit，并按 Source + Set + logical stem 匹配；可传 <code>stage_order</code> 改优先级。</div>
                     </div>
                 </template>
             </el-form>
@@ -1459,6 +1460,7 @@
                     <div><code>photo.file.size</code> 为 bytes；<code>photo.file.mtime</code> / <code>photo.capture.time</code> 为 datetime。</div>
                     <div>常用：<code>photo.image.width/height/aspect_ratio/orientation/mode/color_space/bit_depth</code>。</div>
                     <div>完整数据：<code>photo.exif</code>、<code>photo.capture.exif</code>、<code>photo.set.manifest</code>；Source 通过 <code>photo.source</code> 筛选。</div>
+                    <div>阶段去重：<code>preferred_versions(items)</code> 默认 Revision → Model Edit → Base Edit；如需自定义可传 <code>stage_order=(...)</code>。</div>
                 </div>
             </el-form>
             <template #footer>

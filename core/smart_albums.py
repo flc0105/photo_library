@@ -1373,6 +1373,10 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 f"photo.capture.* metadata source: {SMART_ALBUM_CAPTURE_METADATA_SOURCE}.",
                 'Edit the Smart Album indexing-policy constants near the top of core/smart_albums.py to enable Original indexing/donors later.',
             ],
+            'helpers': [
+                "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",
+                'logical_photo_key(photo)',
+            ],
             'photo_contract': [
                 'photo.id',
                 'photo.origin.kind',

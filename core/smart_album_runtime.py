@@ -161,6 +161,82 @@ def _validate_script(code):
     return tree
 
 
+_DEFAULT_PREFERRED_STAGE_ORDER = ('revision', 'model_edit', 'base_edit')
+
+
+def logical_photo_key(photo):
+    """Return the stable logical-image key used by Smart Album helpers.
+
+    Library photos are grouped only when they belong to the same Source, the
+    same Set, and the same logical stem.  If logical_id is unavailable, the
+    file path is used as a conservative fallback so unrelated files are not
+    merged accidentally.
+    """
+    if not isinstance(photo, PhotoRecord):
+        raise TypeError('logical_photo_key() 只接受 Photo 对象。')
+
+    source_id = photo.source.id if photo.source is not None else None
+    set_path = photo.set.path if photo.set is not None else None
+    logical_id = photo.logical_id
+    fallback_path = photo.file.path if photo.file is not None else photo.id
+    return (source_id, set_path, logical_id or fallback_path)
+
+
+def preferred_versions(items, stage_order=_DEFAULT_PREFERRED_STAGE_ORDER):
+    """Prefer the highest available stage for each logical photo.
+
+    Default order is Revision > Model Edit > Base Edit.  Matching is by
+    ``source + set.path + logical_id`` via :func:`logical_photo_key`.  Multiple
+    files at the same winning stage are intentionally retained; this helper
+    only resolves cross-stage duplicates and never guesses between same-stage
+    variants.
+
+    ``stage_order`` can be overridden from Smart Album Python, for example::
+
+        preferred_versions(
+            photos,
+            stage_order=('final', 'revision', 'model_edit', 'base_edit'),
+        )
+    """
+    if isinstance(stage_order, str):
+        raise TypeError('stage_order 必须是 stage 名称序列，不能是单个字符串。')
+
+    order = []
+    seen_stages = set()
+    for stage in stage_order:
+        stage_name = str(stage)
+        if stage_name in seen_stages:
+            continue
+        seen_stages.add(stage_name)
+        order.append(stage_name)
+
+    if not order:
+        return []
+
+    rank = {stage: index for index, stage in enumerate(order)}
+    candidates = []
+    best_rank_by_key = {}
+
+    for photo in items:
+        if not isinstance(photo, PhotoRecord):
+            raise TypeError('preferred_versions() 的输入只能包含 Photo 对象。')
+        stage = photo.stage
+        if stage not in rank:
+            continue
+        key = logical_photo_key(photo)
+        photo_rank = rank[stage]
+        candidates.append((photo, key, photo_rank))
+        current = best_rank_by_key.get(key)
+        if current is None or photo_rank < current:
+            best_rank_by_key[key] = photo_rank
+
+    return [
+        photo
+        for photo, key, photo_rank in candidates
+        if best_rank_by_key.get(key) == photo_rank
+    ]
+
+
 _SAFE_BUILTINS = {
     'abs': abs,
     'all': all,
@@ -217,6 +293,8 @@ def _query_globals(photos):
         'datetime': datetime,
         'date': date,
         'timedelta': timedelta,
+        'logical_photo_key': logical_photo_key,
+        'preferred_versions': preferred_versions,
     }
 
 
