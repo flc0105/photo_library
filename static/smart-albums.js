@@ -52,6 +52,18 @@
         },
         async indexStatus() {
             return requestJson('/api/smart-albums/index/status');
+        },
+        async previewIndexSync(sourceIds) {
+            return requestJson('/api/smart-albums/index/sync/preview', jsonOptions('POST', {source_ids: sourceIds}));
+        },
+        async startIndexSync(planId) {
+            return requestJson('/api/smart-albums/index/sync/start', jsonOptions('POST', {plan_id: planId}));
+        },
+        async cancelIndexSync() {
+            return requestJson('/api/smart-albums/index/sync/cancel', {method: 'POST'});
+        },
+        async indexSyncProgress() {
+            return requestJson('/api/smart-albums/index/sync/progress');
         }
     };
 })();

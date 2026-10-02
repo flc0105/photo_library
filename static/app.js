@@ -69,6 +69,25 @@ result = [
         const smartAlbumIndexProgress = ref(emptySmartAlbumIndexProgress());
         const smartAlbumIndex = ref({ready: false, asset_count: 0, set_count: 0, last_refresh_at: null, warnings: [], indexed_source_ids: [], indexed_source_names: []});
         const smartAlbumIndexSelectedSourceIds = ref([]);
+        const emptySmartAlbumSyncProgress = () => ({
+            active: false,
+            phase: 'idle',
+            message: '',
+            percent: 0,
+            current: 0,
+            total: 0,
+            steps: [],
+            summary: {},
+            error: '',
+            plan: null,
+            index: null
+        });
+        const smartAlbumSyncSelectedSourceIds = ref([]);
+        const smartAlbumSyncScanning = ref(false);
+        const smartAlbumSyncActive = ref(false);
+        const smartAlbumSyncPlan = ref(null);
+        const smartAlbumSyncProgress = ref(emptySmartAlbumSyncProgress());
+        const showSmartAlbumSyncDialog = ref(false);
         const smartAlbumQueryError = ref('');
         const showSmartAlbumIndexDialog = ref(false);
         const showEditSmartAlbumDialog = ref(false);
@@ -537,6 +556,153 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                 smartAlbumIndexProgress.value = progress;
             } catch (error) {
                 ElMessage.error(error.message || '取消 Smart Album 索引刷新失败');
+            }
+        };
+
+        const initializeSmartAlbumSyncSourceSelection = () => {
+            const availableIds = enabledSmartAlbumIndexSources.value
+                .filter(source => !!source.available)
+                .map(source => Number(source.id));
+            const allowed = new Set(availableIds);
+            const indexedIds = Array.isArray(smartAlbumIndex.value?.indexed_source_ids)
+                ? smartAlbumIndex.value.indexed_source_ids.map(Number)
+                : [];
+            const selected = indexedIds.filter(sourceId => allowed.has(sourceId));
+            smartAlbumSyncSelectedSourceIds.value = selected.length ? selected : [...availableIds];
+        };
+
+        const invalidateSmartAlbumSyncPlan = () => {
+            if (smartAlbumSyncActive.value) return;
+            smartAlbumSyncPlan.value = null;
+            smartAlbumSyncProgress.value = emptySmartAlbumSyncProgress();
+        };
+
+        const waitForSmartAlbumSync = async () => {
+            while (true) {
+                const progress = await window.SmartAlbumApi.indexSyncProgress();
+                smartAlbumSyncProgress.value = progress;
+                if (progress.plan) smartAlbumSyncPlan.value = progress.plan;
+                if (!progress.active) {
+                    if (progress.error) throw new Error(progress.error);
+                    return progress;
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        };
+
+        const openSmartAlbumIndexSync = async () => {
+            if (!window.SmartAlbumApi) return;
+            showSmartAlbumSyncDialog.value = true;
+            try {
+                await loadLibrarySources();
+                const progress = await window.SmartAlbumApi.indexSyncProgress();
+                if (progress.index) smartAlbumIndex.value = progress.index;
+                if (progress.active) {
+                    smartAlbumSyncProgress.value = progress;
+                    smartAlbumSyncPlan.value = progress.plan || null;
+                    smartAlbumSyncSelectedSourceIds.value = Array.isArray(progress.plan?.source_ids)
+                        ? progress.plan.source_ids.map(Number)
+                        : [];
+                    if (!smartAlbumSyncActive.value) {
+                        smartAlbumSyncActive.value = true;
+                        void (async () => {
+                            try {
+                                const finalProgress = await waitForSmartAlbumSync();
+                                smartAlbumIndex.value = finalProgress.index || await window.SmartAlbumApi.indexStatus();
+                            } catch (error) {
+                                ElMessage.error(error.message || '读取 Smart Album 同步进度失败');
+                            } finally {
+                                smartAlbumSyncActive.value = false;
+                            }
+                        })();
+                    }
+                    return;
+                }
+                smartAlbumSyncProgress.value = emptySmartAlbumSyncProgress();
+                smartAlbumSyncPlan.value = null;
+                initializeSmartAlbumSyncSourceSelection();
+            } catch (error) {
+                ElMessage.error(error.message || '读取 Smart Album 同步状态失败');
+            }
+        };
+
+        const scanSmartAlbumIndexChanges = async () => {
+            if (!window.SmartAlbumApi || smartAlbumSyncActive.value || smartAlbumSyncScanning.value) return;
+            const selectedSourceIds = smartAlbumSyncSelectedSourceIds.value.map(Number);
+            if (!selectedSourceIds.length) {
+                ElMessage.warning('请至少选择一个需要同步的 Source');
+                return;
+            }
+            const unavailable = enabledSmartAlbumIndexSources.value.filter(
+                source => selectedSourceIds.includes(Number(source.id)) && !source.available
+            );
+            if (unavailable.length) {
+                ElMessage.warning(`以下 Source 当前不可用：${unavailable.map(source => source.name).join('、')}`);
+                return;
+            }
+            smartAlbumSyncScanning.value = true;
+            try {
+                const plan = await window.SmartAlbumApi.previewIndexSync(selectedSourceIds);
+                smartAlbumSyncPlan.value = plan;
+                smartAlbumSyncProgress.value = emptySmartAlbumSyncProgress();
+                const summary = plan.summary || {};
+                const changes = Number(summary.added_count || 0) + Number(summary.changed_count || 0) + Number(summary.deleted_count || 0);
+                if (changes) {
+                    ElMessage.success(`扫描完成：新增 ${summary.added_count || 0} · 修改 ${summary.changed_count || 0} · 删除 ${summary.deleted_count || 0}`);
+                } else {
+                    ElMessage.success('扫描完成：所选 Source 索引已是最新');
+                }
+            } catch (error) {
+                smartAlbumSyncPlan.value = null;
+                ElMessage.error(error.message || '扫描 Smart Album 索引变化失败');
+            } finally {
+                smartAlbumSyncScanning.value = false;
+            }
+        };
+
+        const startSmartAlbumIndexSync = async () => {
+            if (!window.SmartAlbumApi || smartAlbumSyncActive.value || !smartAlbumSyncPlan.value?.plan_id) return;
+            const summary = smartAlbumSyncPlan.value.summary || {};
+            const changeTotal = Number(summary.added_count || 0) + Number(summary.changed_count || 0) + Number(summary.deleted_count || 0);
+            if (!changeTotal) {
+                ElMessage.info('当前扫描计划没有需要同步的变化');
+                return;
+            }
+            smartAlbumSyncActive.value = true;
+            try {
+                const started = await window.SmartAlbumApi.startIndexSync(smartAlbumSyncPlan.value.plan_id);
+                smartAlbumSyncProgress.value = started;
+                if (started.plan) smartAlbumSyncPlan.value = started.plan;
+                const finalProgress = await waitForSmartAlbumSync();
+                const status = finalProgress.index || await window.SmartAlbumApi.indexStatus();
+                smartAlbumIndex.value = status;
+                if (finalProgress.phase === 'cancelled') {
+                    ElMessage.info('Smart Album 索引同步已取消；同步前索引保持不变');
+                    return;
+                }
+                ElMessage.success(finalProgress.message || 'Smart Album 索引同步完成');
+                if (currentView.value === 'smart-album' && currentSmartAlbum.value?.id) {
+                    await runSmartAlbum();
+                }
+            } catch (error) {
+                smartAlbumSyncProgress.value = {
+                    ...smartAlbumSyncProgress.value,
+                    active: false,
+                    phase: 'error',
+                    error: error.message || '同步失败'
+                };
+                ElMessage.error(error.message || '同步 Smart Album 索引失败');
+            } finally {
+                smartAlbumSyncActive.value = false;
+            }
+        };
+
+        const cancelSmartAlbumIndexSync = async () => {
+            if (!window.SmartAlbumApi || !smartAlbumSyncActive.value) return;
+            try {
+                smartAlbumSyncProgress.value = await window.SmartAlbumApi.cancelIndexSync();
+            } catch (error) {
+                ElMessage.error(error.message || '取消 Smart Album 索引同步失败');
             }
         };
 
@@ -4567,6 +4733,12 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartAlbumIndexProgress,
             smartAlbumIndex,
             smartAlbumIndexSelectedSourceIds,
+            smartAlbumSyncSelectedSourceIds,
+            smartAlbumSyncScanning,
+            smartAlbumSyncActive,
+            smartAlbumSyncPlan,
+            smartAlbumSyncProgress,
+            showSmartAlbumSyncDialog,
             enabledSmartAlbumIndexSources,
             smartAlbumIndexedSourceText,
             showSmartAlbumIndexDialog,
@@ -4587,6 +4759,11 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             refreshSmartAlbumIndex,
             startSmartAlbumIndexRefresh,
             cancelSmartAlbumIndexRefresh,
+            openSmartAlbumIndexSync,
+            scanSmartAlbumIndexChanges,
+            startSmartAlbumIndexSync,
+            cancelSmartAlbumIndexSync,
+            invalidateSmartAlbumSyncPlan,
             openSmartAlbumHelp,
             editSmartAlbum,
             saveSmartAlbum,

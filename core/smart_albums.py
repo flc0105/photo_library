@@ -1,10 +1,12 @@
 import copy
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import subprocess
 import threading
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -975,6 +977,481 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
         'indexed_source_names': indexed_source_names,
     }
 
+
+def _sync_signature_rows(rows):
+    payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def _sync_inventory_signature(records):
+    rows = []
+    for key in sorted(records):
+        item = records[key]
+        rows.append({
+            'source_id': int(item['source_id']),
+            'relative_path': item['relative_path'],
+            'set_path': item['set_path'],
+            'stage': item['stage'],
+            'logical_id': item['logical_id'],
+            'file_name': item['file_name'],
+            'extension': item['extension'],
+            'file_size': item['file_size'],
+            'file_mtime_ns': item['file_mtime_ns'],
+            'capture_donor_relative_path': item.get('capture_donor_relative_path'),
+        })
+    return _sync_signature_rows(rows)
+
+
+def _sync_index_signature(rows):
+    normalized = []
+    for row in rows:
+        normalized.append({
+            'source_id': int(row['source_id']),
+            'relative_path': row['relative_path'],
+            'set_path': row['set_path'],
+            'stage': row['stage'],
+            'logical_id': row['logical_id'],
+            'file_name': row['file_name'],
+            'extension': row['extension'],
+            'file_size': row['file_size'],
+            'file_mtime_ns': row['file_mtime_ns'],
+            'capture_donor_relative_path': row['capture_donor_relative_path'],
+        })
+    normalized.sort(key=lambda item: (item['source_id'], item['relative_path'].casefold()))
+    return _sync_signature_rows(normalized)
+
+
+def _indexed_rows_for_sources(smart_db_path, source_ids):
+    source_ids = [int(source_id) for source_id in source_ids]
+    if not source_ids:
+        return []
+    placeholders = ','.join('?' for _ in source_ids)
+    conn = _connect(smart_db_path)
+    rows = conn.execute(
+        f"""SELECT * FROM smart_album_assets
+            WHERE source_id IN ({placeholders})
+            ORDER BY source_id, relative_path""",
+        tuple(source_ids),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def _scan_sync_inventory(main_db_path, source_ids):
+    # Cheap filesystem snapshot: directory/stat + stage/logical structure only.
+    # No ExifTool and no image-pixel decode happens during change discovery.
+    if SMART_ALBUM_CAPTURE_METADATA_SOURCE not in _CAPTURE_METADATA_MODES:
+        raise RuntimeError(
+            'SMART_ALBUM_CAPTURE_METADATA_SOURCE must be one of: ' +
+            ', '.join(sorted(_CAPTURE_METADATA_MODES))
+        )
+
+    sources = _selected_enabled_sources(main_db_path, source_ids)
+    unavailable = [source['name'] for source in sources if not Path(source['root_path']).expanduser().is_dir()]
+    if unavailable:
+        raise ValueError(
+            '同步索引不能扫描不可用 Source（否则无法区分“文件已删除”和“磁盘未挂载”）：' +
+            '、'.join(unavailable)
+        )
+
+    records = {}
+    set_total = 0
+    stage_counts = {stage: 0 for stage, _ in _STAGE_DEFS}
+    source_summaries = []
+
+    for source in sources:
+        source_id = int(source['id'])
+        root = Path(source['root_path']).expanduser().resolve()
+        set_dirs = _discover_sets(root)
+        set_total += len(set_dirs)
+        source_asset_count = 0
+
+        for set_dir in set_dirs:
+            set_rel = set_dir.relative_to(root).as_posix()
+            candidates = _set_candidates(set_dir)
+
+            jpg_index = raw_index = {}
+            if candidates and SMART_ALBUM_CAPTURE_METADATA_SOURCE != 'asset':
+                include_raw = SMART_ALBUM_CAPTURE_METADATA_SOURCE == 'original_jpg_raw'
+                _jpg_files, _raw_files, jpg_index, raw_index = _original_indexes(
+                    set_dir,
+                    include_raw=include_raw,
+                )
+
+            for stage, path in candidates:
+                logical_id = _logical_id(path)
+                donor = path
+                if SMART_ALBUM_CAPTURE_METADATA_SOURCE != 'asset':
+                    key = logical_id.casefold()
+                    donor = _choose_donor(jpg_index.get(key, []), logical_id)
+                    if donor is None and SMART_ALBUM_CAPTURE_METADATA_SOURCE == 'original_jpg_raw':
+                        donor = _choose_donor(raw_index.get(key, []), logical_id)
+
+                stat = path.stat()
+                relative_path = path.relative_to(root).as_posix()
+                donor_relative_path = donor.relative_to(root).as_posix() if donor else None
+                key = (source_id, relative_path)
+                records[key] = {
+                    'source_id': source_id,
+                    'source_name': source['name'],
+                    'root': root,
+                    'path': path,
+                    'relative_path': relative_path,
+                    'set_path': set_rel,
+                    'set_name': set_dir.name,
+                    'set_dir': set_dir,
+                    'stage': stage,
+                    'logical_id': logical_id,
+                    'file_name': path.name,
+                    'extension': path.suffix.lower(),
+                    'file_size': stat.st_size,
+                    'file_mtime_ns': stat.st_mtime_ns,
+                    'file_mtime': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds'),
+                    'donor': donor,
+                    'capture_donor_relative_path': donor_relative_path,
+                }
+                stage_counts[stage] = stage_counts.get(stage, 0) + 1
+                source_asset_count += 1
+
+        source_summaries.append({
+            'id': source_id,
+            'name': source['name'],
+            'set_count': len(set_dirs),
+            'asset_count': source_asset_count,
+        })
+
+    return {
+        'sources': sources,
+        'source_summaries': source_summaries,
+        'records': records,
+        'set_total': set_total,
+        'asset_total': len(records),
+        'stage_counts': stage_counts,
+        'signature': _sync_inventory_signature(records),
+    }
+
+
+def _sync_change_reasons(current, old):
+    reasons = []
+    if int(current['file_size'] or 0) != int(old['file_size'] or 0):
+        reasons.append('文件大小')
+    if int(current['file_mtime_ns'] or 0) != int(old['file_mtime_ns'] or 0):
+        reasons.append('修改时间')
+    if current['stage'] != old['stage']:
+        reasons.append('阶段')
+    if current['logical_id'] != old['logical_id']:
+        reasons.append('logical stem')
+    if current['set_path'] != old['set_path']:
+        reasons.append('Set')
+    if current['file_name'] != old['file_name']:
+        reasons.append('文件名')
+    if current['extension'] != old['extension']:
+        reasons.append('扩展名')
+    if (current.get('capture_donor_relative_path') or '') != (old['capture_donor_relative_path'] or ''):
+        reasons.append('Capture donor')
+    # Donor modes currently do not persist donor size/mtime. Be conservative so
+    # a changed Original donor can never silently keep stale capture metadata.
+    if SMART_ALBUM_CAPTURE_METADATA_SOURCE != 'asset' and 'Original donor metadata' not in reasons:
+        reasons.append('Original donor metadata')
+    return reasons
+
+
+def _sync_current_detail(item, reasons=None):
+    return {
+        'source_id': int(item['source_id']),
+        'source_name': item['source_name'],
+        'relative_path': item['relative_path'],
+        'set_name': item['set_name'],
+        'stage': item['stage'],
+        'logical_id': item['logical_id'],
+        'file_size': item['file_size'],
+        'file_mtime': item['file_mtime'],
+        'reasons': reasons or [],
+    }
+
+
+def _sync_old_detail(row, source_name=''):
+    return {
+        'source_id': int(row['source_id']),
+        'source_name': source_name,
+        'relative_path': row['relative_path'],
+        'set_name': row['set_name'],
+        'stage': row['stage'],
+        'logical_id': row['logical_id'],
+        'file_size': row['file_size'],
+        'file_mtime': row['file_mtime'],
+        'reasons': [],
+    }
+
+
+def _build_sync_plan(smart_db_path, main_db_path, source_ids):
+    status = _index_status(smart_db_path)
+    if not status['ready']:
+        raise RuntimeError('请先使用现有“刷新索引”完成一次完整重建，再使用同步索引。')
+
+    inventory = _scan_sync_inventory(main_db_path, source_ids)
+    source_name_map = {int(source['id']): source['name'] for source in inventory['sources']}
+    old_rows = _indexed_rows_for_sources(smart_db_path, source_ids)
+    old_map = {(int(row['source_id']), row['relative_path']): row for row in old_rows}
+    current_map = inventory['records']
+
+    current_keys = set(current_map)
+    old_keys = set(old_map)
+    added_keys = sorted(current_keys - old_keys)
+    deleted_keys = sorted(old_keys - current_keys)
+    changed_keys = []
+    unchanged_keys = []
+    changed_reason_map = {}
+
+    for key in sorted(current_keys & old_keys):
+        reasons = _sync_change_reasons(current_map[key], old_map[key])
+        if reasons:
+            changed_keys.append(key)
+            changed_reason_map[key] = reasons
+        else:
+            unchanged_keys.append(key)
+
+    added = [_sync_current_detail(current_map[key]) for key in added_keys]
+    changed = []
+    for key in changed_keys:
+        detail = _sync_current_detail(current_map[key], changed_reason_map[key])
+        old = old_map[key]
+        detail.update({
+            'old_file_size': old['file_size'],
+            'old_file_mtime': old['file_mtime'],
+            'old_stage': old['stage'],
+        })
+        changed.append(detail)
+    deleted = [
+        _sync_old_detail(old_map[key], source_name_map.get(int(old_map[key]['source_id']), str(old_map[key]['source_id'])))
+        for key in deleted_keys
+    ]
+
+    return {
+        'plan_id': uuid.uuid4().hex,
+        'created_at': _now_iso(),
+        'policy_signature': _index_policy_signature(),
+        'source_ids': [int(source['id']) for source in inventory['sources']],
+        'source_names': [source['name'] for source in inventory['sources']],
+        'source_summaries': inventory['source_summaries'],
+        'inventory_signature': inventory['signature'],
+        'index_signature': _sync_index_signature(old_rows),
+        'records': current_map,
+        'old_rows': old_map,
+        'added_keys': added_keys,
+        'changed_keys': changed_keys,
+        'deleted_keys': deleted_keys,
+        'summary': {
+            'source_total': len(inventory['sources']),
+            'set_total': inventory['set_total'],
+            'asset_total': inventory['asset_total'],
+            'added_count': len(added_keys),
+            'changed_count': len(changed_keys),
+            'deleted_count': len(deleted_keys),
+            'unchanged_count': len(unchanged_keys),
+            'process_total': len(added_keys) + len(changed_keys),
+            'stage_counts': inventory['stage_counts'],
+        },
+        'changes': {'added': added, 'changed': changed, 'deleted': deleted},
+    }
+
+
+def _public_sync_plan(plan):
+    return {
+        'plan_id': plan['plan_id'],
+        'created_at': plan['created_at'],
+        'source_ids': list(plan['source_ids']),
+        'source_names': list(plan['source_names']),
+        'source_summaries': copy.deepcopy(plan['source_summaries']),
+        'summary': copy.deepcopy(plan['summary']),
+        'changes': copy.deepcopy(plan['changes']),
+    }
+
+
+def _verify_sync_plan(plan, smart_db_path, main_db_path):
+    if plan.get('policy_signature') != _index_policy_signature():
+        raise RuntimeError('Smart Album 索引配置已变化，请先完整重建索引。')
+    fresh = _build_sync_plan(smart_db_path, main_db_path, plan['source_ids'])
+    if fresh['inventory_signature'] != plan['inventory_signature']:
+        raise RuntimeError('扫描后文件列表或文件状态已经变化，请重新“扫描变化”后再同步。')
+    if fresh['index_signature'] != plan['index_signature']:
+        raise RuntimeError('Smart Album 索引在扫描后已经变化，请重新“扫描变化”后再同步。')
+    return fresh
+
+
+def _new_sync_steps():
+    return [
+        {'id': 'verify_plan', 'label': '核对扫描计划', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '等待开始'},
+        {'id': 'process_assets', 'label': '读取新增 / 修改图片 Metadata / EXIF', 'status': 'pending', 'current': 0, 'total': 0, 'unit': '图片', 'detail': '未变化图片不会重新读取'},
+        {'id': 'apply_changes', 'label': '更新索引', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '写入新增/修改，并移除已删除记录'},
+        {'id': 'verify_commit', 'label': '校验并提交', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '旧索引会保留到最终提交成功'},
+    ]
+
+
+def _prepare_sync_rows(plan, exiftool, *, progress_callback=None, cancel_callback=None):
+    keys = [*plan['added_keys'], *plan['changed_keys']]
+    rows = []
+    indexed_at = _now_iso()
+    total = len(keys)
+    done = 0
+
+    for offset in range(0, total, SMART_ALBUM_EXIF_BATCH_SIZE):
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+        batch_keys = keys[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
+        batch_items = [plan['records'][key] for key in batch_keys]
+        metadata_files = []
+        for item in batch_items:
+            metadata_files.append(item['path'])
+            donor = item.get('donor')
+            if donor is not None and donor != item['path']:
+                metadata_files.append(donor)
+
+        exif_by_path = _run_exiftool_records(
+            exiftool,
+            metadata_files,
+            cancel_callback=cancel_callback,
+        ) if exiftool else {}
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+
+        for item in batch_items:
+            path = item['path']
+            donor = item.get('donor')
+            path_key = str(path.resolve())
+            donor_key = str(donor.resolve()) if donor else None
+            asset_record = exif_by_path.get(path_key, {})
+            capture_record = exif_by_path.get(donor_key, {}) if donor_key else {}
+            capture = _capture_fields(capture_record)
+            width, height, ratio, orientation, mode = _image_facts(path, asset_record)
+            color_space, color_status = _color_space_analysis(asset_record)
+            bit_depth = _bit_depth(asset_record)
+            stat = path.stat()
+            rows.append({
+                'photo_id': f"library:{item['source_id']}:{item['relative_path']}",
+                'source_id': item['source_id'], 'relative_path': item['relative_path'],
+                'set_path': item['set_path'], 'set_name': item['set_name'],
+                'stage': item['stage'], 'logical_id': item['logical_id'],
+                'file_name': item['file_name'], 'extension': item['extension'],
+                'file_size': stat.st_size, 'file_mtime_ns': stat.st_mtime_ns,
+                'file_mtime': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds'),
+                'width': width, 'height': height, 'aspect_ratio': ratio,
+                'orientation': orientation, 'image_mode': mode,
+                'color_space': color_space, 'color_space_status': color_status,
+                'bit_depth_json': json.dumps(bit_depth, ensure_ascii=False),
+                'exif_json': json.dumps(asset_record, ensure_ascii=False),
+                'capture_exif_json': json.dumps(capture_record, ensure_ascii=False),
+                'capture_donor_relative_path': item.get('capture_donor_relative_path'),
+                'capture_time': capture['time'], 'capture_camera': capture['camera'],
+                'capture_lens': capture['lens'], 'capture_focal_length_mm': capture['focal_length_mm'],
+                'capture_iso': capture['iso'], 'capture_gps_lat': capture['gps_lat'],
+                'capture_gps_lng': capture['gps_lng'], 'indexed_at': indexed_at,
+            })
+            done += 1
+        if progress_callback:
+            progress_callback(done, total)
+
+    return rows
+
+
+def _apply_sync_changes(plan, prepared_rows, smart_db_path, main_db_path, exiftool_version, *, cancel_callback=None):
+    if cancel_callback and cancel_callback():
+        raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+
+    status_before = _index_status(smart_db_path)
+    existing_ids = [int(value) for value in status_before.get('indexed_source_ids') or []]
+    existing_names = list(status_before.get('indexed_source_names') or [])
+    name_by_id = {
+        source_id: existing_names[index]
+        for index, source_id in enumerate(existing_ids)
+        if index < len(existing_names)
+    }
+    enabled_name_by_id = {int(source['id']): source['name'] for source in _enabled_sources(main_db_path)}
+    for source_id, source_name in zip(plan['source_ids'], plan['source_names']):
+        name_by_id[int(source_id)] = source_name
+    indexed_ids = list(existing_ids)
+    for source_id in plan['source_ids']:
+        source_id = int(source_id)
+        if source_id not in indexed_ids:
+            indexed_ids.append(source_id)
+    indexed_names = [name_by_id.get(source_id) or enabled_name_by_id.get(source_id) or str(source_id) for source_id in indexed_ids]
+
+    conn = _connect(smart_db_path)
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+
+        for source_id, relative_path in [*plan['deleted_keys'], *plan['changed_keys']]:
+            conn.execute('DELETE FROM smart_album_assets WHERE source_id=? AND relative_path=?', (source_id, relative_path))
+
+        insert_sql = """INSERT INTO smart_album_assets (
+            photo_id, source_id, relative_path, set_path, set_name,
+            stage, logical_id, file_name, extension, file_size,
+            file_mtime_ns, file_mtime, width, height, aspect_ratio,
+            orientation, image_mode, color_space, color_space_status,
+            bit_depth_json, exif_json, capture_exif_json,
+            capture_donor_relative_path, capture_time, capture_camera,
+            capture_lens, capture_focal_length_mm, capture_iso,
+            capture_gps_lat, capture_gps_lng, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        columns = [
+            'photo_id', 'source_id', 'relative_path', 'set_path', 'set_name',
+            'stage', 'logical_id', 'file_name', 'extension', 'file_size',
+            'file_mtime_ns', 'file_mtime', 'width', 'height', 'aspect_ratio',
+            'orientation', 'image_mode', 'color_space', 'color_space_status',
+            'bit_depth_json', 'exif_json', 'capture_exif_json',
+            'capture_donor_relative_path', 'capture_time', 'capture_camera',
+            'capture_lens', 'capture_focal_length_mm', 'capture_iso',
+            'capture_gps_lat', 'capture_gps_lng', 'indexed_at',
+        ]
+        for row in prepared_rows:
+            conn.execute(insert_sql, tuple(row[column] for column in columns))
+
+        placeholders = ','.join('?' for _ in plan['source_ids'])
+        selected_rows = conn.execute(
+            f"""SELECT source_id, relative_path FROM smart_album_assets
+                WHERE source_id IN ({placeholders})""",
+            tuple(plan['source_ids']),
+        ).fetchall()
+        selected_keys = {(int(row['source_id']), row['relative_path']) for row in selected_rows}
+        if selected_keys != set(plan['records']):
+            raise RuntimeError('同步索引校验失败：所选 Source 的索引文件列表与扫描计划不一致')
+
+        asset_count = int(conn.execute('SELECT COUNT(*) AS count FROM smart_album_assets').fetchone()['count'])
+        set_count = int(conn.execute(
+            """SELECT COUNT(*) AS count FROM (
+                   SELECT DISTINCT source_id, set_path FROM smart_album_assets
+               )"""
+        ).fetchone()['count'])
+        warnings = [warning for warning in (status_before.get('warnings') or []) if '索引配置已变化' not in warning]
+        if not exiftool_version:
+            warning = 'ExifTool 不可用：photo.exif / photo.capture.exif 与依赖 EXIF 的字段会为空。'
+            if warning not in warnings:
+                warnings.append(warning)
+
+        now = _now_iso()
+        _meta_set(conn, 'last_refresh_at', now)
+        _meta_set(conn, 'last_sync_at', now)
+        _meta_set(conn, 'asset_count', asset_count)
+        _meta_set(conn, 'set_count', set_count)
+        _meta_set(conn, 'exiftool_version', exiftool_version)
+        _meta_set(conn, 'warnings_json', json.dumps(warnings, ensure_ascii=False))
+        _meta_set(conn, 'index_policy_signature', _index_policy_signature())
+        _meta_set(conn, 'indexed_source_ids_json', json.dumps(indexed_ids))
+        _meta_set(conn, 'indexed_source_names_json', json.dumps(indexed_names, ensure_ascii=False))
+
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return _index_status(smart_db_path)
+
 def _index_status(smart_db_path):
     conn = _connect(smart_db_path)
     last_refresh_at = _meta_get(conn, 'last_refresh_at')
@@ -1309,6 +1786,190 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 index=_index_status(smart_db_path),
             )
 
+    # Incremental sync is a separate workflow from the proven full rebuild above.
+    # It never changes the full-rebuild task state or its progress contract.
+    sync_job_lock = threading.Lock()
+    sync_plans = {}
+    sync_job = {
+        'active': False,
+        'phase': 'idle',
+        'message': '',
+        'percent': 0,
+        'current': 0,
+        'total': 0,
+        'steps': _new_sync_steps(),
+        'summary': {},
+        'error': '',
+        'cancel_requested': False,
+        'plan': None,
+        'index': None,
+    }
+
+    def sync_job_snapshot():
+        with sync_job_lock:
+            return copy.deepcopy(sync_job)
+
+    def update_sync_job(**changes):
+        with sync_job_lock:
+            sync_job.update(changes)
+
+    def sync_cancel_requested():
+        with sync_job_lock:
+            return bool(sync_job.get('cancel_requested'))
+
+    def run_sync_job(plan_id):
+        with sync_job_lock:
+            plan = sync_plans.get(plan_id)
+        if not plan:
+            update_sync_job(
+                active=False,
+                phase='error',
+                message='同步计划不存在，请重新扫描变化',
+                error='同步计划不存在，请重新扫描变化',
+                cancel_requested=False,
+            )
+            return
+
+        steps = _new_sync_steps()
+        step_map = {step['id']: step for step in steps}
+        public_plan = _public_sync_plan(plan)
+        change_total = (
+            plan['summary']['added_count'] +
+            plan['summary']['changed_count'] +
+            plan['summary']['deleted_count']
+        )
+
+        def publish(phase, message, *, current=None, total=None, percent=None):
+            if current is None:
+                current = sync_job_snapshot().get('current', 0)
+            if total is None:
+                total = sync_job_snapshot().get('total', change_total)
+            if percent is None:
+                percent = int(round((100.0 * current / total))) if total else 0
+            update_sync_job(
+                active=True,
+                phase=phase,
+                message=message,
+                current=int(current),
+                total=int(total),
+                percent=max(0, min(99, int(percent))),
+                steps=copy.deepcopy(steps),
+                summary=copy.deepcopy(plan['summary']),
+                plan=public_plan,
+            )
+
+        try:
+            verify_step = step_map['verify_plan']
+            verify_step.update(status='active', detail='重新扫描所选 Source，确认文件列表与预览一致')
+            publish('verify_plan', '核对扫描计划', current=0, total=change_total)
+            if index_job_snapshot().get('active'):
+                raise RuntimeError('完整重建正在运行，请等待完成后再同步索引。')
+            verified = _verify_sync_plan(plan, smart_db_path, main_db_path)
+            verify_step.update(status='done', current=1, detail='扫描计划未变化')
+
+            exiftool = resolve_exiftool()
+            exiftool_version = probe_exiftool_version(exiftool) if exiftool else ''
+            process_step = step_map['process_assets']
+            process_total = verified['summary']['process_total']
+            process_step.update(status='active', current=0, total=process_total)
+            if process_total:
+                process_step['detail'] = f'只处理 {process_total} 张新增 / 修改图片；未变化图片跳过'
+            else:
+                process_step['detail'] = '没有新增 / 修改图片；无需读取 Metadata / EXIF'
+            publish('process_assets', process_step['detail'], current=0, total=change_total)
+
+            def on_processed(done, total):
+                process_step['current'] = done
+                process_step['total'] = total
+                process_step['detail'] = f'已读取 {done} / {total} 张新增 / 修改图片'
+                publish('process_assets', process_step['detail'], current=done, total=change_total)
+
+            prepared_rows = _prepare_sync_rows(
+                verified,
+                exiftool,
+                progress_callback=on_processed,
+                cancel_callback=sync_cancel_requested,
+            )
+            process_step.update(status='done', current=process_total, total=process_total, detail=f'新增 / 修改 Metadata 完成：{process_total} 张')
+
+            # Metadata extraction can take time. Re-scan before touching SQLite so
+            # execution always commits the exact previewed plan.
+            verified_again = _verify_sync_plan(plan, smart_db_path, main_db_path)
+            if index_job_snapshot().get('active'):
+                raise RuntimeError('完整重建已开始，本次同步已停止；请待完整重建结束后重新扫描变化。')
+
+            apply_step = step_map['apply_changes']
+            apply_step.update(
+                status='active',
+                current=0,
+                total=1,
+                detail=(
+                    f"新增 {verified_again['summary']['added_count']} · "
+                    f"修改 {verified_again['summary']['changed_count']} · "
+                    f"删除 {verified_again['summary']['deleted_count']}"
+                ),
+            )
+            publish('apply_changes', '更新 Smart Album 索引', current=process_total, total=change_total)
+            status = _apply_sync_changes(
+                verified_again,
+                prepared_rows,
+                smart_db_path,
+                main_db_path,
+                exiftool_version,
+                cancel_callback=sync_cancel_requested,
+            )
+            apply_step.update(status='done', current=1, total=1, detail='索引变化已写入事务')
+
+            commit_step = step_map['verify_commit']
+            commit_step.update(status='done', current=1, total=1, detail=f"提交完成：当前索引 {status['asset_count']} 张")
+            update_sync_job(
+                active=False,
+                phase='done',
+                message=(
+                    f"同步完成：新增 {plan['summary']['added_count']} · "
+                    f"修改 {plan['summary']['changed_count']} · "
+                    f"删除 {plan['summary']['deleted_count']}"
+                ),
+                percent=100,
+                current=change_total,
+                total=change_total,
+                steps=copy.deepcopy(steps),
+                summary=copy.deepcopy(plan['summary']),
+                error='',
+                cancel_requested=False,
+                plan=public_plan,
+                index=status,
+            )
+        except SmartAlbumIndexCancelled:
+            for step in steps:
+                if step.get('status') == 'active':
+                    step['status'] = 'cancelled'
+                    step['detail'] = (step.get('detail') or '') + '（已取消）'
+            update_sync_job(
+                active=False,
+                phase='cancelled',
+                message='已取消同步；同步前的完整索引保持不变',
+                steps=copy.deepcopy(steps),
+                error='',
+                cancel_requested=False,
+                plan=public_plan,
+                index=_index_status(smart_db_path),
+            )
+        except Exception as exc:
+            for step in steps:
+                if step.get('status') == 'active':
+                    step['status'] = 'error'
+            update_sync_job(
+                active=False,
+                phase='error',
+                message='Smart Album 索引同步失败',
+                steps=copy.deepcopy(steps),
+                error=str(exc),
+                cancel_requested=False,
+                plan=public_plan,
+                index=_index_status(smart_db_path),
+            )
+
     def guard():
         return admin_guard()
 
@@ -1526,6 +2187,88 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         if denied:
             return denied
         return jsonify(index_job_snapshot())
+
+    @bp.route('/api/smart-albums/index/sync/preview', methods=['POST'])
+    def preview_smart_album_index_sync():
+        denied = guard()
+        if denied:
+            return denied
+        if index_job_snapshot().get('active'):
+            return jsonify({'error': '完整重建正在运行，请等待完成后再扫描同步变化。'}), 409
+        if sync_job_snapshot().get('active'):
+            return jsonify({'error': '索引同步正在运行。'}), 409
+        data = request.get_json(silent=True) or {}
+        requested_source_ids = data.get('source_ids') if 'source_ids' in data else None
+        try:
+            plan = _build_sync_plan(smart_db_path, main_db_path, requested_source_ids)
+        except (ValueError, RuntimeError) as exc:
+            return jsonify({'error': str(exc)}), 400
+        with sync_job_lock:
+            sync_plans.clear()
+            sync_plans[plan['plan_id']] = plan
+        return jsonify(_public_sync_plan(plan))
+
+    @bp.route('/api/smart-albums/index/sync/start', methods=['POST'])
+    def start_smart_album_index_sync():
+        denied = guard()
+        if denied:
+            return denied
+        data = request.get_json(silent=True) or {}
+        plan_id = str(data.get('plan_id') or '').strip()
+        if not plan_id:
+            return jsonify({'error': '缺少同步 plan_id，请重新扫描变化。'}), 400
+        if index_job_snapshot().get('active'):
+            return jsonify({'error': '完整重建正在运行，请等待完成后再同步索引。'}), 409
+        with sync_job_lock:
+            plan = sync_plans.get(plan_id)
+            if not plan:
+                return jsonify({'error': '同步计划不存在或已失效，请重新扫描变化。'}), 409
+            if sync_job['active']:
+                return jsonify(copy.deepcopy(sync_job)), 202
+            change_total = (
+                plan['summary']['added_count'] +
+                plan['summary']['changed_count'] +
+                plan['summary']['deleted_count']
+            )
+            if change_total <= 0:
+                return jsonify({'error': '当前所选 Source 没有需要同步的变化。'}), 400
+            sync_job.update({
+                'active': True,
+                'phase': 'starting',
+                'message': '准备同步 Smart Album 索引',
+                'percent': 0,
+                'current': 0,
+                'total': change_total,
+                'steps': _new_sync_steps(),
+                'summary': copy.deepcopy(plan['summary']),
+                'error': '',
+                'cancel_requested': False,
+                'plan': _public_sync_plan(plan),
+                'index': _index_status(smart_db_path),
+            })
+        threading.Thread(target=run_sync_job, args=(plan_id,), daemon=True).start()
+        return jsonify(sync_job_snapshot()), 202
+
+    @bp.route('/api/smart-albums/index/sync/cancel', methods=['POST'])
+    def cancel_smart_album_index_sync():
+        denied = guard()
+        if denied:
+            return denied
+        with sync_job_lock:
+            if not sync_job['active']:
+                return jsonify(copy.deepcopy(sync_job))
+            sync_job['cancel_requested'] = True
+            sync_job['phase'] = 'cancelling'
+            sync_job['message'] = '正在取消同步；当前 Metadata 批次结束后停止，旧索引保持不变'
+            snapshot = copy.deepcopy(sync_job)
+        return jsonify(snapshot), 202
+
+    @bp.route('/api/smart-albums/index/sync/progress', methods=['GET'])
+    def smart_album_index_sync_progress():
+        denied = guard()
+        if denied:
+            return denied
+        return jsonify(sync_job_snapshot())
 
     @bp.route('/api/smart-albums/runtime', methods=['GET'])
     def smart_album_runtime_contract():

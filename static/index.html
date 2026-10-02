@@ -127,6 +127,7 @@
                     </div>
                     <div class="group-actions">
                         <el-button size="small" @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-button>
+                        <el-button size="small" @click="openSmartAlbumIndexSync">同步索引</el-button>
                     </div>
                 </div>
                 <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('smart-albums') }">
@@ -642,6 +643,7 @@
                 <div class="album-actions">
                     <el-button @click="runSmartAlbum">运行查询</el-button>
                     <el-button @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-button>
+                    <el-button @click="openSmartAlbumIndexSync">同步索引</el-button>
                     <el-button v-if="isAdmin" @click="editSmartAlbum()">编辑</el-button>
                     <el-button v-if="isAdmin" type="danger" @click="deleteSmartAlbum()">删除</el-button>
                 </div>
@@ -1460,6 +1462,135 @@
                            :loading="smartAlbumIndexProgress.phase === 'cancelling'"
                            @click="cancelSmartAlbumIndexRefresh">取消刷新</el-button>
                 <el-button v-else type="primary" :disabled="!smartAlbumIndexSelectedSourceIds.length" @click="startSmartAlbumIndexRefresh">开始刷新</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Smart Album 增量同步：独立于完整“刷新索引”流程。先扫描 diff，再明确执行。 -->
+        <el-dialog v-model="showSmartAlbumSyncDialog" title="同步 Smart Album 索引" width="920px"
+                   :close-on-click-modal="!smartAlbumSyncActive" :close-on-press-escape="!smartAlbumSyncActive">
+            <div style="line-height:1.6;">
+                <div style="padding:12px 14px; border:1px solid #dcdfe6; border-radius:8px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                        <strong>同步哪些 Source</strong>
+                        <span style="font-size:12px; color:#909399;">未勾选 Source 的现有索引保持不变</span>
+                    </div>
+                    <el-checkbox-group v-model="smartAlbumSyncSelectedSourceIds"
+                                       :disabled="smartAlbumSyncActive || smartAlbumSyncScanning"
+                                       @change="invalidateSmartAlbumSyncPlan"
+                                       style="display:flex; flex-wrap:wrap; gap:8px 18px;">
+                        <el-checkbox v-for="source in enabledSmartAlbumIndexSources" :key="source.id"
+                                     :label="source.id" :disabled="!source.available">
+                            {{ source.name }}<span v-if="!source.available" style="color:#e6a23c; margin-left:4px;">（当前不可用）</span>
+                        </el-checkbox>
+                    </el-checkbox-group>
+                    <div v-if="!enabledSmartAlbumIndexSources.length" style="font-size:12px; color:#f56c6c;">没有已启用的 Library Source。</div>
+                    <div style="margin-top:8px; font-size:12px; color:#606266;">
+                        “扫描变化”只读取目录、路径、文件大小和修改时间，不运行 ExifTool。只有新增 / 修改图片在真正同步时读取 Metadata / EXIF；删除只移除 Smart Album 索引记录，不删除照片。
+                    </div>
+                </div>
+
+                <template v-if="smartAlbumSyncPlan">
+                    <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin-bottom:16px;">
+                        <div style="padding:12px; border:1px solid #d9ecff; border-radius:8px; background:#f5faff;">
+                            <div style="font-size:12px; color:#909399;">新增</div>
+                            <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.added_count || 0 }}</div>
+                        </div>
+                        <div style="padding:12px; border:1px solid #faecd8; border-radius:8px; background:#fdf6ec;">
+                            <div style="font-size:12px; color:#909399;">修改</div>
+                            <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.changed_count || 0 }}</div>
+                        </div>
+                        <div style="padding:12px; border:1px solid #fde2e2; border-radius:8px; background:#fef0f0;">
+                            <div style="font-size:12px; color:#909399;">删除</div>
+                            <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.deleted_count || 0 }}</div>
+                        </div>
+                        <div style="padding:12px; border:1px solid #e4e7ed; border-radius:8px; background:#f5f7fa;">
+                            <div style="font-size:12px; color:#909399;">未变化</div>
+                            <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.unchanged_count || 0 }}</div>
+                        </div>
+                    </div>
+
+                    <div style="font-size:12px; color:#606266; margin-bottom:10px;">
+                        {{ smartAlbumSyncPlan.summary?.set_total || 0 }} 个 Set · 当前文件 {{ smartAlbumSyncPlan.summary?.asset_total || 0 }} 张 ·
+                        真正需要重新读取 Metadata / EXIF {{ smartAlbumSyncPlan.summary?.process_total || 0 }} 张
+                    </div>
+
+                    <el-tabs>
+                        <el-tab-pane :label="`新增 (${smartAlbumSyncPlan.summary?.added_count || 0})`">
+                            <el-table :data="smartAlbumSyncPlan.changes?.added || []" height="300" size="small" empty-text="没有新增文件">
+                                <el-table-column prop="source_name" label="Source" width="110"></el-table-column>
+                                <el-table-column prop="relative_path" label="文件路径" min-width="430" show-overflow-tooltip></el-table-column>
+                                <el-table-column prop="stage" label="Stage" width="110"></el-table-column>
+                                <el-table-column label="大小" width="100">
+                                    <template #default="scope">{{ formatFileSize(scope.row.file_size) }}</template>
+                                </el-table-column>
+                            </el-table>
+                        </el-tab-pane>
+                        <el-tab-pane :label="`修改 (${smartAlbumSyncPlan.summary?.changed_count || 0})`">
+                            <el-table :data="smartAlbumSyncPlan.changes?.changed || []" height="300" size="small" empty-text="没有修改文件">
+                                <el-table-column prop="source_name" label="Source" width="110"></el-table-column>
+                                <el-table-column prop="relative_path" label="文件路径" min-width="360" show-overflow-tooltip></el-table-column>
+                                <el-table-column label="变化" min-width="150">
+                                    <template #default="scope">{{ (scope.row.reasons || []).join('、') || '—' }}</template>
+                                </el-table-column>
+                                <el-table-column label="大小" width="170">
+                                    <template #default="scope">{{ formatFileSize(scope.row.old_file_size) }} → {{ formatFileSize(scope.row.file_size) }}</template>
+                                </el-table-column>
+                                <el-table-column label="修改时间" min-width="260">
+                                    <template #default="scope">{{ scope.row.old_file_mtime || '—' }} → {{ scope.row.file_mtime || '—' }}</template>
+                                </el-table-column>
+                            </el-table>
+                        </el-tab-pane>
+                        <el-tab-pane :label="`删除 (${smartAlbumSyncPlan.summary?.deleted_count || 0})`">
+                            <el-table :data="smartAlbumSyncPlan.changes?.deleted || []" height="300" size="small" empty-text="没有删除文件">
+                                <el-table-column prop="source_name" label="Source" width="110"></el-table-column>
+                                <el-table-column prop="relative_path" label="旧索引路径" min-width="430" show-overflow-tooltip></el-table-column>
+                                <el-table-column prop="stage" label="Stage" width="110"></el-table-column>
+                                <el-table-column label="旧大小" width="100">
+                                    <template #default="scope">{{ formatFileSize(scope.row.file_size) }}</template>
+                                </el-table-column>
+                            </el-table>
+                        </el-tab-pane>
+                    </el-tabs>
+                </template>
+
+                <div v-if="smartAlbumSyncActive || (smartAlbumSyncProgress.phase && smartAlbumSyncProgress.phase !== 'idle')"
+                     style="margin-top:16px; padding-top:16px; border-top:1px solid #ebeef5;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                        <strong>同步进度</strong>
+                        <span style="font-size:12px; color:#606266;">{{ smartAlbumSyncProgress.current || 0 }} / {{ smartAlbumSyncProgress.total || 0 }} 项变化</span>
+                    </div>
+                    <el-progress :percentage="smartAlbumSyncProgress.percent || 0"
+                                 :status="smartAlbumSyncProgress.error ? 'exception' : (smartAlbumSyncProgress.phase === 'done' ? 'success' : '')"></el-progress>
+                    <div style="margin:8px 0 12px; font-size:12px; color:#606266;">{{ smartAlbumSyncProgress.message || '等待开始' }}</div>
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                        <div v-for="(step, index) in (smartAlbumSyncProgress.steps || [])" :key="step.id"
+                             style="padding:10px 12px; border:1px solid #ebeef5; border-radius:8px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="width:22px; height:22px; border-radius:50%; background:#f2f3f5; display:inline-flex; align-items:center; justify-content:center; font-size:11px; color:#606266;">{{ index + 1 }}</span>
+                                <strong style="flex:1;">{{ step.label }}</strong>
+                                <el-tag size="small" :type="smartAlbumStepTagType(step)">{{ smartAlbumStepStatusText(step) }}</el-tag>
+                            </div>
+                            <div style="margin:5px 0 0 32px; font-size:12px; color:#606266;">{{ step.detail || '—' }}</div>
+                            <div v-if="step.total" style="margin:6px 0 0 32px;">
+                                <el-progress :percentage="smartAlbumStepPercent(step)" :show-text="false" :stroke-width="5"></el-progress>
+                            </div>
+                        </div>
+                    </div>
+                    <el-alert v-if="smartAlbumSyncProgress.error" style="margin-top:12px;" type="error" :closable="false" :title="smartAlbumSyncProgress.error"></el-alert>
+                </div>
+            </div>
+            <template #footer>
+                <el-button @click="showSmartAlbumSyncDialog = false">{{ smartAlbumSyncActive ? '隐藏' : '关闭' }}</el-button>
+                <el-button v-if="smartAlbumSyncActive" type="danger" plain
+                           :loading="smartAlbumSyncProgress.phase === 'cancelling'"
+                           @click="cancelSmartAlbumIndexSync">取消同步</el-button>
+                <template v-else>
+                    <el-button :loading="smartAlbumSyncScanning" :disabled="!smartAlbumSyncSelectedSourceIds.length"
+                               @click="scanSmartAlbumIndexChanges">扫描变化</el-button>
+                    <el-button type="primary"
+                               :disabled="!smartAlbumSyncPlan || !((smartAlbumSyncPlan.summary?.added_count || 0) + (smartAlbumSyncPlan.summary?.changed_count || 0) + (smartAlbumSyncPlan.summary?.deleted_count || 0))"
+                               @click="startSmartAlbumIndexSync">开始同步</el-button>
+                </template>
             </template>
         </el-dialog>
 
@@ -3566,7 +3697,7 @@
 <script src="final-builder.js?v=20260928-01"></script>
 <script src="final-metadata.js?v=20260928-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script src="smart-albums.js?v=20261002-04"></script>
-<script type="module" src="app.js?v=20261002-05"></script>
+<script src="smart-albums.js?v=20261003-01"></script>
+<script type="module" src="app.js?v=20261003-01"></script>
 </body>
 </html>
