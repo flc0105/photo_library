@@ -41,8 +41,11 @@
         async run(id) {
             return requestJson(`/api/smart-albums/${id}/query`, {method: 'POST'});
         },
-        async refreshIndex() {
-            return requestJson('/api/smart-albums/index/refresh', {method: 'POST'});
+        async refreshIndex(sourceIds) {
+            return requestJson('/api/smart-albums/index/refresh', jsonOptions('POST', {source_ids: sourceIds}));
+        },
+        async cancelIndex() {
+            return requestJson('/api/smart-albums/index/cancel', {method: 'POST'});
         },
         async indexProgress() {
             return requestJson('/api/smart-albums/index/progress');

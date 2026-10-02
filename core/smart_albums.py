@@ -50,6 +50,39 @@ _CAPTURE_METADATA_MODES = {'asset', 'original_jpg', 'original_jpg_raw'}
 
 DEFAULT_QUERY_CODE = """# `photos` contains all indexed photos from enabled Library Sources.\n# Return Photo objects through `result`.\nresult = list(photos)\n"""
 
+PHOTO_CONTRACT_GROUPS = [
+    {'label': 'Identity', 'fields': ['photo.id', 'photo.stage', 'photo.logical_id']},
+    {'label': 'Origin / Source', 'fields': ['photo.origin.kind', 'photo.source.id', 'photo.source.name']},
+    {'label': 'File', 'fields': [
+        'photo.file.name', 'photo.file.path', 'photo.file.extension', 'photo.file.size', 'photo.file.mtime',
+    ]},
+    {'label': 'Image', 'fields': [
+        'photo.image.width', 'photo.image.height', 'photo.image.aspect_ratio', 'photo.image.orientation',
+        'photo.image.mode', 'photo.image.color_space', 'photo.image.color_space_status', 'photo.image.bit_depth',
+    ]},
+    {'label': 'State', 'fields': ['photo.state.favorite', 'photo.state.description']},
+    {'label': 'EXIF / Capture', 'fields': [
+        'photo.exif', 'photo.capture.exif', 'photo.capture.time', 'photo.capture.camera',
+        'photo.capture.lens', 'photo.capture.focal_length_mm', 'photo.capture.iso', 'photo.capture.gps',
+        'photo.capture.gps.lat', 'photo.capture.gps.lng',
+    ]},
+    {'label': 'Set / Manifest', 'fields': ['photo.set.name', 'photo.set.path', 'photo.set.manifest']},
+]
+
+SMART_ALBUM_HELP_EXAMPLE = '''SOURCE = "2026"
+result = [
+    photo
+    for photo in photos
+    if photo.source.name == SOURCE
+    and photo.state.favorite
+    and photo.stage == "final"
+]
+'''
+
+
+class SmartAlbumIndexCancelled(RuntimeError):
+    pass
+
 
 def _now_iso():
     return datetime.now().isoformat(timespec='seconds')
@@ -161,6 +194,31 @@ def _enabled_sources(main_db_path):
     return [dict(row) for row in rows]
 
 
+def _selected_enabled_sources(main_db_path, source_ids=None):
+    """Resolve an optional Smart Album index Source selection.
+
+    Source selection belongs only to the removable Smart Album index layer. It
+    never changes library_sources.enabled. When source_ids is omitted, preserve
+    the historical behavior and index every currently enabled Library Source.
+    """
+    sources = _enabled_sources(main_db_path)
+    if source_ids is None:
+        return sources
+    if not isinstance(source_ids, (list, tuple, set)):
+        raise ValueError('source_ids 必须是 Source ID 数组')
+    try:
+        requested = {int(source_id) for source_id in source_ids}
+    except (TypeError, ValueError):
+        raise ValueError('source_ids 必须只包含整数 Source ID')
+    if not requested:
+        raise ValueError('请至少选择一个需要建立索引的 Source')
+    enabled_ids = {int(source['id']) for source in sources}
+    invalid_ids = sorted(requested - enabled_ids)
+    if invalid_ids:
+        raise ValueError('所选 Source 已停用或不存在：' + ', '.join(str(source_id) for source_id in invalid_ids))
+    return [source for source in sources if int(source['id']) in requested]
+
+
 def _library_states(main_db_path, enabled_source_ids):
     if not enabled_source_ids:
         return {}
@@ -262,7 +320,7 @@ def _choose_donor(candidates, logical_id):
     return exact[0] if len(exact) == 1 else None
 
 
-def _run_exiftool_records(exiftool_path, files, *, progress_callback=None):
+def _run_exiftool_records(exiftool_path, files, *, progress_callback=None, cancel_callback=None):
     if not exiftool_path or not files:
         return {}
     records_by_path = {}
@@ -275,6 +333,8 @@ def _run_exiftool_records(exiftool_path, files, *, progress_callback=None):
             unique.append(Path(path))
     total = len(unique)
     for offset in range(0, total, SMART_ALBUM_EXIF_BATCH_SIZE):
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引刷新已取消')
         chunk = unique[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
         command = [
             exiftool_path,
@@ -301,6 +361,8 @@ def _run_exiftool_records(exiftool_path, files, *, progress_callback=None):
             source = record.get('SourceFile')
             if source:
                 records_by_path[str(Path(source).resolve())] = record
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引刷新已取消')
         if progress_callback:
             progress_callback(min(offset + len(chunk), total), total)
     return records_by_path
@@ -612,7 +674,7 @@ def _new_index_steps():
     ]
 
 
-def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
+def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_callback=None, cancel_callback=None):
     if SMART_ALBUM_CAPTURE_METADATA_SOURCE not in _CAPTURE_METADATA_MODES:
         raise RuntimeError(
             'SMART_ALBUM_CAPTURE_METADATA_SOURCE must be one of: ' +
@@ -636,6 +698,10 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
     overall_current = 0
     overall_total = 0
     overall_ready = False
+
+    def check_cancelled():
+        if cancel_callback and cancel_callback():
+            raise SmartAlbumIndexCancelled('Smart Album 索引刷新已取消')
 
     def emit(phase, message, *, current=None, total=None, percent=None):
         nonlocal overall_current, overall_total, overall_ready
@@ -674,15 +740,17 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
         if progress_callback:
             progress_callback(payload)
 
-    sources = _enabled_sources(main_db_path)
+    check_cancelled()
+    sources = _selected_enabled_sources(main_db_path, source_ids)
     summary['source_total'] = len(sources)
+    summary['selected_source_ids'] = [int(source['id']) for source in sources]
+    summary['selected_source_names'] = [source['name'] for source in sources]
     exiftool = resolve_exiftool()
     exiftool_version = probe_exiftool_version(exiftool) if exiftool else ''
     warnings = []
     if not exiftool:
         warnings.append('ExifTool 不可用：photo.exif / photo.capture.exif 与依赖 EXIF 的字段会为空。')
 
-    conn = _connect(smart_db_path)
     indexed_at = _now_iso()
     set_count = 0
     asset_count = 0
@@ -696,6 +764,7 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
     emit('discover_sets', '扫描 Source / Set')
 
     for source_index, source in enumerate(sources, start=1):
+        check_cancelled()
         root = Path(source['root_path']).expanduser().resolve()
         if not root.is_dir():
             unavailable_sources.append(source['name'])
@@ -734,6 +803,7 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
         root = job['root']
         plans = []
         for set_dir in job['set_dirs']:
+            check_cancelled()
             set_rel = set_dir.relative_to(root).as_posix()
             candidates = _set_candidates(set_dir)
 
@@ -773,6 +843,8 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
     index_step = step_map['index_assets']
     index_step.update(status='active', current=0, total=total_assets, detail='准备读取图片 Metadata / EXIF')
 
+    check_cancelled()
+    conn = _connect(smart_db_path)
     conn.execute('BEGIN IMMEDIATE')
     try:
         conn.execute('DELETE FROM smart_album_assets')
@@ -783,6 +855,7 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
             plans = job['plans']
 
             for offset in range(0, len(plans), SMART_ALBUM_EXIF_BATCH_SIZE):
+                check_cancelled()
                 batch_plans = plans[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
                 metadata_files = []
                 for _set_dir, _set_rel, _stage, path, _logical_id_value, donor in batch_plans:
@@ -798,9 +871,15 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
                 )
                 emit('index_assets', index_step['detail'], current=indexed_done, total=total_assets)
 
-                exif_by_path = _run_exiftool_records(exiftool, metadata_files) if exiftool else {}
+                exif_by_path = _run_exiftool_records(
+                    exiftool,
+                    metadata_files,
+                    cancel_callback=cancel_callback,
+                ) if exiftool else {}
+                check_cancelled()
 
                 for set_dir, set_rel, stage, path, logical_id, donor in batch_plans:
+                    check_cancelled()
                     relative_path = path.relative_to(root).as_posix()
                     path_key = str(path.resolve())
                     donor_key = str(donor.resolve()) if donor else None
@@ -852,6 +931,7 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
         verify_step.update(status='active', current=0, total=1, detail='校验写入数量与索引配置')
         emit('verify', '完成校验', current=overall_current, total=overall_total, percent=99 if overall_ready else 0)
 
+        check_cancelled()
         row_count = conn.execute('SELECT COUNT(*) AS count FROM smart_album_assets').fetchone()['count']
         if int(row_count) != int(asset_count):
             raise RuntimeError(f'Smart Album 索引校验失败：写入 {asset_count} 张，但数据库中为 {row_count} 张')
@@ -862,8 +942,14 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
         _meta_set(conn, 'asset_count', asset_count)
         _meta_set(conn, 'set_count', set_count)
         _meta_set(conn, 'exiftool_version', exiftool_version)
+        indexed_sources = [job['source'] for job in source_jobs]
+        indexed_source_ids = [int(source['id']) for source in indexed_sources]
+        indexed_source_names = [source['name'] for source in indexed_sources]
         _meta_set(conn, 'warnings_json', json.dumps(warnings, ensure_ascii=False))
         _meta_set(conn, 'index_policy_signature', _index_policy_signature())
+        _meta_set(conn, 'indexed_source_ids_json', json.dumps(indexed_source_ids))
+        _meta_set(conn, 'indexed_source_names_json', json.dumps(indexed_source_names, ensure_ascii=False))
+        check_cancelled()
         conn.commit()
 
         verify_step.update(status='done', current=1, total=1, detail=f'校验通过：{asset_count} 张图片')
@@ -885,6 +971,8 @@ def _refresh_index(smart_db_path, main_db_path, *, progress_callback=None):
         'warnings': warnings,
         'index_stages': [stage for stage, _ in _STAGE_DEFS],
         'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
+        'indexed_source_ids': indexed_source_ids,
+        'indexed_source_names': indexed_source_names,
     }
 
 def _index_status(smart_db_path):
@@ -899,6 +987,22 @@ def _index_status(smart_db_path):
         warnings = json.loads(_meta_get(conn, 'warnings_json', '[]') or '[]')
     except json.JSONDecodeError:
         warnings = []
+    try:
+        indexed_source_ids = [int(value) for value in json.loads(_meta_get(conn, 'indexed_source_ids_json', '[]') or '[]')]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        indexed_source_ids = []
+    try:
+        indexed_source_names = [str(value) for value in json.loads(_meta_get(conn, 'indexed_source_names_json', '[]') or '[]')]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        indexed_source_names = []
+    # v1.13 and older indexes did not persist Source selection metadata. Derive
+    # IDs from the existing cache so the first v1.14 refresh dialog can preserve
+    # the user's current indexed scope instead of silently selecting everything.
+    if last_refresh_at and not indexed_source_ids:
+        indexed_source_ids = [
+            int(row['source_id'])
+            for row in conn.execute('SELECT DISTINCT source_id FROM smart_album_assets ORDER BY source_id').fetchall()
+        ]
     conn.close()
     policy_matches = stored_policy == current_policy
     if last_refresh_at and not policy_matches:
@@ -912,6 +1016,8 @@ def _index_status(smart_db_path):
         'warnings': warnings,
         'index_stages': [stage for stage, _ in _STAGE_DEFS],
         'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
+        'indexed_source_ids': indexed_source_ids,
+        'indexed_source_names': indexed_source_names,
     }
 
 
@@ -1112,6 +1218,8 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             'overall_dimension': 'image',
             'source_total': 0,
             'source_available': 0,
+            'selected_source_ids': [],
+            'selected_source_names': [],
             'set_total': 0,
             'asset_total': 0,
             'stage_counts': {stage: 0 for stage, _ in _STAGE_DEFS},
@@ -1121,6 +1229,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
         },
         'error': '',
+        'cancel_requested': False,
         'index': None,
     }
 
@@ -1132,12 +1241,26 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         with index_job_lock:
             index_job.update(changes)
 
-    def run_index_refresh_job():
+    def index_cancel_requested():
+        with index_job_lock:
+            return bool(index_job.get('cancel_requested'))
+
+    def publish_index_progress(progress):
+        with index_job_lock:
+            if index_job.get('cancel_requested'):
+                progress = dict(progress)
+                progress['phase'] = 'cancelling'
+                progress['message'] = '正在取消刷新；当前批次结束后回滚未完成的新索引'
+            index_job.update(progress)
+
+    def run_index_refresh_job(selected_source_ids):
         try:
             status = _refresh_index(
                 smart_db_path,
                 main_db_path,
-                progress_callback=lambda progress: update_index_job(**progress),
+                source_ids=selected_source_ids,
+                progress_callback=publish_index_progress,
+                cancel_callback=index_cancel_requested,
             )
             snapshot = index_job_snapshot()
             overall = dict(snapshot.get('overall') or {})
@@ -1151,7 +1274,24 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 total=status['asset_count'],
                 overall=overall,
                 error='',
+                cancel_requested=False,
                 index={**status, 'ready': True},
+            )
+        except SmartAlbumIndexCancelled:
+            snapshot = index_job_snapshot()
+            cancelled_steps = copy.deepcopy(snapshot.get('steps') or [])
+            for step in cancelled_steps:
+                if step.get('status') == 'active':
+                    step['status'] = 'cancelled'
+                    step['detail'] = (step.get('detail') or '') + '（已取消）'
+            update_index_job(
+                active=False,
+                phase='cancelled',
+                message='已取消刷新；保留上一次可用索引',
+                steps=cancelled_steps,
+                error='',
+                cancel_requested=False,
+                index=_index_status(smart_db_path),
             )
         except Exception as exc:
             snapshot = index_job_snapshot()
@@ -1165,6 +1305,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 message='Smart Album 索引刷新失败',
                 steps=failed_steps,
                 error=str(exc),
+                cancel_requested=False,
                 index=_index_status(smart_db_path),
             )
 
@@ -1319,6 +1460,19 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         denied = guard()
         if denied:
             return denied
+        data = request.get_json(silent=True) or {}
+        requested_source_ids = data.get('source_ids') if 'source_ids' in data else None
+        try:
+            selected_sources = _selected_enabled_sources(main_db_path, requested_source_ids)
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        if not selected_sources:
+            return jsonify({'error': '没有可用于 Smart Album 索引的 enabled Source'}), 400
+        if not any(Path(source['root_path']).expanduser().is_dir() for source in selected_sources):
+            return jsonify({'error': '所选 Source 当前均不可用，无法建立索引'}), 400
+        selected_source_ids = [int(source['id']) for source in selected_sources]
+        selected_source_names = [source['name'] for source in selected_sources]
+
         with index_job_lock:
             if index_job['active']:
                 return jsonify(dict(index_job)), 202
@@ -1333,8 +1487,10 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 'steps': _new_index_steps(),
                 'summary': {
                     'overall_dimension': 'image',
-                    'source_total': 0,
+                    'source_total': len(selected_sources),
                     'source_available': 0,
+                    'selected_source_ids': selected_source_ids,
+                    'selected_source_names': selected_source_names,
                     'set_total': 0,
                     'asset_total': 0,
                     'stage_counts': {stage: 0 for stage, _ in _STAGE_DEFS},
@@ -1344,10 +1500,25 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                     'capture_metadata_source': SMART_ALBUM_CAPTURE_METADATA_SOURCE,
                 },
                 'error': '',
+                'cancel_requested': False,
                 'index': _index_status(smart_db_path),
             })
-        threading.Thread(target=run_index_refresh_job, daemon=True).start()
+        threading.Thread(target=run_index_refresh_job, args=(selected_source_ids,), daemon=True).start()
         return jsonify(index_job_snapshot()), 202
+
+    @bp.route('/api/smart-albums/index/cancel', methods=['POST'])
+    def cancel_smart_album_index():
+        denied = guard()
+        if denied:
+            return denied
+        with index_job_lock:
+            if not index_job['active']:
+                return jsonify(copy.deepcopy(index_job))
+            index_job['cancel_requested'] = True
+            index_job['phase'] = 'cancelling'
+            index_job['message'] = '正在取消刷新；当前批次结束后回滚未完成的新索引'
+            snapshot = copy.deepcopy(index_job)
+        return jsonify(snapshot), 202
 
     @bp.route('/api/smart-albums/index/progress', methods=['GET'])
     def smart_album_index_progress():
@@ -1377,20 +1548,21 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",
                 'logical_photo_key(photo)',
             ],
-            'photo_contract': [
-                'photo.id',
-                'photo.origin.kind',
-                'photo.source.id', 'photo.source.name',
-                'photo.file.name', 'photo.file.path', 'photo.file.extension', 'photo.file.size', 'photo.file.mtime',
-                'photo.image.width', 'photo.image.height', 'photo.image.aspect_ratio', 'photo.image.orientation',
-                'photo.image.mode', 'photo.image.color_space', 'photo.image.color_space_status', 'photo.image.bit_depth',
-                'photo.stage', 'photo.logical_id',
-                'photo.state.favorite', 'photo.state.description',
-                'photo.exif', 'photo.capture.exif',
-                'photo.capture.time', 'photo.capture.camera', 'photo.capture.lens',
-                'photo.capture.focal_length_mm', 'photo.capture.iso', 'photo.capture.gps',
-                'photo.set.name', 'photo.set.path', 'photo.set.manifest',
+            'helper_docs': [
+                {
+                    'name': 'preferred_versions',
+                    'signature': "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",
+                    'description': '按 Source + Set + logical stem 去重。默认 Revision 优先，其次 Model Edit，最后 Base Edit；同一优先 stage 内的多个文件会全部保留。stage_order 可自定义。',
+                },
+                {
+                    'name': 'logical_photo_key',
+                    'signature': 'logical_photo_key(photo)',
+                    'description': '返回 Smart Album 用于逻辑图片匹配的键；可在自定义分组/去重代码里复用。',
+                },
             ],
+            'photo_contract_groups': PHOTO_CONTRACT_GROUPS,
+            'photo_contract': [field for group in PHOTO_CONTRACT_GROUPS for field in group['fields']],
+            'example_code': SMART_ALBUM_HELP_EXAMPLE,
         })
 
     return bp

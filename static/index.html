@@ -122,19 +122,19 @@
             <!-- Smart Album：保存 Python 查询定义，不拥有也不复制照片。 -->
             <div v-if="isAdmin" class="album-group smart-album-group">
                 <div class="group-header">
-                    <div class="group-title">
+                    <div class="group-title" @click="toggleGroupCollapse('smart-albums')">
                         <h2>智能相册 <span class="album-count">({{ smartAlbums.length }}个相册)</span></h2>
                     </div>
                     <div class="group-actions">
-                        <el-button size="small" @click="refreshSmartAlbumIndex" :loading="smartAlbumIndexRefreshing">刷新索引</el-button>
+                        <el-button size="small" @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-button>
                     </div>
                 </div>
-                <div class="group-content">
+                <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('smart-albums') }">
                     <div v-if="smartAlbums.length" class="album-grid">
                         <div v-for="album in smartAlbums" :key="album.id" class="album-card smart-album-card"
                              @click="openSmartAlbum(album)">
                             <div class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
-                                <el-icon class="lock-icon"><DataAnalysis /></el-icon>
+                                <div class="lock-icon" style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight:800; line-height:1;">Py</div>
                                 <span class="lock-text">Python</span>
                             </div>
                             <div class="album-info">
@@ -158,12 +158,12 @@
             <!-- 本地文件系统 Source：仅管理员看到完整目录。分享访客只走随机 token 页面。 -->
             <div v-if="isAdmin" class="album-group library-source-group">
                 <div class="group-header">
-                    <div class="group-title"><h2>本地目录 <span class="album-count">({{ librarySources.length }}个 Source)</span></h2></div>
+                    <div class="group-title" @click="toggleGroupCollapse('library-sources')"><h2>本地目录 <span class="album-count">({{ librarySources.length }}个 Source)</span></h2></div>
                     <div class="group-actions">
                         <el-button size="small" @click="showLibrarySourcesDialog = true">管理 Source</el-button>
                     </div>
                 </div>
-                <div class="group-content">
+                <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('library-sources') }">
                     <div v-if="librarySources.length" class="album-grid">
                         <div v-for="source in librarySources" :key="source.id" class="album-card library-source-card"
                              @click="openLibrarySource(source)">
@@ -642,7 +642,7 @@
                 </div>
                 <div class="album-actions">
                     <el-button @click="runSmartAlbum">运行查询</el-button>
-                    <el-button @click="refreshSmartAlbumIndex" :loading="smartAlbumIndexRefreshing">刷新索引</el-button>
+                    <el-button @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-button>
                     <el-button v-if="isAdmin" @click="editSmartAlbum()">编辑</el-button>
                     <el-button v-if="isAdmin" type="danger" @click="deleteSmartAlbum()">删除</el-button>
                 </div>
@@ -1063,6 +1063,10 @@
 
                             <div class="info-item"><strong>文件大小:</strong> {{ formatFileSize(currentImage.file_size)}}
                             </div>
+                            <div v-if="currentImage.source_type === 'library' && currentImage.relative_path" class="info-item">
+                                <strong>文件路径（相对 Source）:</strong>
+                                <span style="word-break:break-all;">{{ currentImage.relative_path }}</span>
+                            </div>
                             <div class="info-item"><strong>尺寸:</strong> {{ currentImage.width }} ×
                                 {{ currentImage.height }}
                             </div>
@@ -1328,10 +1332,10 @@
         <el-dialog v-model="showCreateAlbumDialog" title="新建相册" width="720px">
             <el-form :model="newAlbum" label-width="90px">
                 <el-form-item label="类型">
-                    <el-radio-group v-model="newAlbum.type">
-                        <el-radio-button value="uploaded">上传相册</el-radio-button>
-                        <el-radio-button value="smart">智能相册</el-radio-button>
-                    </el-radio-group>
+                    <el-select v-model="newAlbum.type" style="width:100%;">
+                        <el-option label="普通相册" value="uploaded"></el-option>
+                        <el-option label="智能相册" value="smart"></el-option>
+                    </el-select>
                 </el-form-item>
                 <el-form-item label="相册名称">
                     <el-input v-model="newAlbum.name" placeholder="请输入相册名称"></el-input>
@@ -1371,10 +1375,9 @@
                                   placeholder="result = [...]">
                         </el-input>
                     </el-form-item>
-                    <div style="margin:-8px 0 0 90px; color:#909399; font-size:12px; line-height:1.6;">
-                        <div>预置变量：<code>photos</code>。代码必须给 <code>result</code> 赋值；结果只能包含 <code>photos</code> 中的 Photo 对象。</div>
-                        <div>第一版候选池来自所有已启用 Library Source；Source 本身通过 <code>photo.source</code> 自由筛选。</div>
-                        <div>阶段去重助手：<code>preferred_versions(items)</code> 默认按 Revision → Model Edit → Base Edit，并按 Source + Set + logical stem 匹配；可传 <code>stage_order</code> 改优先级。</div>
+                    <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                        <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
+                                   aria-label="查看 Smart Album Python 帮助" @click="openSmartAlbumHelp">?</el-button>
                     </div>
                 </template>
             </el-form>
@@ -1388,6 +1391,23 @@
         <el-dialog v-model="showSmartAlbumIndexDialog" title="刷新 Smart Album 索引" width="760px"
                    :close-on-click-modal="!smartAlbumIndexRefreshing" :close-on-press-escape="!smartAlbumIndexRefreshing">
             <div style="line-height:1.6;">
+                <div style="padding:12px 14px; border:1px solid #dcdfe6; border-radius:8px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                        <strong>建立索引的 Source</strong>
+                        <span v-if="smartAlbumIndexedSourceText" style="font-size:12px; color:#909399;">当前索引：{{ smartAlbumIndexedSourceText }}</span>
+                    </div>
+                    <el-checkbox-group v-model="smartAlbumIndexSelectedSourceIds" :disabled="smartAlbumIndexRefreshing"
+                                       style="display:flex; flex-wrap:wrap; gap:8px 18px;">
+                        <el-checkbox v-for="source in enabledSmartAlbumIndexSources" :key="source.id" :label="source.id">
+                            {{ source.name }}<span v-if="!source.available" style="color:#e6a23c; margin-left:4px;">（当前不可用）</span>
+                        </el-checkbox>
+                    </el-checkbox-group>
+                    <div v-if="!enabledSmartAlbumIndexSources.length" style="font-size:12px; color:#f56c6c;">没有已启用的 Library Source。</div>
+                    <div style="margin-top:8px; font-size:12px; color:#606266;">
+                        刷新完成后，Smart Album 的 <code>photos</code> 只包含本次勾选且当前仍启用的 Source。未勾选 Source 不建立索引；这里不会修改 Source 的启用/停用状态。
+                    </div>
+                </div>
+
                 <div style="padding:14px; border:1px solid #ebeef5; border-radius:8px; margin-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
                         <strong>总进度 · 按图片</strong>
@@ -1410,6 +1430,7 @@
                     <div style="margin-top:4px;"><strong>Manifest：</strong>查询时实时读取，本次刷新不缓存 Manifest。</div>
                     <div style="margin-top:4px;"><strong>Favorite / Description：</strong>查询时实时读取主数据库，本次刷新不缓存。</div>
                     <div style="margin-top:4px;"><strong>Original JPG / RAW：</strong>{{ smartAlbumIndexProgress.summary && smartAlbumIndexProgress.summary.originals_indexed ? '当前配置会索引' : '当前配置不扫描' }}</div>
+                    <div style="margin-top:4px;"><strong>取消策略：</strong>回滚本次未完成刷新，保留上一次可用索引，不保留半成品。</div>
                 </div>
 
                 <div style="display:flex; flex-direction:column; gap:10px;">
@@ -1435,9 +1456,11 @@
                           :title="smartAlbumIndexProgress.error"></el-alert>
             </div>
             <template #footer>
-                <el-button @click="showSmartAlbumIndexDialog = false">
-                    {{ smartAlbumIndexRefreshing ? '隐藏' : '关闭' }}
-                </el-button>
+                <el-button @click="showSmartAlbumIndexDialog = false">{{ smartAlbumIndexRefreshing ? '隐藏' : '关闭' }}</el-button>
+                <el-button v-if="smartAlbumIndexRefreshing" type="danger" plain
+                           :loading="smartAlbumIndexProgress.phase === 'cancelling'"
+                           @click="cancelSmartAlbumIndexRefresh">取消刷新</el-button>
+                <el-button v-else type="primary" :disabled="!smartAlbumIndexSelectedSourceIds.length" @click="startSmartAlbumIndexRefresh">开始刷新</el-button>
             </template>
         </el-dialog>
 
@@ -1456,16 +1479,52 @@
                               style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
                     </el-input>
                 </el-form-item>
-                <div style="margin:-8px 0 0 90px; color:#909399; font-size:12px; line-height:1.7;">
-                    <div><code>photo.file.size</code> 为 bytes；<code>photo.file.mtime</code> / <code>photo.capture.time</code> 为 datetime。</div>
-                    <div>常用：<code>photo.image.width/height/aspect_ratio/orientation/mode/color_space/bit_depth</code>。</div>
-                    <div>完整数据：<code>photo.exif</code>、<code>photo.capture.exif</code>、<code>photo.set.manifest</code>；Source 通过 <code>photo.source</code> 筛选。</div>
-                    <div>阶段去重：<code>preferred_versions(items)</code> 默认 Revision → Model Edit → Base Edit；如需自定义可传 <code>stage_order=(...)</code>。</div>
+                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                    <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
+                               aria-label="查看 Smart Album Python 帮助" @click="openSmartAlbumHelp">?</el-button>
                 </div>
             </el-form>
             <template #footer>
                 <el-button @click="showEditSmartAlbumDialog = false">取消</el-button>
                 <el-button type="primary" @click="saveSmartAlbum">保存并运行</el-button>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showSmartAlbumHelpDialog" title="Smart Album Python" width="820px" append-to-body>
+            <div v-loading="smartAlbumHelpLoading" style="line-height:1.65;">
+                <template v-if="smartAlbumRuntime">
+                    <div style="margin-bottom:16px; color:#606266; font-size:13px;">
+                        <code>photos</code> 是当前已启用 Library Sources 的索引照片集合；代码需要给 <code>result</code> 赋值。
+                        查询运行在受限 Python 环境中，不开放文件写入、进程、网络或数据库修改能力。
+                        <code>photo.exif</code>、<code>photo.capture.exif</code> 与 <code>photo.set.manifest</code> 是只读 AttrMap，支持属性访问、<code>[]</code>、<code>.get()</code>、<code>.items()</code> 和 <code>.to_dict()</code>。
+                    </div>
+
+                    <div v-for="group in (smartAlbumRuntime.photo_contract_groups || [])" :key="group.label"
+                         style="margin-bottom:14px;">
+                        <strong>{{ group.label }}</strong>
+                        <div style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-top:7px;">
+                            <code v-for="field in group.fields" :key="field"
+                                  style="padding:3px 7px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ field }}</code>
+                        </div>
+                    </div>
+
+                    <div style="margin:18px 0 12px;">
+                        <strong>去重助手</strong>
+                        <div v-for="helper in (smartAlbumRuntime.helper_docs || [])" :key="helper.name"
+                             style="margin-top:10px; padding:10px 12px; border:1px solid #ebeef5; border-radius:6px;">
+                            <code>{{ helper.signature }}</code>
+                            <div style="margin-top:5px; color:#606266; font-size:12px;">{{ helper.description }}</div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:18px;">
+                        <strong>示例 · 某个 Source 中已收藏的 Final</strong>
+                        <pre style="margin:8px 0 0; padding:12px; background:#f5f7fa; border-radius:6px; overflow:auto; font-size:12px; line-height:1.55;"><code>{{ smartAlbumRuntime.example_code }}</code></pre>
+                    </div>
+                </template>
+            </div>
+            <template #footer>
+                <el-button @click="showSmartAlbumHelpDialog = false">关闭</el-button>
             </template>
         </el-dialog>
 
@@ -3512,7 +3571,7 @@
 <script src="final-builder.js?v=20260928-01"></script>
 <script src="final-metadata.js?v=20260928-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
-<script src="smart-albums.js?v=20261002-02"></script>
-<script type="module" src="app.js?v=20261002-02"></script>
+<script src="smart-albums.js?v=20261002-04"></script>
+<script type="module" src="app.js?v=20261002-04"></script>
 </body>
 </html>
