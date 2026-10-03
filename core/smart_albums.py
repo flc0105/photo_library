@@ -15,7 +15,7 @@ from flask import Blueprint, jsonify, request
 
 from core.external_tools import probe_exiftool_version, resolve_exiftool
 from core.original_naming import original_stem_key
-from core.smart_album_runtime import run_query
+from core.smart_album_runtime import resolve_shoot_time, run_query
 
 
 SMART_ALBUM_DB_FILENAME = 'smart_albums.db'
@@ -492,60 +492,10 @@ def _parse_capture_time(value):
     return None
 
 
-def _parse_manifest_shoot_date(value):
-    """Return the manifest shoot date as a date, accepting the archive's common formats."""
-    text = _text(value).strip()
-    if not text:
-        return None
-    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y%m%d'):
-        try:
-            return datetime.strptime(text[:10] if fmt != '%Y%m%d' else text[:8], fmt).date()
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(text.replace(' ', 'T')).date()
-    except ValueError:
-        return None
-
-
 def _smart_album_capture_sort_time(manifest, capture_time, set_name):
-    """Derive the display sort time without changing the Python query result.
-
-    The manifest shoot date is the date authority. When EXIF capture time exists,
-    keep its time-of-day precision while using the manifest date. If manifest
-    date is unavailable, use EXIF capture time; finally fall back to the required
-    YYYYMMDD prefix of the Set name.
-    """
-    manifest_date = None
-    if isinstance(manifest, dict):
-        shoot = manifest.get('shoot')
-        if isinstance(shoot, dict):
-            manifest_date = _parse_manifest_shoot_date(shoot.get('date'))
-
-    parsed_capture = _parse_capture_time(capture_time)
-    capture_dt = None
-    if parsed_capture:
-        try:
-            capture_dt = datetime.fromisoformat(parsed_capture)
-        except ValueError:
-            capture_dt = None
-
-    if manifest_date is not None:
-        if capture_dt is not None:
-            return datetime.combine(manifest_date, capture_dt.timetz()).isoformat(timespec='seconds')
-        return datetime.combine(manifest_date, datetime.min.time()).isoformat(timespec='seconds')
-
-    if capture_dt is not None:
-        return capture_dt.isoformat(timespec='seconds')
-
-    match = re.match(r'^(\d{8})(?:-|$)', _text(set_name).strip())
-    if match:
-        try:
-            set_date = datetime.strptime(match.group(1), '%Y%m%d').date()
-            return datetime.combine(set_date, datetime.min.time()).isoformat(timespec='seconds')
-        except ValueError:
-            pass
-    return None
+    """Derive the display sort time without changing the Python query result."""
+    resolved = resolve_shoot_time(manifest, capture_time, set_name)
+    return resolved.isoformat(timespec='seconds') if resolved is not None else None
 
 
 def _gps_number(value):
@@ -2348,10 +2298,34 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 'Edit the Smart Album indexing-policy constants near the top of core/smart_albums.py to enable Original indexing/donors later.',
             ],
             'helpers': [
+                'finals(items)',
+                'shoot_time(photo)',
+                'set_key(photo)',
+                'sample_per_set(items, count=1, seed=None)',
                 "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",
                 'logical_photo_key(photo)',
             ],
             'helper_docs': [
+                {
+                    'name': 'finals',
+                    'signature': 'finals(items)',
+                    'description': '只保留 stage == "final" 的 Photo，并保持输入顺序。',
+                },
+                {
+                    'name': 'shoot_time',
+                    'signature': 'shoot_time(photo)',
+                    'description': '返回统一拍摄时间 datetime：Manifest shoot.date 优先作为日期；有 EXIF capture time 时保留其时分秒；Manifest 无日期时用 EXIF；最后从 Set 名 YYYYMMDD 前缀兜底。',
+                },
+                {
+                    'name': 'set_key',
+                    'signature': 'set_key(photo)',
+                    'description': '返回 (source.id, set.path)，作为同一 Library Set 的稳定分组键。',
+                },
+                {
+                    'name': 'sample_per_set',
+                    'signature': 'sample_per_set(items, count=1, seed=None)',
+                    'description': '每个 Source + Set 随机保留最多 count 张。seed=None 时每次运行重新随机；传入 seed 时结果可复现；返回结果保持输入相对顺序。',
+                },
                 {
                     'name': 'preferred_versions',
                     'signature': "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",

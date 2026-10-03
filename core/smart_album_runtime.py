@@ -4,6 +4,7 @@ import functools
 import itertools
 import math
 import multiprocessing
+import random
 import re
 import statistics
 import traceback
@@ -164,6 +165,150 @@ def _validate_script(code):
 _DEFAULT_PREFERRED_STAGE_ORDER = ('revision', 'model_edit', 'base_edit')
 
 
+def _mapping_value(mapping, key, default=None):
+    if isinstance(mapping, (dict, AttrMap)):
+        return mapping.get(key, default)
+    return default
+
+
+def _coerce_shoot_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or '').strip()
+    if not text:
+        return None
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y%m%d'):
+        try:
+            candidate = text[:8] if fmt == '%Y%m%d' else text[:10]
+            return datetime.strptime(candidate, fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text.replace(' ', 'T')).date()
+    except ValueError:
+        return None
+
+
+def _coerce_capture_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    text = str(value or '').strip()
+    if not text:
+        return None
+    candidates = [text]
+    if len(text) >= 19 and re.match(r'^\d{4}:\d{2}:\d{2}', text):
+        candidates.append(text[:10].replace(':', '-') + text[10:])
+    for candidate in candidates:
+        cleaned = candidate.strip()
+        try:
+            return datetime.fromisoformat(cleaned.replace(' ', 'T'))
+        except ValueError:
+            pass
+        for fmt in ('%Y:%m:%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+            try:
+                return datetime.strptime(cleaned[:19], fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def resolve_shoot_time(manifest, capture_time, set_name):
+    """Resolve the canonical Smart Album shoot time as a datetime or None.
+
+    Manifest ``shoot.date`` is the date authority.  When capture EXIF time is
+    available, its time-of-day is kept on that manifest date.  Without a
+    manifest date, capture time is used directly; the final fallback is the
+    required ``YYYYMMDD`` prefix of the Set name.
+    """
+    shoot = _mapping_value(manifest, 'shoot')
+    manifest_date = _coerce_shoot_date(_mapping_value(shoot, 'date'))
+    capture_dt = _coerce_capture_datetime(capture_time)
+
+    if manifest_date is not None:
+        if capture_dt is not None:
+            return datetime.combine(manifest_date, capture_dt.timetz())
+        return datetime.combine(manifest_date, datetime.min.time())
+
+    if capture_dt is not None:
+        return capture_dt
+
+    match = re.match(r'^(\d{8})(?:-|$)', str(set_name or '').strip())
+    if match:
+        try:
+            set_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+            return datetime.combine(set_date, datetime.min.time())
+        except ValueError:
+            pass
+    return None
+
+
+def set_key(photo):
+    """Return the canonical Source + Set identity for a library Photo."""
+    if not isinstance(photo, PhotoRecord):
+        raise TypeError('set_key() 只接受 Photo 对象。')
+    source_id = photo.source.id if photo.source is not None else None
+    set_path = photo.set.path if photo.set is not None else None
+    return (source_id, set_path)
+
+
+def finals(items):
+    """Return only Final-stage Photo objects while preserving input order."""
+    result = []
+    for photo in items:
+        if not isinstance(photo, PhotoRecord):
+            raise TypeError('finals() 的输入只能包含 Photo 对象。')
+        if photo.stage == 'final':
+            result.append(photo)
+    return result
+
+
+def shoot_time(photo):
+    """Return the canonical shoot datetime used by Smart Album sorting."""
+    if not isinstance(photo, PhotoRecord):
+        raise TypeError('shoot_time() 只接受 Photo 对象。')
+    manifest = photo.set.manifest if photo.set is not None else None
+    capture_time = photo.capture.time if photo.capture is not None else None
+    set_name = photo.set.name if photo.set is not None else None
+    return resolve_shoot_time(manifest, capture_time, set_name)
+
+
+def sample_per_set(items, count=1, seed=None):
+    """Randomly select up to ``count`` Photos from every Source + Set group.
+
+    With ``seed=None`` a fresh random selection is made on each execution.
+    Supplying a seed makes the selection reproducible.  Selected Photos retain
+    their relative order from the input iterable.
+    """
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError('sample_per_set() 的 count 必须是 >= 1 的整数。')
+
+    materialized = []
+    groups = {}
+    for index, photo in enumerate(items):
+        if not isinstance(photo, PhotoRecord):
+            raise TypeError('sample_per_set() 的输入只能包含 Photo 对象。')
+        materialized.append(photo)
+        groups.setdefault(set_key(photo), []).append(index)
+
+    rng = random.Random(seed)
+    selected_indexes = set()
+    for indexes in groups.values():
+        if len(indexes) <= count:
+            selected_indexes.update(indexes)
+        else:
+            selected_indexes.update(rng.sample(indexes, count))
+
+    return [
+        photo
+        for index, photo in enumerate(materialized)
+        if index in selected_indexes
+    ]
+
+
 def logical_photo_key(photo):
     """Return the stable logical-image key used by Smart Album helpers.
 
@@ -295,6 +440,10 @@ def _query_globals(photos):
         'timedelta': timedelta,
         'logical_photo_key': logical_photo_key,
         'preferred_versions': preferred_versions,
+        'set_key': set_key,
+        'finals': finals,
+        'shoot_time': shoot_time,
+        'sample_per_set': sample_per_set,
     }
 
 
