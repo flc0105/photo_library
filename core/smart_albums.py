@@ -492,6 +492,62 @@ def _parse_capture_time(value):
     return None
 
 
+def _parse_manifest_shoot_date(value):
+    """Return the manifest shoot date as a date, accepting the archive's common formats."""
+    text = _text(value).strip()
+    if not text:
+        return None
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y%m%d'):
+        try:
+            return datetime.strptime(text[:10] if fmt != '%Y%m%d' else text[:8], fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text.replace(' ', 'T')).date()
+    except ValueError:
+        return None
+
+
+def _smart_album_capture_sort_time(manifest, capture_time, set_name):
+    """Derive the display sort time without changing the Python query result.
+
+    The manifest shoot date is the date authority. When EXIF capture time exists,
+    keep its time-of-day precision while using the manifest date. If manifest
+    date is unavailable, use EXIF capture time; finally fall back to the required
+    YYYYMMDD prefix of the Set name.
+    """
+    manifest_date = None
+    if isinstance(manifest, dict):
+        shoot = manifest.get('shoot')
+        if isinstance(shoot, dict):
+            manifest_date = _parse_manifest_shoot_date(shoot.get('date'))
+
+    parsed_capture = _parse_capture_time(capture_time)
+    capture_dt = None
+    if parsed_capture:
+        try:
+            capture_dt = datetime.fromisoformat(parsed_capture)
+        except ValueError:
+            capture_dt = None
+
+    if manifest_date is not None:
+        if capture_dt is not None:
+            return datetime.combine(manifest_date, capture_dt.timetz()).isoformat(timespec='seconds')
+        return datetime.combine(manifest_date, datetime.min.time()).isoformat(timespec='seconds')
+
+    if capture_dt is not None:
+        return capture_dt.isoformat(timespec='seconds')
+
+    match = re.match(r'^(\d{8})(?:-|$)', _text(set_name).strip())
+    if match:
+        try:
+            set_date = datetime.strptime(match.group(1), '%Y%m%d').date()
+            return datetime.combine(set_date, datetime.min.time()).isoformat(timespec='seconds')
+        except ValueError:
+            pass
+    return None
+
+
 def _gps_number(value):
     if value is None or value == '':
         return None
@@ -1600,6 +1656,9 @@ def _asset_payloads(smart_db_path, main_db_path):
             },
         }
         payloads.append(payload)
+        capture_sort_time = _smart_album_capture_sort_time(
+            manifest_cache[manifest_key], row['capture_time'], row['set_name']
+        )
         result_rows[row['photo_id']] = {
             'source_type': 'library',
             'source_id': row['source_id'],
@@ -1611,6 +1670,7 @@ def _asset_payloads(smart_db_path, main_db_path):
             'height': row['height'],
             'uploaded_at': file_mtime,
             'modified_at': file_mtime,
+            'capture_sort_time': capture_sort_time,
             'is_favorited': state['favorite'],
             'description': state['description'],
             'stage': row['stage'],

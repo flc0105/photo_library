@@ -37,6 +37,7 @@ IGNORE_PATHS = {
     # 本地密钥
     ".photo_library_auth_secret",
     ".photo_library_session_secret",
+    "data/smart_albums.db"
 }
 
 # 统一转换为 Path

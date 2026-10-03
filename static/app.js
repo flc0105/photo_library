@@ -89,6 +89,12 @@ result = [
         const smartAlbumSyncProgress = ref(emptySmartAlbumSyncProgress());
         const showSmartAlbumSyncDialog = ref(false);
         const smartAlbumQueryError = ref('');
+        const smartAlbumSort = ref({field: 'query_order', order: 'asc'});
+        const smartAlbumSortOptions = [
+            {label: '查询顺序', value: {field: 'query_order', order: 'asc'}},
+            {label: '拍摄时间（最新）', value: {field: 'capture_time', order: 'desc'}},
+            {label: '拍摄时间（最旧）', value: {field: 'capture_time', order: 'asc'}},
+        ];
         const showSmartAlbumIndexDialog = ref(false);
         const showEditSmartAlbumDialog = ref(false);
         const showSmartAlbumHelpDialog = ref(false);
@@ -396,7 +402,11 @@ result = [
             try {
                 const data = await window.SmartAlbumApi.run(currentSmartAlbum.value.id);
                 if (data.album) currentSmartAlbum.value = {...currentSmartAlbum.value, ...data.album};
-                smartAlbumImages.value = (data.images || []).map(image => ({...image, smart_album_id: currentSmartAlbum.value.id}));
+                smartAlbumImages.value = (data.images || []).map((image, index) => ({
+                    ...image,
+                    smart_album_id: currentSmartAlbum.value.id,
+                    smart_query_order: index,
+                }));
                 if (data.index) smartAlbumIndex.value = data.index;
                 await loadSmartAlbums();
             } catch (error) {
@@ -3893,6 +3903,18 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             return option ? option.label : '排序方式';
         });
 
+        const changeSmartAlbumSort = (option) => {
+            smartAlbumSort.value = {...option.value};
+        };
+
+        const getCurrentSmartAlbumSortLabel = computed(() => {
+            const option = smartAlbumSortOptions.find(opt =>
+                opt.value.field === smartAlbumSort.value.field &&
+                opt.value.order === smartAlbumSort.value.order
+            );
+            return option ? option.label : '查询顺序';
+        });
+
         // sort end
 
 
@@ -4167,9 +4189,41 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                 result = result.filter(img => !img.is_favorited);
             }
 
-            // Smart Album 的 Python `result` 顺序本身就是查询结果的一部分，
-            // 不再用 Gallery 的默认文件名排序覆盖它。
-            if (isSmartResult) return [...result];
+            // Smart Album keeps Python result order as a first-class option,
+            // while ordinary display sorting stays in the Gallery UI.
+            if (isSmartResult) {
+                const smartResult = [...result];
+                if (smartAlbumSort.value.field === 'query_order') {
+                    return smartResult.sort((a, b) =>
+                        (a.smart_query_order ?? 0) - (b.smart_query_order ?? 0)
+                    );
+                }
+
+                if (smartAlbumSort.value.field === 'capture_time') {
+                    return smartResult.sort((a, b) => {
+                        const timeA = a.capture_sort_time ? new Date(a.capture_sort_time).getTime() : null;
+                        const timeB = b.capture_sort_time ? new Date(b.capture_sort_time).getTime() : null;
+                        const validA = Number.isFinite(timeA);
+                        const validB = Number.isFinite(timeB);
+
+                        // Missing/invalid dates are always placed last.
+                        if (!validA && !validB) {
+                            return (a.smart_query_order ?? 0) - (b.smart_query_order ?? 0);
+                        }
+                        if (!validA) return 1;
+                        if (!validB) return -1;
+
+                        if (timeA !== timeB) {
+                            return smartAlbumSort.value.order === 'desc'
+                                ? timeB - timeA
+                                : timeA - timeB;
+                        }
+                        return (a.smart_query_order ?? 0) - (b.smart_query_order ?? 0);
+                    });
+                }
+
+                return smartResult;
+            }
 
             // 应用排序（复制数组避免修改原数组）
             result = [...result].sort((a, b) => {
@@ -5082,6 +5136,10 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             changeSort,
             sortOptions,
             getCurrentSortLabel,
+            smartAlbumSort,
+            smartAlbumSortOptions,
+            changeSmartAlbumSort,
+            getCurrentSmartAlbumSortLabel,
             restoreAlbumAccessTokens,
             currentFilter,
             filterOptions,

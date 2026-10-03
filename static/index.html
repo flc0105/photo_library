@@ -664,7 +664,7 @@
             <div v-if="smartAlbumImages.length > 0">
                 <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
                     <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
-                    <span>顺序: Python result</span>
+                    <span>排序: {{ getCurrentSmartAlbumSortLabel }}</span>
                 </div>
 
                 <div v-if="viewMode === 'grid'" class="image-grid">
@@ -1297,6 +1297,24 @@
                                     :key="option.label"
                                     :command="option"
                                     :class="{ 'is-active': currentSort.field === option.value.field && currentSort.order === option.value.order }"
+                            >
+                                {{ option.label }}
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </template>
+                </el-dropdown>
+
+                <el-dropdown v-if="currentView === 'smart-album' || (currentImage && currentImage.smart_album_id)" @command="changeSmartAlbumSort" trigger="click">
+                    <el-button class="toolbar-btn" size="small">
+                        排序
+                    </el-button>
+                    <template #dropdown>
+                        <el-dropdown-menu>
+                            <el-dropdown-item
+                                    v-for="option in smartAlbumSortOptions"
+                                    :key="option.label"
+                                    :command="option"
+                                    :class="{ 'is-active': smartAlbumSort.field === option.value.field && smartAlbumSort.order === option.value.order }"
                             >
                                 {{ option.label }}
                             </el-dropdown-item>
@@ -3698,6 +3716,6 @@
 <script src="final-metadata.js?v=20260928-01"></script>
 <script src="set-insights.js?v=20260920-02"></script>
 <script src="smart-albums.js?v=20261003-01"></script>
-<script type="module" src="app.js?v=20261003-01"></script>
+<script type="module" src="app.js?v=20261003-02"></script>
 </body>
 </html>
