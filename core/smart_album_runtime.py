@@ -86,6 +86,10 @@ class PhotoRecord(AttrMap):
     __slots__ = ()
 
 
+class SetRecord(AttrMap):
+    __slots__ = ()
+
+
 class ExifMap(AttrMap):
     __slots__ = ()
 
@@ -535,3 +539,101 @@ def run_query(code, payloads, timeout_seconds=10):
         error.smart_traceback = message.get('traceback') or ''
         raise error
     return message.get('ids') or []
+
+def _set_query_globals(sets):
+    namespace = _query_globals([])
+    namespace.pop('photos', None)
+    namespace['sets'] = sets
+    return namespace
+
+
+def _execute_set_query(code, payloads):
+    tree = _validate_script(code)
+    sets = []
+    by_id = {}
+    for payload in payloads:
+        wrapped = {key: _wrap(value) for key, value in payload.items() if key != 'photos'}
+        wrapped['photos'] = [
+            PhotoRecord({key: _wrap(value) for key, value in photo.items()})
+            for photo in (payload.get('photos') or [])
+        ]
+        item = SetRecord(wrapped)
+        sets.append(item)
+        by_id[item.id] = item
+
+    namespace = _set_query_globals(sets)
+    compiled = compile(tree, '<smart-set>', 'exec')
+    exec(compiled, namespace, namespace)
+
+    if 'result' not in namespace:
+        raise ValueError('Python code 必须给变量 result 赋值。')
+    result = namespace.get('result')
+    if result is None:
+        return []
+    if isinstance(result, SetRecord):
+        result = [result]
+    try:
+        result_items = list(result)
+    except TypeError as exc:
+        raise ValueError('result 必须是 Set 对象或 Set 对象 iterable。') from exc
+
+    ordered_ids = []
+    seen = set()
+    for item in result_items:
+        if not isinstance(item, SetRecord):
+            raise ValueError('result 只能包含 sets 中的 Set 对象。')
+        set_id = item.id
+        if set_id not in by_id:
+            raise ValueError('result 包含不属于当前候选池的 Set 对象。')
+        if set_id in seen:
+            continue
+        seen.add(set_id)
+        ordered_ids.append(set_id)
+    return ordered_ids
+
+
+def _set_worker_main(conn, code, payloads):
+    try:
+        ordered_ids = _execute_set_query(code, payloads)
+        conn.send({'ok': True, 'ids': ordered_ids})
+    except Exception as exc:
+        trace = traceback.format_exc(limit=8)
+        conn.send({
+            'ok': False,
+            'error': str(exc),
+            'error_type': type(exc).__name__,
+            'traceback': trace,
+        })
+    finally:
+        conn.close()
+
+
+def run_set_query(code, payloads, timeout_seconds=10):
+    """Execute one Smart Set script using the existing Smart Album sandbox rules."""
+    _validate_script(code)
+    parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
+    process = multiprocessing.Process(
+        target=_set_worker_main,
+        args=(child_conn, code, payloads),
+        daemon=True,
+    )
+    process.start()
+    child_conn.close()
+    process.join(timeout_seconds)
+    if process.is_alive():
+        process.terminate()
+        process.join(2)
+        parent_conn.close()
+        raise TimeoutError(f'Smart Set Python 执行超过 {timeout_seconds} 秒，已停止。')
+    if not parent_conn.poll():
+        exit_code = process.exitcode
+        parent_conn.close()
+        raise RuntimeError(f'Smart Set Python worker 异常退出 (exit={exit_code})。')
+    message = parent_conn.recv()
+    parent_conn.close()
+    if not message.get('ok'):
+        error = RuntimeError(message.get('error') or 'Smart Set Python 执行失败')
+        error.smart_traceback = message.get('traceback') or ''
+        raise error
+    return message.get('ids') or []
+

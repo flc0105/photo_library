@@ -25,6 +25,7 @@ from core.final_builder import create_final_builder_blueprint
 from core.final_metadata import create_final_metadata_blueprint
 from core.set_insights import create_set_insights_blueprint
 from core.smart_albums import create_smart_album_blueprint
+from core.smart_sets import create_smart_set_blueprint
 from tools.folder_compare import create_folder_compare_blueprint
 
 app = Flask(__name__)
@@ -3044,6 +3045,13 @@ app.register_blueprint(create_set_insights_blueprint(
 # Smart Albums are isolated in their own module/database; the main Gallery only
 # exposes the existing Library Source/state database path as a read-only input.
 app.register_blueprint(create_smart_album_blueprint(
+    _library_admin_guard,
+    DATABASE,
+))
+
+# Smart Sets are a separate, removable Set-level query surface. They reuse the
+# Smart Album index/runtime but never own or duplicate photo assets.
+app.register_blueprint(create_smart_set_blueprint(
     _library_admin_guard,
     DATABASE,
 ))

@@ -102,6 +102,22 @@ result = [
         const smartAlbumRuntime = ref(null);
         const smartAlbumEditor = ref({id: null, name: '', description: '', python_code: SMART_ALBUM_DEFAULT_CODE});
 
+        const SMART_SET_DEFAULT_CODE = `result = list(sets)
+`;
+        const smartSets = ref([]);
+        const currentSmartSet = ref({});
+        const smartSetResults = ref([]);
+        const smartSetLoading = ref(false);
+        const smartSetQueryError = ref('');
+        const smartSetSearchQuery = ref('');
+        const smartSetSort = ref('query');
+        const showCreateSmartSetDialog = ref(false);
+        const showEditSmartSetDialog = ref(false);
+        const showSmartSetHelpDialog = ref(false);
+        const smartSetHelpLoading = ref(false);
+        const smartSetRuntime = ref(null);
+        const smartSetEditor = ref({id: null, name: '', description: '', python_code: SMART_SET_DEFAULT_CODE});
+
 
         const detailImageList = computed(() => filteredImages.value);
 
@@ -780,6 +796,168 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             }
         };
 
+        const loadSmartSets = async () => {
+            if (!isAdmin.value || !window.SmartSetApi) {
+                smartSets.value = [];
+                return;
+            }
+            try {
+                const data = await window.SmartSetApi.list();
+                smartSets.value = Array.isArray(data.sets) ? data.sets : [];
+                if (data.index) smartAlbumIndex.value = data.index;
+            } catch (error) {
+                console.error('加载 Smart Set 失败:', error);
+            }
+        };
+
+        const openSmartSet = async (item) => {
+            if (!item) return;
+            currentSmartSet.value = {...item};
+            smartSetResults.value = [];
+            smartSetQueryError.value = '';
+            smartSetSearchQuery.value = '';
+            smartSetSort.value = 'query';
+            currentView.value = 'smart-set';
+            await runSmartSet();
+        };
+
+        const runSmartSet = async () => {
+            if (!currentSmartSet.value?.id || !window.SmartSetApi) return;
+            smartSetLoading.value = true;
+            smartSetQueryError.value = '';
+            try {
+                const data = await window.SmartSetApi.run(currentSmartSet.value.id);
+                if (data.smart_set) currentSmartSet.value = {...currentSmartSet.value, ...data.smart_set};
+                smartSetResults.value = (data.sets || []).map((item, index) => ({...item, smart_query_order: index}));
+                if (data.index) smartAlbumIndex.value = data.index;
+                await loadSmartSets();
+            } catch (error) {
+                smartSetResults.value = [];
+                if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
+                const trace = error?.payload?.traceback || '';
+                smartSetQueryError.value = trace ? `${error.message}\n\n${trace}` : (error.message || 'Smart Set 执行失败');
+                ElMessage.error(error.message || 'Smart Set 执行失败');
+            } finally {
+                smartSetLoading.value = false;
+            }
+        };
+
+        const visibleSmartSetResults = computed(() => {
+            const terms = String(smartSetSearchQuery.value || '').trim().toLowerCase();
+            let rows = [...smartSetResults.value];
+            if (terms) {
+                rows = rows.filter(item => `${item.name || ''} ${item.source_name || ''} ${item.model || ''}`.toLowerCase().includes(terms));
+            }
+            if (smartSetSort.value === 'newest' || smartSetSort.value === 'oldest') {
+                const direction = smartSetSort.value === 'newest' ? -1 : 1;
+                rows.sort((a, b) => {
+                    const aDate = String(a.shoot_date || '');
+                    const bDate = String(b.shoot_date || '');
+                    if (aDate && bDate && aDate !== bDate) return aDate.localeCompare(bDate) * direction;
+                    if (aDate && !bDate) return -1;
+                    if (!aDate && bDate) return 1;
+                    return Number(a.smart_query_order || 0) - Number(b.smart_query_order || 0);
+                });
+            }
+            return rows;
+        });
+
+        const openCreateSmartSet = () => {
+            smartSetEditor.value = {id: null, name: '', description: '', python_code: SMART_SET_DEFAULT_CODE};
+            showCreateSmartSetDialog.value = true;
+        };
+
+        const createSmartSet = async () => {
+            if (!smartSetEditor.value.name.trim()) {
+                ElMessage.warning('请输入 Smart Set 名称');
+                return;
+            }
+            try {
+                await window.SmartSetApi.create({
+                    name: smartSetEditor.value.name,
+                    description: smartSetEditor.value.description,
+                    python_code: smartSetEditor.value.python_code || SMART_SET_DEFAULT_CODE
+                });
+                showCreateSmartSetDialog.value = false;
+                await loadSmartSets();
+                ElMessage.success('Smart Set 创建成功');
+            } catch (error) {
+                ElMessage.error(error.message || '创建 Smart Set 失败');
+            }
+        };
+
+        const editSmartSet = (item = currentSmartSet.value) => {
+            if (!item?.id) return;
+            smartSetEditor.value = {
+                id: item.id,
+                name: item.name || '',
+                description: item.description || '',
+                python_code: item.python_code || SMART_SET_DEFAULT_CODE
+            };
+            showEditSmartSetDialog.value = true;
+        };
+
+        const saveSmartSet = async () => {
+            if (!smartSetEditor.value.id || !smartSetEditor.value.name.trim()) {
+                ElMessage.warning('请输入 Smart Set 名称');
+                return;
+            }
+            try {
+                const data = await window.SmartSetApi.update(smartSetEditor.value.id, {
+                    name: smartSetEditor.value.name,
+                    description: smartSetEditor.value.description,
+                    python_code: smartSetEditor.value.python_code
+                });
+                showEditSmartSetDialog.value = false;
+                if (data.smart_set) currentSmartSet.value = {...currentSmartSet.value, ...data.smart_set};
+                await loadSmartSets();
+                if (currentView.value === 'smart-set') await runSmartSet();
+                ElMessage.success('Smart Set 已保存');
+            } catch (error) {
+                ElMessage.error(error.message || '保存 Smart Set 失败');
+            }
+        };
+
+        const deleteSmartSet = async (item = currentSmartSet.value) => {
+            if (!item?.id) return;
+            try {
+                await ElMessageBox.confirm(
+                    `确定删除 Smart Set “${item.name || ''}”吗？只会删除查询定义，不会修改任何 Set 或照片。`,
+                    '删除 Smart Set',
+                    {confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning'}
+                );
+                await window.SmartSetApi.remove(item.id);
+                if (currentView.value === 'smart-set') backToAlbums();
+                await loadSmartSets();
+                ElMessage.success('Smart Set 已删除');
+            } catch (error) {
+                if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '删除 Smart Set 失败');
+            }
+        };
+
+        const openSmartSetHelp = async () => {
+            showSmartSetHelpDialog.value = true;
+            if (smartSetRuntime.value || !window.SmartSetApi) return;
+            smartSetHelpLoading.value = true;
+            try {
+                smartSetRuntime.value = await window.SmartSetApi.runtime();
+            } catch (error) {
+                ElMessage.error(error.message || '读取 Smart Set Python 帮助失败');
+            } finally {
+                smartSetHelpLoading.value = false;
+            }
+        };
+
+        const openSmartSetResult = async (item) => {
+            if (!item) return;
+            const source = librarySources.value.find(source => Number(source.id) === Number(item.source_id));
+            if (!source) {
+                ElMessage.error('对应的 Library Source 不可用');
+                return;
+            }
+            await openLibrarySource(source, item.set_path || '');
+        };
+
         const createAlbum = async () => {
             if (!newAlbum.value.name) {
                 ElMessage.warning('请输入相册名称');
@@ -897,6 +1075,9 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             currentSmartAlbum.value = {};
             smartAlbumImages.value = [];
             smartAlbumQueryError.value = '';
+            currentSmartSet.value = {};
+            smartSetResults.value = [];
+            smartSetQueryError.value = '';
             images.value = [];
             selectionMode.value = false;
             selectedImages.value = [];
@@ -905,7 +1086,10 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             currentFilter.value = 'all';
 
             loadAlbums();
-            if (isAdmin.value) loadSmartAlbums();
+            if (isAdmin.value) {
+                loadSmartAlbums();
+                loadSmartSets();
+            }
         };
 
         const backToAlbum = () => {
@@ -3118,6 +3302,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             if (isAdmin.value) {
                 await loadLibrarySources();
                 await loadSmartAlbums();
+                await loadSmartSets();
             }
 
             if (sourceId && isAdmin.value) {
@@ -4807,6 +4992,30 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartAlbumQueryError,
             showEditSmartAlbumDialog,
             smartAlbumEditor,
+            smartSets,
+            currentSmartSet,
+            smartSetResults,
+            visibleSmartSetResults,
+            smartSetLoading,
+            smartSetQueryError,
+            smartSetSearchQuery,
+            smartSetSort,
+            showCreateSmartSetDialog,
+            showEditSmartSetDialog,
+            showSmartSetHelpDialog,
+            smartSetHelpLoading,
+            smartSetRuntime,
+            smartSetEditor,
+            loadSmartSets,
+            openSmartSet,
+            runSmartSet,
+            openCreateSmartSet,
+            createSmartSet,
+            editSmartSet,
+            saveSmartSet,
+            deleteSmartSet,
+            openSmartSetHelp,
+            openSmartSetResult,
             loadSmartAlbums,
             openSmartAlbum,
             runSmartAlbum,
