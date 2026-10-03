@@ -223,20 +223,27 @@
         </div>
 
 
-        <!-- 本地目录浏览：文件夹复用相册卡片；图片复用原相册详情的网格/瀑布流。 -->
-        <div v-if="currentView === 'library'" v-loading="libraryLoading">
+        <!-- 本地目录 / Smart Set：Smart Set 只替换 Set 数据源，展示完全复用 Set parent。 -->
+        <div v-if="currentView === 'library' || currentView === 'smart-set'"
+             v-loading="currentView === 'smart-set' ? smartSetLoading : libraryLoading">
             <div class="back-button">
-                <el-button @click="libraryBack">返回上一级</el-button>
+                <el-button @click="currentView === 'smart-set' ? backToAlbums() : libraryBack()">
+                    {{ currentView === 'smart-set' ? '返回相册列表' : '返回上一级' }}
+                </el-button>
             </div>
 
             <div class="header">
-                <div>
+                <div v-if="currentView === 'smart-set'">
+                    <h1>{{ currentSmartSet.name }}</h1>
+                    <div v-if="currentSmartSet.description" class="library-path">{{ currentSmartSet.description }}</div>
+                </div>
+                <div v-else>
                     <h1>{{ libraryListing.name || (currentLibrarySource && currentLibrarySource.name) }}</h1>
                     <div class="library-path">{{ currentLibrarySource ? currentLibrarySource.name : '' }}<span v-if="libraryListing.path"> / {{ libraryListing.path }}</span></div>
                 </div>
                 <div class="album-actions">
                     <!-- Set root: Display + Sort 合并为一个紧凑控件；Search 只筛当前层 Set 名称。 -->
-                    <template v-if="isLibraryRoot && allLibraryDirectories.length > 0">
+                    <template v-if="(currentView === 'smart-set' || isLibraryRoot) && allLibraryDirectories.length > 0">
                         <el-popover trigger="click" placement="bottom-start" :width="286">
                             <template #reference>
                                 <el-button class="set-root-view-button">
@@ -272,7 +279,7 @@
                     </template>
 
                     <!-- 非 Set root 的普通目录仍保留原来的目录 Display 控件。 -->
-                    <el-dropdown v-else-if="libraryDirectories.length > 0" trigger="click" placement="bottom-start">
+                    <el-dropdown v-else-if="currentView === 'library' && libraryDirectories.length > 0" trigger="click" placement="bottom-start">
                         <el-button>
                             <span>{{ folderViewMode === 'grid' ? '目录网格' : '目录列表' }}</span>
                             <el-icon class="el-icon--right"><arrow-down/></el-icon>
@@ -286,7 +293,7 @@
                     </el-dropdown>
 
                     <!-- 与原相册图片页一致的浏览模式切换。只在当前层有图片时显示。 -->
-                    <el-dropdown v-if="libraryImages.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
+                    <el-dropdown v-if="currentView === 'library' && libraryImages.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
                         <el-button>
                             <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
                             <el-icon class="el-icon--right"><arrow-down/></el-icon>
@@ -299,7 +306,7 @@
                         </template>
                     </el-dropdown>
 
-                    <template v-if="isAdmin">
+                    <template v-if="isAdmin && currentView === 'library'">
                         <el-button v-if="isLibraryRoot && !isSetDirectory" type="primary" @click="openNewSetDialog">New Set</el-button>
                         <el-dropdown v-if="isLibraryRoot" trigger="click" placement="bottom-end">
                             <el-button title="Workflow" aria-label="Root Workflow">Workflow</el-button>
@@ -340,15 +347,23 @@
                                    title="分享完整 Set"
                                    @click="openLibraryShareDialog">Share Set</el-button>
                     </template>
+                    <template v-if="isAdmin && currentView === 'smart-set'">
+                        <el-button @click="runSmartSet">运行查询</el-button>
+                        <el-button @click="editSmartSet()">编辑</el-button>
+                        <el-button type="danger" @click="deleteSmartSet()">删除</el-button>
+                    </template>
                 </div>
             </div>
 
-            <div v-if="isSetDirectory && libraryListing.manifest && libraryListing.manifest.exists && !libraryListing.manifest.valid"
+            <pre v-if="currentView === 'smart-set' && smartSetQueryError"
+                 style="white-space:pre-wrap; padding:12px; border:1px solid #fbc4c4; border-radius:6px; background:#fef0f0; color:#c45656; overflow:auto;">{{ smartSetQueryError }}</pre>
+
+            <div v-if="currentView === 'library' && isSetDirectory && libraryListing.manifest && libraryListing.manifest.exists && !libraryListing.manifest.valid"
                  class="library-manifest-error">
                 manifest.json 读取失败：{{ libraryListing.manifest.error }}
             </div>
 
-            <div v-if="manifestSummary" class="library-manifest-card library-manifest-summary">
+            <div v-if="currentView === 'library' && manifestSummary" class="library-manifest-card library-manifest-summary">
                 <div class="library-manifest-summary-main">
                     <div class="library-manifest-title">{{ manifestSummary.title || '未命名 Set' }}</div>
                     <div class="library-manifest-meta">
@@ -363,13 +378,13 @@
             <!-- 文件夹：网格和紧凑列表两种布局；切换入口放在 album-actions。 -->
             <div v-if="libraryDirectories.length > 0" class="library-section">
                 <div v-if="folderViewMode === 'grid'" class="album-grid">
-                    <div v-for="item in libraryDirectories" :key="item.relative_path"
+                    <div v-for="item in libraryDirectories" :key="`${item.source_id || ''}:${item.relative_path}`"
                          class="album-card library-folder-card"
-                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid, 'is-return-selected': librarySelectedDirectoryPath === item.relative_path}"
+                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid, 'is-return-selected': currentView === 'library' && librarySelectedDirectoryPath === item.relative_path}"
                          :data-library-directory-path="item.relative_path"
-                         @click="openLibraryDirectory(item, $event)">
+                         @click="openSetParentDirectory(item, $event)">
                         <img v-if="item.cover_path"
-                             :src="libraryPathAssetUrl(item.cover_path, 'thumbnail')"
+                             :src="libraryDirectoryCoverUrl(item, 'thumbnail')"
                              :alt="item.name"
                              class="album-cover">
                         <div v-else class="album-cover locked-cover"
@@ -390,14 +405,14 @@
                 </div>
 
                 <div v-else class="library-folder-list">
-                    <div v-for="item in libraryDirectories" :key="item.relative_path"
+                    <div v-for="item in libraryDirectories" :key="`${item.source_id || ''}:${item.relative_path}`"
                          class="library-folder-list-row"
-                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid, 'is-return-selected': librarySelectedDirectoryPath === item.relative_path}"
+                         :class="{'has-manifest': item.has_manifest, 'manifest-invalid': item.has_manifest && !item.manifest_valid, 'is-return-selected': currentView === 'library' && librarySelectedDirectoryPath === item.relative_path}"
                          :data-library-directory-path="item.relative_path"
-                         @click="openLibraryDirectory(item, $event)">
+                         @click="openSetParentDirectory(item, $event)">
                         <div class="library-folder-list-cover">
                             <img v-if="item.cover_path"
-                                 :src="libraryPathAssetUrl(item.cover_path, 'thumbnail')"
+                                 :src="libraryDirectoryCoverUrl(item, 'thumbnail')"
                                  :alt="item.name">
                             <el-icon v-else><Folder/></el-icon>
                         </div>
@@ -417,7 +432,7 @@
             </div>
 
             <!-- 图片：完全沿用原相册的筛选/排序状态和两种布局。 -->
-            <div v-if="libraryImages.length > 0" class="library-section">
+            <div v-if="currentView === 'library' && libraryImages.length > 0" class="library-section">
                 <div v-if="filteredImages.length > 0" style="margin: 10px 0; color: #666; font-size: 13px;">
                     <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
                     <span>排序: {{ getCurrentSortLabel }}</span>
@@ -487,8 +502,12 @@
                 </div>
             </div>
 
-            <div v-if="libraryImages.length === 0" class="empty-state library-directory-state">
+            <div v-if="currentView === 'library' && libraryImages.length === 0" class="empty-state library-directory-state">
                 <p>{{ libraryEmptyMessage }}</p>
+            </div>
+            <div v-if="currentView === 'smart-set' && !smartSetQueryError && !smartSetLoading && libraryDirectories.length === 0"
+                 class="empty-state library-directory-state">
+                <p>{{ smartSetResults.length > 0 && setSearchQuery.trim() ? `没有匹配“${setSearchQuery.trim()}”的 Set。` : '当前查询没有 Set 结果。' }}</p>
             </div>
         </div>
 
@@ -750,54 +769,6 @@
             <div v-else-if="!smartAlbumQueryError && !smartAlbumLoading" class="empty-state">
                 <p>当前查询没有结果。</p>
             </div>
-        </div>
-
-        <!-- Smart Set 结果：只提供动态 Set 入口，点击后进入真实 Library Set。 -->
-        <div v-if="currentView === 'smart-set'" v-loading="smartSetLoading">
-            <div class="back-button"><el-button @click="backToAlbums">返回相册列表</el-button></div>
-            <div class="header">
-                <div>
-                    <h1>{{ currentSmartSet.name }}</h1>
-                    <div v-if="currentSmartSet.description" style="color:#606266; margin-top:6px;">{{ currentSmartSet.description }}</div>
-                </div>
-                <div class="album-actions">
-                    <el-button @click="runSmartSet">运行查询</el-button>
-                    <el-button v-if="isAdmin" @click="editSmartSet()">编辑</el-button>
-                    <el-button v-if="isAdmin" type="danger" @click="deleteSmartSet()">删除</el-button>
-                </div>
-            </div>
-
-            <div style="display:flex; gap:10px; align-items:center; margin:0 0 16px; flex-wrap:wrap;">
-                <el-select v-model="smartSetSort" style="width:190px;">
-                    <el-option label="查询顺序" value="query"></el-option>
-                    <el-option label="拍摄日期（最新）" value="newest"></el-option>
-                    <el-option label="拍摄日期（最旧）" value="oldest"></el-option>
-                </el-select>
-                <el-input v-model="smartSetSearchQuery" clearable placeholder="Search Sets" style="width:260px;">
-                    <template #prefix><el-icon><Search/></el-icon></template>
-                </el-input>
-                <span style="color:#909399; font-size:12px;">结果 {{ smartSetResults.length }} 个 Set</span>
-            </div>
-
-            <pre v-if="smartSetQueryError" style="white-space:pre-wrap; padding:12px; border:1px solid #fbc4c4; border-radius:6px; background:#fef0f0; color:#c45656; overflow:auto;">{{ smartSetQueryError }}</pre>
-
-            <div v-if="visibleSmartSetResults.length" class="album-grid">
-                <div v-for="item in visibleSmartSetResults" :key="item.id"
-                     class="album-card library-folder-card" @click="openSmartSetResult(item)">
-                    <div class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
-                        <el-icon class="lock-icon"><Folder/></el-icon>
-                    </div>
-                    <div class="album-info">
-                        <div class="album-name">{{ item.name }}</div>
-                        <div class="album-meta library-folder-meta">
-                            <span>{{ item.source_name }}</span>
-                            <span v-if="item.shoot_date"> · {{ item.shoot_date }}</span>
-                        </div>
-                        <div class="library-folder-stats">Original {{ (item.counts?.original_jpg || 0) + (item.counts?.original_raw || 0) }} · Base {{ item.counts?.base_edit || 0 }} · Model {{ item.counts?.model_edit || 0 }} · Revision {{ item.counts?.revision || 0 }} · Final {{ item.counts?.final || 0 }} · 收藏 {{ item.favorite_count || 0 }}</div>
-                    </div>
-                </div>
-            </div>
-            <div v-else-if="!smartSetQueryError && !smartSetLoading" class="empty-state"><p>当前查询没有 Set 结果。</p></div>
         </div>
 
         <div v-if="currentView === 'album-detail'">
@@ -3852,6 +3823,6 @@
 <script src="set-insights.js?v=20260920-02"></script>
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
-<script type="module" src="app.js?v=20261003-03"></script>
+<script type="module" src="app.js?v=20261003-04"></script>
 </body>
 </html>

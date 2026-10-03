@@ -107,10 +107,15 @@ result = [
         const smartSets = ref([]);
         const currentSmartSet = ref({});
         const smartSetResults = ref([]);
+        // Smart Set only decides which Sets are included. Rendering reuses the existing
+        // Library Set-parent listing, hydrated through the same browse API.
+        const smartSetDirectoryItems = ref([]);
+        // Temporary navigation context only: when a real Set is opened from a
+        // Smart Set result, the Set root's parent is the originating Smart Set.
+        // It is intentionally not persisted and does not affect Library browsing.
+        let smartSetEntryContext = null;
         const smartSetLoading = ref(false);
         const smartSetQueryError = ref('');
-        const smartSetSearchQuery = ref('');
-        const smartSetSort = ref('query');
         const showCreateSmartSetDialog = ref(false);
         const showEditSmartSetDialog = ref(false);
         const showSmartSetHelpDialog = ref(false);
@@ -810,13 +815,61 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             }
         };
 
+        const hydrateSmartSetDirectoryItems = async (rows) => {
+            const results = Array.isArray(rows) ? rows : [];
+            if (!results.length) {
+                smartSetDirectoryItems.value = [];
+                return;
+            }
+
+            // Reuse the exact Library Set-parent payload, including the global folder-cover
+            // setting, manifest status, and recursive directory/image/file counts.
+            const groups = new Map();
+            for (const item of results) {
+                const sourceId = Number(item && item.source_id);
+                const setPath = String(item && item.set_path || '');
+                if (!Number.isFinite(sourceId) || !setPath) continue;
+                const parts = setPath.split('/').filter(Boolean);
+                const parentPath = parts.slice(0, -1).join('/');
+                const key = `${sourceId}:${parentPath}`;
+                if (!groups.has(key)) groups.set(key, {sourceId, parentPath, rows: []});
+                groups.get(key).rows.push(item);
+            }
+
+            const hydratedByKey = new Map();
+            await Promise.all(Array.from(groups.values()).map(async group => {
+                const response = await fetch(`/api/library/sources/${group.sourceId}/browse?path=${encodeURIComponent(group.parentPath)}`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || '读取 Set parent 失败');
+                const directories = (data.items || []).filter(item => item.type === 'directory');
+                const byPath = new Map(directories.map(item => [String(item.relative_path || ''), item]));
+                for (const result of group.rows) {
+                    const setPath = String(result.set_path || '');
+                    const directory = byPath.get(setPath);
+                    if (!directory) continue;
+                    hydratedByKey.set(`${group.sourceId}:${setPath}`, {
+                        ...directory,
+                        source_id: group.sourceId,
+                        source_name: result.source_name || '',
+                        set_path: setPath,
+                        smart_set_result_id: result.id,
+                    });
+                }
+            }));
+
+            smartSetDirectoryItems.value = results
+                .map(item => hydratedByKey.get(`${Number(item.source_id)}:${String(item.set_path || '')}`))
+                .filter(Boolean);
+        };
+
         const openSmartSet = async (item) => {
             if (!item) return;
+            smartSetEntryContext = null;
             currentSmartSet.value = {...item};
             smartSetResults.value = [];
+            smartSetDirectoryItems.value = [];
             smartSetQueryError.value = '';
-            smartSetSearchQuery.value = '';
-            smartSetSort.value = 'query';
+            setSearchQuery.value = '';
             currentView.value = 'smart-set';
             await runSmartSet();
         };
@@ -829,10 +882,12 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                 const data = await window.SmartSetApi.run(currentSmartSet.value.id);
                 if (data.smart_set) currentSmartSet.value = {...currentSmartSet.value, ...data.smart_set};
                 smartSetResults.value = (data.sets || []).map((item, index) => ({...item, smart_query_order: index}));
+                await hydrateSmartSetDirectoryItems(smartSetResults.value);
                 if (data.index) smartAlbumIndex.value = data.index;
                 await loadSmartSets();
             } catch (error) {
                 smartSetResults.value = [];
+                smartSetDirectoryItems.value = [];
                 if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
                 const trace = error?.payload?.traceback || '';
                 smartSetQueryError.value = trace ? `${error.message}\n\n${trace}` : (error.message || 'Smart Set 执行失败');
@@ -841,26 +896,6 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                 smartSetLoading.value = false;
             }
         };
-
-        const visibleSmartSetResults = computed(() => {
-            const terms = String(smartSetSearchQuery.value || '').trim().toLowerCase();
-            let rows = [...smartSetResults.value];
-            if (terms) {
-                rows = rows.filter(item => `${item.name || ''} ${item.source_name || ''} ${item.model || ''}`.toLowerCase().includes(terms));
-            }
-            if (smartSetSort.value === 'newest' || smartSetSort.value === 'oldest') {
-                const direction = smartSetSort.value === 'newest' ? -1 : 1;
-                rows.sort((a, b) => {
-                    const aDate = String(a.shoot_date || '');
-                    const bDate = String(b.shoot_date || '');
-                    if (aDate && bDate && aDate !== bDate) return aDate.localeCompare(bDate) * direction;
-                    if (aDate && !bDate) return -1;
-                    if (!aDate && bDate) return 1;
-                    return Number(a.smart_query_order || 0) - Number(b.smart_query_order || 0);
-                });
-            }
-            return rows;
-        });
 
         const openCreateSmartSet = () => {
             smartSetEditor.value = {id: null, name: '', description: '', python_code: SMART_SET_DEFAULT_CODE};
@@ -948,14 +983,33 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             }
         };
 
-        const openSmartSetResult = async (item) => {
+        const openSmartSetResult = async (item, event = null) => {
             if (!item) return;
             const source = librarySources.value.find(source => Number(source.id) === Number(item.source_id));
             if (!source) {
                 ElMessage.error('对应的 Library Source 不可用');
                 return;
             }
-            await openLibrarySource(source, item.set_path || '');
+
+            const setPath = String(item.set_path || item.relative_path || '');
+            const target = event && event.currentTarget instanceof Element ? event.currentTarget : null;
+            const pendingContext = {
+                smartSetId: Number(currentSmartSet.value && currentSmartSet.value.id),
+                sourceId: Number(source.id),
+                setPath,
+                scrollY: window.scrollY || window.pageYOffset || 0,
+                viewportTop: target ? target.getBoundingClientRect().top : null,
+            };
+
+            await openLibrarySource(source, setPath);
+
+            if (
+                currentView.value === 'library'
+                && Number(currentLibrarySource.value && currentLibrarySource.value.id) === pendingContext.sourceId
+                && String(libraryListing.value && libraryListing.value.path || '') === pendingContext.setPath
+            ) {
+                smartSetEntryContext = pendingContext;
+            }
         };
 
         const createAlbum = async () => {
@@ -1070,6 +1124,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
 
 
         const backToAlbums = () => {
+            smartSetEntryContext = null;
             currentView.value = 'albums';
             currentAlbum.value = {};
             currentSmartAlbum.value = {};
@@ -1077,6 +1132,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartAlbumQueryError.value = '';
             currentSmartSet.value = {};
             smartSetResults.value = [];
+            smartSetDirectoryItems.value = [];
             smartSetQueryError.value = '';
             images.value = [];
             selectionMode.value = false;
@@ -1510,15 +1566,16 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             .filter(Boolean)
             .map(term => term.replace(/[\s_\-–—·・.()[\]（）]+/g, '')));
 
-        const allLibraryDirectories = computed(() =>
-            (libraryListing.value.items || []).filter(item => item.type === 'directory')
-        );
+        const allLibraryDirectories = computed(() => {
+            if (currentView.value === 'smart-set') return smartSetDirectoryItems.value;
+            return (libraryListing.value.items || []).filter(item => item.type === 'directory');
+        });
 
         const libraryDirectories = computed(() => {
             let directories = allLibraryDirectories.value;
-            // Date sorting and Set-name search apply only to the Set parent/root.
-            // Nested workflow folders retain the filesystem/API order they already use.
-            if ((libraryListing.value.path || '') !== '') return directories;
+            // Smart Set reuses the exact Set-parent display controls; nested physical
+            // workflow folders retain their filesystem/API order.
+            if (currentView.value !== 'smart-set' && (libraryListing.value.path || '') !== '') return directories;
 
             if (setSearchTerms.value.length > 0) {
                 directories = directories.filter(item => {
@@ -2462,6 +2519,9 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
         };
 
         const openLibrarySource = async (source, path = '') => {
+            // A normal Library entry owns its physical parent chain. Smart Set
+            // navigation sets a fresh context only after this open succeeds.
+            smartSetEntryContext = null;
             if (!source.enabled) {
                 ElMessage.warning(`Source 已停用: ${source.name}`);
                 return;
@@ -2481,6 +2541,14 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             await scrollLibraryPageTop();
         };
 
+        const openSetParentDirectory = async (item, event = null) => {
+            if (currentView.value === 'smart-set') {
+                await openSmartSetResult(item, event);
+                return;
+            }
+            await openLibraryDirectory(item, event);
+        };
+
         const jumpToRelatedSet = async (path) => {
             if (!path) return;
             showManifestDetailDialog.value = false;
@@ -2490,11 +2558,46 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
         };
 
         const libraryBack = async () => {
+            const context = smartSetEntryContext;
+            const currentSourceId = Number(currentLibrarySource.value && currentLibrarySource.value.id);
+            const currentPath = String(libraryListing.value && libraryListing.value.path || '');
+            const canReturnToSmartSet = Boolean(
+                context
+                && Number(currentSmartSet.value && currentSmartSet.value.id) === context.smartSetId
+                && currentSourceId === context.sourceId
+                && currentPath === context.setPath
+            );
+
+            if (canReturnToSmartSet) {
+                smartSetEntryContext = null;
+                currentView.value = 'smart-set';
+                currentLibrarySource.value = null;
+                libraryListing.value = {items: [], manifest: {exists: false}};
+                librarySelectedDirectoryPath.value = '';
+                updateUrlWithoutParams();
+
+                await nextTick();
+                window.requestAnimationFrame(() => {
+                    const nodes = document.querySelectorAll('[data-library-directory-path]');
+                    const target = Array.from(nodes).find(node =>
+                        node.getAttribute('data-library-directory-path') === context.setPath
+                    );
+                    if (target && Number.isFinite(context.viewportTop)) {
+                        const delta = target.getBoundingClientRect().top - context.viewportTop;
+                        window.scrollTo(0, Math.max(0, (window.scrollY || window.pageYOffset || 0) + delta));
+                    } else if (Number.isFinite(context.scrollY)) {
+                        window.scrollTo(0, Math.max(0, context.scrollY));
+                    }
+                });
+                return;
+            }
+
             if (libraryListing.value.parent_path !== null && libraryListing.value.parent_path !== undefined) {
                 const parentPath = libraryListing.value.parent_path || '';
                 await loadLibraryDirectory(parentPath);
                 await restoreLibraryDirectoryPosition(parentPath);
             } else {
+                smartSetEntryContext = null;
                 currentView.value = 'albums';
                 currentLibrarySource.value = null;
                 libraryListing.value = {items: [], manifest: {exists: false}};
@@ -2505,6 +2608,13 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
         const libraryPathAssetUrl = (relativePath, variant = 'thumbnail') => {
             if (!currentLibrarySource.value || !relativePath) return '';
             return `/api/library/sources/${currentLibrarySource.value.id}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(relativePath)}`;
+        };
+
+        const libraryDirectoryCoverUrl = (item, variant = 'thumbnail') => {
+            if (!item || !item.cover_path) return '';
+            const sourceId = item.source_id || (currentLibrarySource.value && currentLibrarySource.value.id);
+            if (!sourceId) return '';
+            return `/api/library/sources/${sourceId}/asset?variant=${encodeURIComponent(variant)}&path=${encodeURIComponent(item.cover_path)}`;
         };
 
         const libraryAssetUrl = (item, variant = 'thumbnail') => {
@@ -4995,11 +5105,9 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartSets,
             currentSmartSet,
             smartSetResults,
-            visibleSmartSetResults,
+            smartSetDirectoryItems,
             smartSetLoading,
             smartSetQueryError,
-            smartSetSearchQuery,
-            smartSetSort,
             showCreateSmartSetDialog,
             showEditSmartSetDialog,
             showSmartSetHelpDialog,
@@ -5066,9 +5174,11 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             setLibrarySourceEnabled,
             openLibrarySource,
             openLibraryDirectory,
+            openSetParentDirectory,
             libraryBack,
             libraryAssetUrl,
             libraryPathAssetUrl,
+            libraryDirectoryCoverUrl,
             detailImageUrl,
             viewLibraryImage,
             toggleCurrentFavorite,
