@@ -125,6 +125,7 @@ result = [
 
         const emptyExploreStats = () => ({
             total_images: 0,
+            total_sets: 0,
             sources: [],
             years: [],
             models: [],
@@ -138,6 +139,18 @@ result = [
         const exploreLoading = ref(false);
         const exploreQueryLoading = ref(false);
         const exploreError = ref('');
+        const exploreSelectedYear = ref(null);
+        const EXPLORE_COLLAPSED_ROWS = 10;
+        const EXPLORE_STAT_COLUMNS = 2;
+        const EXPLORE_COLLAPSED_ITEMS = EXPLORE_COLLAPSED_ROWS * EXPLORE_STAT_COLUMNS;
+        const exploreExpandedSections = ref({
+            months: false,
+            models: false,
+            environments: false,
+            themes: false,
+            locations: false,
+            focal_lengths: false,
+        });
         let exploreReturnScrollY = 0;
 
 
@@ -439,6 +452,28 @@ result = [
             return sources.length ? sources.map(source => source.name).join(' · ') : '—';
         });
 
+        const exploreYearOptions = computed(() => (Array.isArray(exploreStats.value?.years) ? exploreStats.value.years : [])
+            .filter(item => Number.isFinite(Number(item && item.value)))
+            .slice()
+            .sort((a, b) => Number(b.value) - Number(a.value)));
+        const exploreSelectedYearRow = computed(() => exploreYearOptions.value.find(item =>
+            Number(item.value) === Number(exploreSelectedYear.value)
+        ) || null);
+        const exploreMonthRows = computed(() => exploreSelectedYearRow.value?.months || []);
+        const visibleExploreRows = (section, rows) => {
+            const items = Array.isArray(rows) ? rows : [];
+            return exploreExpandedSections.value[section] ? items : items.slice(0, EXPLORE_COLLAPSED_ITEMS);
+        };
+        const exploreCanExpand = rows => Array.isArray(rows) && rows.length > EXPLORE_COLLAPSED_ITEMS;
+        const exploreHiddenCount = rows => Math.max(0, (Array.isArray(rows) ? rows.length : 0) - EXPLORE_COLLAPSED_ITEMS);
+        const toggleExploreSection = section => {
+            if (!Object.prototype.hasOwnProperty.call(exploreExpandedSections.value, section)) return;
+            exploreExpandedSections.value = {
+                ...exploreExpandedSections.value,
+                [section]: !exploreExpandedSections.value[section],
+            };
+        };
+
         const loadExploreStats = async () => {
             if (!isAdmin.value || !window.ExploreApi) return;
             exploreLoading.value = true;
@@ -446,6 +481,13 @@ result = [
             try {
                 const data = await window.ExploreApi.stats();
                 exploreStats.value = {...emptyExploreStats(), ...data};
+                const years = (Array.isArray(data.years) ? data.years : [])
+                    .map(item => Number(item && item.value))
+                    .filter(Number.isFinite)
+                    .sort((a, b) => b - a);
+                if (!years.includes(Number(exploreSelectedYear.value))) {
+                    exploreSelectedYear.value = years.length ? years[0] : null;
+                }
                 if (data.index) smartAlbumIndex.value = data.index;
             } catch (error) {
                 exploreStats.value = emptyExploreStats();
@@ -467,12 +509,38 @@ result = [
             window.requestAnimationFrame(() => window.scrollTo(0, 0));
         };
 
-        const openExploreStat = async (dimension, value, label) => {
+        const openExploreStat = async (dimension, value, label, target = 'photos') => {
             if (!window.ExploreApi || exploreQueryLoading.value) return;
             exploreReturnScrollY = window.scrollY || window.pageYOffset || 0;
             exploreQueryLoading.value = true;
             try {
-                const data = await window.ExploreApi.query(dimension, value, label);
+                const data = await window.ExploreApi.query(dimension, value, label, target);
+                if (data.result_type === 'sets') {
+                    smartSetEntryContext = null;
+                    currentSmartSet.value = {
+                        id: null,
+                        name: data.title || `Explore · ${label || ''}`,
+                        description: 'Explore 临时结果 · 未保存为 Smart Set',
+                        is_explore: true,
+                        explore_dimension: dimension,
+                        explore_value: value,
+                        explore_target: 'sets',
+                    };
+                    smartSetResults.value = (data.sets || []).map((item, index) => ({
+                        ...item,
+                        smart_query_order: index,
+                    }));
+                    smartSetDirectoryItems.value = [];
+                    smartSetQueryError.value = '';
+                    setSearchQuery.value = '';
+                    await hydrateSmartSetDirectoryItems(smartSetResults.value);
+                    if (data.index) smartAlbumIndex.value = data.index;
+                    currentView.value = 'smart-set';
+                    await nextTick();
+                    window.requestAnimationFrame(() => window.scrollTo(0, 0));
+                    return;
+                }
+
                 currentSmartAlbum.value = {
                     id: null,
                     name: data.title || `Explore · ${label || ''}`,
@@ -480,6 +548,7 @@ result = [
                     is_explore: true,
                     explore_dimension: dimension,
                     explore_value: value,
+                    explore_target: 'photos',
                 };
                 smartAlbumImages.value = (data.images || []).map((image, index) => ({
                     ...image,
@@ -503,10 +572,16 @@ result = [
         };
 
         const backToExplore = async () => {
+            smartSetEntryContext = null;
             currentView.value = 'explore';
             currentSmartAlbum.value = {};
             smartAlbumImages.value = [];
             smartAlbumQueryError.value = '';
+            currentSmartSet.value = {};
+            smartSetResults.value = [];
+            smartSetDirectoryItems.value = [];
+            smartSetQueryError.value = '';
+            setSearchQuery.value = '';
             currentImage.value = {};
             selectionMode.value = false;
             selectedImages.value = [];
@@ -1086,6 +1161,14 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             }
         };
 
+        const smartSetContextKey = item => {
+            if (!item) return '';
+            if (item.is_explore) {
+                return `explore:${item.explore_dimension || ''}:${JSON.stringify(item.explore_value ?? null)}:${item.explore_target || 'sets'}`;
+            }
+            return item.id == null ? '' : `saved:${item.id}`;
+        };
+
         const openSmartSetResult = async (item, event = null) => {
             if (!item) return;
             const source = librarySources.value.find(source => Number(source.id) === Number(item.source_id));
@@ -1097,7 +1180,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             const setPath = String(item.set_path || item.relative_path || '');
             const target = event && event.currentTarget instanceof Element ? event.currentTarget : null;
             const pendingContext = {
-                smartSetId: Number(currentSmartSet.value && currentSmartSet.value.id),
+                smartSetKey: smartSetContextKey(currentSmartSet.value),
                 sourceId: Number(source.id),
                 setPath,
                 scrollY: window.scrollY || window.pageYOffset || 0,
@@ -2666,7 +2749,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             const currentPath = String(libraryListing.value && libraryListing.value.path || '');
             const canReturnToSmartSet = Boolean(
                 context
-                && Number(currentSmartSet.value && currentSmartSet.value.id) === context.smartSetId
+                && smartSetContextKey(currentSmartSet.value) === context.smartSetKey
                 && currentSourceId === context.sourceId
                 && currentPath === context.setPath
             );
@@ -5182,6 +5265,14 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreQueryLoading,
             exploreError,
             exploreSourceText,
+            exploreSelectedYear,
+            exploreYearOptions,
+            exploreMonthRows,
+            exploreExpandedSections,
+            visibleExploreRows,
+            exploreCanExpand,
+            exploreHiddenCount,
+            toggleExploreSection,
             formatExplorePercent,
             openExplore,
             loadExploreStats,

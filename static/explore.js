@@ -20,11 +20,11 @@
         async stats() {
             return requestJson('/api/explore/stats');
         },
-        async query(dimension, value, label) {
+        async query(dimension, value, label, target = 'photos') {
             return requestJson('/api/explore/query', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({dimension, value, label}),
+                body: JSON.stringify({dimension, value, label, target}),
             });
         },
     };

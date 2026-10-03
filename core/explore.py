@@ -1,25 +1,22 @@
 import math
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from core.smart_album_runtime import run_query
+from core.smart_album_runtime import run_query, run_set_query
 from core.smart_albums import (
     SMART_ALBUM_DB_FILENAME,
     SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     _asset_payloads,
+    _discover_sets,
     _index_status,
 )
+from core.smart_sets import _manifest_info, _shoot_date, _source_scope
 
 
 _MISSING_LABEL = '未记录'
-
-
-def _dict_value(mapping, key, default=None):
-    if isinstance(mapping, dict):
-        return mapping.get(key, default)
-    return default
+_SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
 
 
 def _clean_text(value):
@@ -31,21 +28,6 @@ def _percentage(count, total):
     if total <= 0:
         return 0.0
     return round((count / total) * 100.0, 1)
-
-
-def _counter_items(counter, total, *, labeler=None):
-    labeler = labeler or (lambda value: _MISSING_LABEL if value is None else str(value))
-    rows = [
-        {
-            'value': value,
-            'label': labeler(value),
-            'count': count,
-            'percentage': _percentage(count, total),
-        }
-        for value, count in counter.items()
-    ]
-    rows.sort(key=lambda item: (-item['count'], item['label'].casefold()))
-    return rows
 
 
 def _focal_value(value):
@@ -69,108 +51,259 @@ def _focal_label(value):
     return f'{number:g}mm'
 
 
+def _photo_set_key(photo):
+    source = photo.get('source') or {}
+    set_info = photo.get('set') or {}
+    source_id = source.get('id')
+    set_path = str(set_info.get('path') or '')
+    if source_id is None or not set_path:
+        return None
+    return int(source_id), set_path
+
+
+def _raw_shoot_date(payload):
+    value = payload.get('shoot_date')
+    if isinstance(value, dict):
+        return str(value.get('__smart_date__') or '').strip()
+    return str(value or '').strip()
+
+
+def _explore_set_candidates(smart_db_path, main_db_path, photo_payloads=None):
+    """Build lightweight real-Set candidates for Explore.
+
+    Unlike Smart Set's full contract builder, Explore does not need stage counts or
+    favorite aggregation just to calculate statistics. It still reuses exactly the
+    same indexed/enabled/mounted Source scope and the same Set discovery/manifest
+    rules, while grouping the existing Smart Album photo candidates under each Set.
+    """
+    sources, status = _source_scope(main_db_path, smart_db_path)
+    if photo_payloads is None:
+        photo_payloads, _ = _asset_payloads(smart_db_path, main_db_path)
+
+    photos_by_set = defaultdict(list)
+    for photo in photo_payloads:
+        key = _photo_set_key(photo)
+        if key is not None:
+            photos_by_set[key].append(photo)
+
+    payloads = []
+    rows = {}
+    for source in sources:
+        source_id = int(source['id'])
+        root = Path(source['root_path']).expanduser().resolve()
+        for set_dir in _discover_sets(root):
+            set_path = set_dir.relative_to(root).as_posix()
+            manifest, _, _ = _manifest_info(root, set_path)
+            shoot_date = _shoot_date(manifest, set_dir.name)
+            set_id = f'library-set:{source_id}:{set_path}'
+            photo_items = photos_by_set.get((source_id, set_path), [])
+            payload = {
+                'id': set_id,
+                'source': {'id': source_id, 'name': source['name']},
+                'name': set_dir.name,
+                'path': set_path,
+                'manifest': manifest,
+                'shoot_date': {'__smart_date__': shoot_date} if shoot_date else None,
+                'photos': photo_items,
+                'indexed_photo_count': len(photo_items),
+            }
+            payloads.append(payload)
+            rows[set_id] = {
+                'id': set_id,
+                'source_id': source_id,
+                'source_name': source['name'],
+                'name': set_dir.name,
+                'set_path': set_path,
+                'shoot_date': shoot_date,
+                'model': str(manifest.get('model') or '').strip(),
+                'indexed_photo_count': len(photo_items),
+            }
+
+    return payloads, rows, status, sources
+
+
+def _set_value(payload, dimension):
+    manifest = payload.get('manifest') if isinstance(payload.get('manifest'), dict) else {}
+    shoot = manifest.get('shoot') if isinstance(manifest.get('shoot'), dict) else {}
+    theme = manifest.get('theme') if isinstance(manifest.get('theme'), dict) else {}
+    location = manifest.get('location') if isinstance(manifest.get('location'), dict) else {}
+
+    if dimension == 'model':
+        return _clean_text(manifest.get('model'))
+    if dimension == 'environment':
+        return _clean_text(shoot.get('environment'))
+    if dimension == 'theme':
+        return _clean_text(theme.get('source_title'))
+    if dimension == 'location':
+        return _clean_text(location.get('name'))
+    raise ValueError('不支持的 Set 统计维度。')
+
+
+def _set_metric_rows(set_payloads, total_sets, total_images, dimension):
+    buckets = defaultdict(lambda: {'set_count': 0, 'image_count': 0})
+    for item in set_payloads:
+        value = _set_value(item, dimension)
+        bucket = buckets[value]
+        bucket['set_count'] += 1
+        bucket['image_count'] += int(item.get('indexed_photo_count') or 0)
+
+    rows = []
+    for value, counts in buckets.items():
+        set_count = counts['set_count']
+        image_count = counts['image_count']
+        label = _MISSING_LABEL if value is None else str(value)
+        rows.append({
+            'value': value,
+            'label': label,
+            'set_count': set_count,
+            'image_count': image_count,
+            'set_percentage': _percentage(set_count, total_sets),
+            'image_percentage': _percentage(image_count, total_images),
+            # Compatibility aliases describe the primary metric of this row.
+            'count': set_count,
+            'percentage': _percentage(set_count, total_sets),
+            'primary_metric': 'set',
+        })
+    rows.sort(key=lambda row: (-row['set_count'], row['label'].casefold()))
+    return rows
+
+
+def _year_rows(set_payloads, total_sets, total_images):
+    years = defaultdict(lambda: {'set_count': 0, 'image_count': 0, 'months': defaultdict(lambda: {'set_count': 0, 'image_count': 0})})
+    for item in set_payloads:
+        shoot_date = _raw_shoot_date(item)
+        if len(shoot_date) < 7:
+            continue
+        try:
+            year = int(shoot_date[:4])
+            month = int(shoot_date[5:7])
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= month <= 12):
+            continue
+        image_count = int(item.get('indexed_photo_count') or 0)
+        years[year]['set_count'] += 1
+        years[year]['image_count'] += image_count
+        years[year]['months'][month]['set_count'] += 1
+        years[year]['months'][month]['image_count'] += image_count
+
+    output = []
+    for year, data in years.items():
+        months = []
+        for month, counts in data['months'].items():
+            set_count = counts['set_count']
+            image_count = counts['image_count']
+            months.append({
+                'value': {'year': year, 'month': month},
+                'label': f'{month}月',
+                'set_count': set_count,
+                'image_count': image_count,
+                'set_percentage': _percentage(set_count, total_sets),
+                'image_percentage': _percentage(image_count, total_images),
+                'count': set_count,
+                'percentage': _percentage(set_count, total_sets),
+                'primary_metric': 'set',
+            })
+        months.sort(key=lambda row: (-row['set_count'], row['value']['month']))
+        set_count = data['set_count']
+        image_count = data['image_count']
+        output.append({
+            'value': year,
+            'label': str(year),
+            'set_count': set_count,
+            'image_count': image_count,
+            'set_percentage': _percentage(set_count, total_sets),
+            'image_percentage': _percentage(image_count, total_images),
+            'count': set_count,
+            'percentage': _percentage(set_count, total_sets),
+            'primary_metric': 'set',
+            'months': months,
+        })
+
+    # The selector is chronological rather than ranked; rows inside each year remain
+    # ranked by Set count, as do all other statistic cards.
+    output.sort(key=lambda row: int(row['value']), reverse=True)
+    return output
+
+
+def _focal_rows(photo_payloads, total_sets, total_images, valid_set_keys=None):
+    buckets = defaultdict(lambda: {'image_count': 0, 'set_keys': set()})
+    for photo in photo_payloads:
+        capture = photo.get('capture') or {}
+        value = _focal_value(capture.get('focal_length_mm'))
+        bucket = buckets[value]
+        bucket['image_count'] += 1
+        key = _photo_set_key(photo)
+        if key is not None and (valid_set_keys is None or key in valid_set_keys):
+            bucket['set_keys'].add(key)
+
+    rows = []
+    for value, data in buckets.items():
+        image_count = data['image_count']
+        set_count = len(data['set_keys'])
+        label = _focal_label(value)
+        rows.append({
+            'value': value,
+            'label': label,
+            'set_count': set_count,
+            'image_count': image_count,
+            'set_percentage': _percentage(set_count, total_sets),
+            'image_percentage': _percentage(image_count, total_images),
+            'count': image_count,
+            'percentage': _percentage(image_count, total_images),
+            'primary_metric': 'photo',
+        })
+    rows.sort(key=lambda row: (-row['image_count'], row['label'].casefold()))
+    return rows
+
+
 def _build_stats(smart_db_path, main_db_path):
     status = _index_status(smart_db_path)
     if not status['ready']:
         raise RuntimeError('SMART_ALBUM_INDEX_REQUIRED')
 
-    payloads, result_rows = _asset_payloads(smart_db_path, main_db_path)
-    total = len(payloads)
-
-    years = Counter()
-    months_by_year = defaultdict(Counter)
-    models = Counter()
-    environments = Counter()
-    themes = Counter()
-    locations = Counter()
-    focals = Counter()
-    active_sources = {}
-
-    for photo in payloads:
-        photo_id = photo.get('id')
-        source = photo.get('source') or {}
-        source_id = source.get('id')
-        source_name = _clean_text(source.get('name')) or str(source_id or '')
-        if source_id is not None:
-            active_sources[int(source_id)] = source_name
-
-        manifest = _dict_value(photo.get('set') or {}, 'manifest', {}) or {}
-        shoot = _dict_value(manifest, 'shoot', {}) or {}
-        theme = _dict_value(manifest, 'theme', {}) or {}
-        location = _dict_value(manifest, 'location', {}) or {}
-
-        models[_clean_text(_dict_value(manifest, 'model'))] += 1
-        environments[_clean_text(_dict_value(shoot, 'environment'))] += 1
-        themes[_clean_text(_dict_value(theme, 'source_title'))] += 1
-        locations[_clean_text(_dict_value(location, 'name'))] += 1
-
-        capture = photo.get('capture') or {}
-        focals[_focal_value(capture.get('focal_length_mm'))] += 1
-
-        capture_sort_time = _dict_value(result_rows.get(photo_id, {}), 'capture_sort_time')
-        if capture_sort_time:
-            try:
-                year_text, month_text = str(capture_sort_time)[:7].split('-', 1)
-                year = int(year_text)
-                month = int(month_text)
-                if 1 <= month <= 12:
-                    years[year] += 1
-                    months_by_year[year][month] += 1
-                    continue
-            except (TypeError, ValueError):
-                pass
-        years[None] += 1
-
-    year_rows = []
-    for year, count in years.items():
-        if year is None:
-            months = []
-        else:
-            months = [
-                {
-                    'value': {'year': year, 'month': month},
-                    'label': f'{month}月',
-                    'count': month_count,
-                    'percentage': _percentage(month_count, total),
-                }
-                for month, month_count in months_by_year.get(year, {}).items()
-            ]
-            months.sort(key=lambda item: (-item['count'], item['value']['month']))
-        year_rows.append({
-            'value': year,
-            'label': _MISSING_LABEL if year is None else str(year),
-            'count': count,
-            'percentage': _percentage(count, total),
-            'months': months,
-        })
-    year_rows.sort(key=lambda item: (-item['count'], item['label']))
+    photo_payloads, _ = _asset_payloads(smart_db_path, main_db_path)
+    set_payloads, _, set_status, sources = _explore_set_candidates(
+        smart_db_path,
+        main_db_path,
+        photo_payloads=photo_payloads,
+    )
+    total_images = len(photo_payloads)
+    total_sets = len(set_payloads)
 
     return {
-        'total_images': total,
+        'total_images': total_images,
+        'total_sets': total_sets,
         'sources': [
-            {'id': source_id, 'name': active_sources[source_id]}
-            for source_id in sorted(active_sources, key=lambda sid: active_sources[sid].casefold())
+            {'id': int(source['id']), 'name': source['name']}
+            for source in sorted(sources, key=lambda item: str(item['name']).casefold())
         ],
-        'years': year_rows,
-        'models': _counter_items(models, total),
-        'environments': _counter_items(environments, total),
-        'themes': _counter_items(themes, total),
-        'locations': _counter_items(locations, total),
-        'focal_lengths': _counter_items(focals, total, labeler=_focal_label),
-        'index': status,
+        'years': _year_rows(set_payloads, total_sets, total_images),
+        'models': _set_metric_rows(set_payloads, total_sets, total_images, 'model'),
+        'environments': _set_metric_rows(set_payloads, total_sets, total_images, 'environment'),
+        'themes': _set_metric_rows(set_payloads, total_sets, total_images, 'theme'),
+        'locations': _set_metric_rows(set_payloads, total_sets, total_images, 'location'),
+        'focal_lengths': _focal_rows(
+            photo_payloads,
+            total_sets,
+            total_images,
+            valid_set_keys={(int(item['source']['id']), str(item['path'])) for item in set_payloads},
+        ),
+        'index': set_status,
     }
 
 
-def _query_code(dimension, value):
+def _set_query_code(dimension, value):
     if dimension == 'year':
         if value is None:
-            return 'result = [photo for photo in photos if shoot_time(photo) is None]'
+            return 'result = [set for set in sets if set.shoot_date is None]\n'
         year = int(value)
         return (
-            'def match(photo):\n'
-            '    value = shoot_time(photo)\n'
-            f'    return value is not None and value.year == {year}\n\n'
-            'result = [photo for photo in photos if match(photo)]\n'
+            'result = [\n'
+            '    set\n'
+            '    for set in sets\n'
+            f'    if set.shoot_date is not None and set.shoot_date.year == {year}\n'
+            ']\n'
         )
 
     if dimension == 'year_month':
@@ -181,17 +314,20 @@ def _query_code(dimension, value):
         if month < 1 or month > 12:
             raise ValueError('月份筛选参数无效。')
         return (
-            'def match(photo):\n'
-            '    value = shoot_time(photo)\n'
-            f'    return value is not None and value.year == {year} and value.month == {month}\n\n'
-            'result = [photo for photo in photos if match(photo)]\n'
+            'result = [\n'
+            '    set\n'
+            '    for set in sets\n'
+            '    if set.shoot_date is not None\n'
+            f'    and set.shoot_date.year == {year}\n'
+            f'    and set.shoot_date.month == {month}\n'
+            ']\n'
         )
 
     text_fields = {
-        'model': 'photo.set.manifest.model',
-        'environment': 'photo.set.manifest.shoot.environment',
-        'theme': 'photo.set.manifest.theme.source_title',
-        'location': 'photo.set.manifest.location.name',
+        'model': 'set.manifest.model',
+        'environment': 'set.manifest.shoot.environment',
+        'theme': 'set.manifest.theme.source_title',
+        'location': 'set.manifest.location.name',
     }
     if dimension in text_fields:
         expression = text_fields[dimension]
@@ -200,7 +336,42 @@ def _query_code(dimension, value):
         else:
             target = repr(str(value).strip())
             condition = f'str({expression} or "").strip() == {target}'
-        return f'result = [photo for photo in photos if {condition}]\n'
+        return f'result = [set for set in sets if {condition}]\n'
+
+    if dimension == 'focal_length':
+        if value is None:
+            condition = 'photo.capture.focal_length_mm is None'
+        else:
+            target = round(float(value), 1)
+            condition = (
+                'photo.capture.focal_length_mm is not None '
+                f'and round(float(photo.capture.focal_length_mm), 1) == {target!r}'
+            )
+        return (
+            'result = [\n'
+            '    set\n'
+            '    for set in sets\n'
+            f'    if any({condition} for photo in set.photos)\n'
+            ']\n'
+        )
+
+    raise ValueError('不支持的 Explore 统计维度。')
+
+
+def _photo_query_code(dimension, value, matching_set_rows=None):
+    if dimension in _SET_DIMENSIONS:
+        rows = list(matching_set_rows or [])
+        if not rows:
+            return 'result = []\n'
+        keys = {
+            (int(row['source_id']), str(row['set_path']))
+            for row in rows
+            if row.get('source_id') is not None and row.get('set_path')
+        }
+        return (
+            f'keys = {keys!r}\n'
+            'result = [photo for photo in photos if set_key(photo) in keys]\n'
+        )
 
     if dimension == 'focal_length':
         if value is None:
@@ -218,7 +389,7 @@ def _query_code(dimension, value):
     raise ValueError('不支持的 Explore 统计维度。')
 
 
-def _query_title(dimension, value, label):
+def _query_title(dimension, label):
     section_names = {
         'year': '年度',
         'year_month': '月份',
@@ -234,11 +405,11 @@ def _query_title(dimension, value, label):
 
 
 def create_explore_blueprint(admin_guard, main_db_path):
-    """Create a read-only Explore surface backed by the Smart Album index.
+    """Create Explore statistics and temporary Smart Album/Smart Set drill-downs.
 
-    Explore owns no photo facts and no second index. Statistics and drill-down
-    both use the same current Smart Album candidate pool, so displayed counts
-    and temporary result views share one source/scope definition.
+    Photo statistics reuse the current Smart Album candidate pool. Set statistics
+    discover real Sets from the same indexed/enabled/mounted Source scope. Explore
+    owns no second index and never persists its temporary query definitions.
     """
     main_db_path = Path(main_db_path).resolve()
     smart_db_path = main_db_path.parent / SMART_ALBUM_DB_FILENAME
@@ -272,18 +443,54 @@ def create_explore_blueprint(admin_guard, main_db_path):
         dimension = str(data.get('dimension') or '').strip()
         value = data.get('value')
         label = data.get('label')
+        target = str(data.get('target') or 'photos').strip().lower()
+        if target not in {'photos', 'sets'}:
+            return jsonify({'error': 'Explore 查询目标无效。'}), 400
+
         try:
             status = _index_status(smart_db_path)
             if not status['ready']:
                 raise RuntimeError('SMART_ALBUM_INDEX_REQUIRED')
-            code = _query_code(dimension, value)
-            payloads, result_rows = _asset_payloads(smart_db_path, main_db_path)
-            ordered_ids = run_query(code, payloads, timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS)
+
+            photo_payloads, result_rows = _asset_payloads(smart_db_path, main_db_path)
+            set_payloads, set_rows, status, _ = _explore_set_candidates(
+                smart_db_path,
+                main_db_path,
+                photo_payloads=photo_payloads,
+            )
+
+            set_code = _set_query_code(dimension, value)
+            ordered_set_ids = run_set_query(
+                set_code,
+                set_payloads,
+                timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
+            )
+            matching_set_rows = [set_rows[item_id] for item_id in ordered_set_ids if item_id in set_rows]
+
+            title = _query_title(dimension, label)
+            if target == 'sets':
+                return jsonify({
+                    'title': title,
+                    'dimension': dimension,
+                    'value': value,
+                    'result_type': 'sets',
+                    'sets': [dict(row) for row in matching_set_rows],
+                    'count': len(matching_set_rows),
+                    'index': status,
+                })
+
+            photo_code = _photo_query_code(dimension, value, matching_set_rows=matching_set_rows)
+            ordered_ids = run_query(
+                photo_code,
+                photo_payloads,
+                timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
+            )
             images = [dict(result_rows[photo_id]) for photo_id in ordered_ids if photo_id in result_rows]
             return jsonify({
-                'title': _query_title(dimension, value, label),
+                'title': title,
                 'dimension': dimension,
                 'value': value,
+                'result_type': 'photos',
                 'images': images,
                 'count': len(images),
                 'index': status,

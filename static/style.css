@@ -3553,3 +3553,108 @@ body {
     font-size: 12px;
 }
 
+
+/* Explore / Statistics */
+.explore-card-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+}
+
+.explore-stat-card {
+    width: 100%;
+}
+
+.explore-stat-card > .el-card__body {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.explore-card-header,
+.explore-stat-line,
+.explore-stat-metrics {
+    display: flex;
+    align-items: center;
+}
+
+.explore-card-header,
+.explore-stat-line {
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.explore-card-header {
+    min-height: 32px;
+}
+
+.explore-primary-label {
+    color: #909399;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.explore-year-select {
+    width: 112px;
+}
+
+.explore-stat-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 28px;
+}
+
+.explore-stat-row {
+    cursor: pointer;
+    padding: 9px 0;
+    border-bottom: 1px solid #f0f2f5;
+}
+
+.explore-stat-line {
+    margin-bottom: 5px;
+    min-width: 0;
+}
+
+.explore-stat-line > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.explore-stat-metrics {
+    flex: 0 0 auto;
+    gap: 5px;
+    color: #606266;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.explore-metric-link {
+    appearance: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: #409eff;
+    font: inherit;
+    cursor: pointer;
+}
+
+.explore-metric-link:hover {
+    text-decoration: underline;
+}
+
+.explore-card-footer {
+    display: flex;
+    justify-content: center;
+    min-height: 32px;
+    padding-top: 8px;
+}
+
+.explore-card-empty {
+    grid-column: 1 / -1;
+    color: #909399;
+    font-size: 13px;
+    padding: 18px 0;
+}
