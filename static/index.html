@@ -36,6 +36,7 @@
                     <el-button v-if="isAdmin" @click="showManageGroupsDialog = true">管理分组</el-button>
                     <el-button v-if="!isAdmin" @click="showAdminLogin = true">管理员登录</el-button>
                     <el-button v-if="isAdmin" @click="adminLogout">退出管理</el-button>
+                    <el-button v-if="isAdmin" @click="openExplore">Explore</el-button>
                     <el-button v-if="isAdmin" @click="showConfigDialog = true">设置</el-button>
 
                 </div>
@@ -222,6 +223,115 @@
         </div>
         </div>
 
+
+        <!-- Explore / Statistics：统计与临时 drill-down 共享 Smart Album 当前候选池。 -->
+        <div v-if="currentView === 'explore'" v-loading="exploreLoading || exploreQueryLoading">
+            <div class="back-button">
+                <el-button @click="backToAlbums">返回相册列表</el-button>
+            </div>
+
+            <div class="header">
+                <div>
+                    <h1>Explore / Statistics</h1>
+                    <div style="color:#606266; margin-top:6px;">统计项可直接点入临时 Smart Album 结果。</div>
+                </div>
+                <div class="album-actions">
+                    <el-button @click="loadExploreStats">刷新统计</el-button>
+                </div>
+            </div>
+
+            <div v-if="!exploreError" style="margin:0 0 18px; color:#606266; font-size:13px; line-height:1.8;">
+                <span>当前范围 {{ exploreStats.total_images || 0 }} 张</span>
+                <span> · Source: {{ exploreSourceText }}</span>
+                <span v-if="exploreStats.index && exploreStats.index.last_refresh_at"> · 索引更新 {{ formatDate(exploreStats.index.last_refresh_at) }}</span>
+            </div>
+
+            <el-alert v-if="exploreError" :title="exploreError" type="warning" :closable="false" show-icon style="margin-bottom:18px;"></el-alert>
+
+            <template v-if="!exploreError && exploreStats.total_images > 0">
+                <el-row :gutter="16">
+                    <el-col :xs="24" :md="24" style="margin-bottom:16px;">
+                        <el-card shadow="never">
+                            <template #header><strong>年度 / 月份</strong></template>
+                            <div v-for="year in exploreStats.years" :key="`year-${year.label}`" style="padding:8px 0 12px; border-bottom:1px solid #ebeef5;">
+                                <div @click="openExploreStat('year', year.value, year.label)" style="cursor:pointer;">
+                                    <div style="display:flex; justify-content:space-between; gap:16px; align-items:center; margin-bottom:5px;">
+                                        <strong>{{ year.label }}</strong>
+                                        <span>{{ year.count }} 张 · {{ formatExplorePercent(year.percentage) }}</span>
+                                    </div>
+                                    <el-progress :percentage="year.percentage" :show-text="false" :stroke-width="6"></el-progress>
+                                </div>
+                                <div v-if="year.months && year.months.length" style="padding:8px 0 0 18px;">
+                                    <div v-for="month in year.months" :key="`${year.label}-${month.label}`"
+                                         @click="openExploreStat('year_month', month.value, `${year.label}-${month.label}`)"
+                                         style="cursor:pointer; padding:6px 0;">
+                                        <div style="display:flex; justify-content:space-between; gap:16px; align-items:center; margin-bottom:4px; font-size:13px;">
+                                            <span>{{ month.label }}</span>
+                                            <span>{{ month.count }} 张 · {{ formatExplorePercent(month.percentage) }}</span>
+                                        </div>
+                                        <el-progress :percentage="month.percentage" :show-text="false" :stroke-width="4"></el-progress>
+                                    </div>
+                                </div>
+                            </div>
+                        </el-card>
+                    </el-col>
+
+                    <el-col :xs="24" :md="12" style="margin-bottom:16px;">
+                        <el-card shadow="never">
+                            <template #header><strong>模特</strong></template>
+                            <div v-for="item in exploreStats.models" :key="`model-${item.label}`" @click="openExploreStat('model', item.value, item.label)" style="cursor:pointer; padding:8px 0; border-bottom:1px solid #f0f2f5;">
+                                <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:4px;"><span>{{ item.label }}</span><span>{{ item.count }} 张 · {{ formatExplorePercent(item.percentage) }}</span></div>
+                                <el-progress :percentage="item.percentage" :show-text="false" :stroke-width="5"></el-progress>
+                            </div>
+                        </el-card>
+                    </el-col>
+
+                    <el-col :xs="24" :md="12" style="margin-bottom:16px;">
+                        <el-card shadow="never">
+                            <template #header><strong>环境</strong></template>
+                            <div v-for="item in exploreStats.environments" :key="`env-${item.label}`" @click="openExploreStat('environment', item.value, item.label)" style="cursor:pointer; padding:8px 0; border-bottom:1px solid #f0f2f5;">
+                                <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:4px;"><span>{{ item.label }}</span><span>{{ item.count }} 张 · {{ formatExplorePercent(item.percentage) }}</span></div>
+                                <el-progress :percentage="item.percentage" :show-text="false" :stroke-width="5"></el-progress>
+                            </div>
+                        </el-card>
+                    </el-col>
+
+                    <el-col :xs="24" :md="12" style="margin-bottom:16px;">
+                        <el-card shadow="never">
+                            <template #header><strong>题材</strong></template>
+                            <div v-for="item in exploreStats.themes" :key="`theme-${item.label}`" @click="openExploreStat('theme', item.value, item.label)" style="cursor:pointer; padding:8px 0; border-bottom:1px solid #f0f2f5;">
+                                <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:4px;"><span>{{ item.label }}</span><span>{{ item.count }} 张 · {{ formatExplorePercent(item.percentage) }}</span></div>
+                                <el-progress :percentage="item.percentage" :show-text="false" :stroke-width="5"></el-progress>
+                            </div>
+                        </el-card>
+                    </el-col>
+
+                    <el-col :xs="24" :md="12" style="margin-bottom:16px;">
+                        <el-card shadow="never">
+                            <template #header><strong>地点</strong></template>
+                            <div v-for="item in exploreStats.locations" :key="`location-${item.label}`" @click="openExploreStat('location', item.value, item.label)" style="cursor:pointer; padding:8px 0; border-bottom:1px solid #f0f2f5;">
+                                <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:4px;"><span>{{ item.label }}</span><span>{{ item.count }} 张 · {{ formatExplorePercent(item.percentage) }}</span></div>
+                                <el-progress :percentage="item.percentage" :show-text="false" :stroke-width="5"></el-progress>
+                            </div>
+                        </el-card>
+                    </el-col>
+
+                    <el-col :xs="24" :md="12" style="margin-bottom:16px;">
+                        <el-card shadow="never">
+                            <template #header><strong>焦段</strong></template>
+                            <div v-for="item in exploreStats.focal_lengths" :key="`focal-${item.label}`" @click="openExploreStat('focal_length', item.value, item.label)" style="cursor:pointer; padding:8px 0; border-bottom:1px solid #f0f2f5;">
+                                <div style="display:flex; justify-content:space-between; gap:16px; margin-bottom:4px;"><span>{{ item.label }}</span><span>{{ item.count }} 张 · {{ formatExplorePercent(item.percentage) }}</span></div>
+                                <el-progress :percentage="item.percentage" :show-text="false" :stroke-width="5"></el-progress>
+                            </div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+            </template>
+
+            <div v-else-if="!exploreError && !exploreLoading" class="empty-state">
+                <p>当前 Smart Album 索引范围没有可统计图片。</p>
+            </div>
+        </div>
 
         <!-- 本地目录 / Smart Set：Smart Set 只替换 Set 数据源，展示完全复用 Set parent。 -->
         <div v-if="currentView === 'library' || currentView === 'smart-set'"
@@ -681,7 +791,9 @@
         <!-- Smart Album 结果：复用 Library 图片语义，不拥有实际文件。 -->
         <div v-if="currentView === 'smart-album'" v-loading="smartAlbumLoading">
             <div class="back-button">
-                <el-button @click="backToAlbums">返回相册列表</el-button>
+                <el-button @click="currentSmartAlbum.is_explore ? backToExplore() : backToAlbums()">
+                    {{ currentSmartAlbum.is_explore ? '返回 Explore' : '返回相册列表' }}
+                </el-button>
             </div>
 
             <div class="header">
@@ -689,7 +801,7 @@
                     <h1>{{ currentSmartAlbum.name }}</h1>
                     <div v-if="currentSmartAlbum.description" style="color:#606266; margin-top:6px;">{{ currentSmartAlbum.description }}</div>
                 </div>
-                <div class="album-actions">
+                <div v-if="!currentSmartAlbum.is_explore" class="album-actions">
                     <el-button @click="runSmartAlbum">运行查询</el-button>
                     <el-button @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-button>
                     <el-button @click="openSmartAlbumIndexSync">同步索引</el-button>
@@ -1036,7 +1148,7 @@
         <!-- 图片详情页面 -->
         <div v-if="currentView === 'image-detail'">
             <div class="back-button">
-                <el-button @click="backToAlbum">{{ currentImage.smart_album_id ? '返回智能相册' : (currentImage.source_type === 'library-share' ? '返回分享' : (currentImage.source_type === 'library' ? '返回目录' : '返回相册')) }}</el-button>
+                <el-button @click="backToAlbum">{{ currentImage.explore_result ? '返回 Explore 结果' : (currentImage.smart_album_id ? '返回智能相册' : (currentImage.source_type === 'library-share' ? '返回分享' : (currentImage.source_type === 'library' ? '返回目录' : '返回相册'))) }}</el-button>
             </div>
 
             <div class="image-detail-layout">
@@ -3823,6 +3935,7 @@
 <script src="set-insights.js?v=20260920-02"></script>
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
-<script type="module" src="app.js?v=20261003-04"></script>
+<script src="explore.js?v=20261003-01"></script>
+<script type="module" src="app.js?v=20261003-05"></script>
 </body>
 </html>

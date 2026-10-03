@@ -123,6 +123,23 @@ result = [
         const smartSetRuntime = ref(null);
         const smartSetEditor = ref({id: null, name: '', description: '', python_code: SMART_SET_DEFAULT_CODE});
 
+        const emptyExploreStats = () => ({
+            total_images: 0,
+            sources: [],
+            years: [],
+            models: [],
+            environments: [],
+            themes: [],
+            locations: [],
+            focal_lengths: [],
+            index: null,
+        });
+        const exploreStats = ref(emptyExploreStats());
+        const exploreLoading = ref(false);
+        const exploreQueryLoading = ref(false);
+        const exploreError = ref('');
+        let exploreReturnScrollY = 0;
+
 
         const detailImageList = computed(() => filteredImages.value);
 
@@ -409,6 +426,92 @@ result = [
             currentFilter.value = 'all';
             currentView.value = 'smart-album';
             await runSmartAlbum();
+        };
+
+        const formatExplorePercent = (value) => {
+            const number = Number(value || 0);
+            if (!Number.isFinite(number)) return '0.0%';
+            return `${number.toFixed(1)}%`;
+        };
+
+        const exploreSourceText = computed(() => {
+            const sources = Array.isArray(exploreStats.value?.sources) ? exploreStats.value.sources : [];
+            return sources.length ? sources.map(source => source.name).join(' · ') : '—';
+        });
+
+        const loadExploreStats = async () => {
+            if (!isAdmin.value || !window.ExploreApi) return;
+            exploreLoading.value = true;
+            exploreError.value = '';
+            try {
+                const data = await window.ExploreApi.stats();
+                exploreStats.value = {...emptyExploreStats(), ...data};
+                if (data.index) smartAlbumIndex.value = data.index;
+            } catch (error) {
+                exploreStats.value = emptyExploreStats();
+                if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
+                exploreError.value = error.message || 'Explore 统计加载失败';
+            } finally {
+                exploreLoading.value = false;
+            }
+        };
+
+        const openExplore = async () => {
+            if (!isAdmin.value) return;
+            currentView.value = 'explore';
+            currentImage.value = {};
+            selectionMode.value = false;
+            selectedImages.value = [];
+            await loadExploreStats();
+            await nextTick();
+            window.requestAnimationFrame(() => window.scrollTo(0, 0));
+        };
+
+        const openExploreStat = async (dimension, value, label) => {
+            if (!window.ExploreApi || exploreQueryLoading.value) return;
+            exploreReturnScrollY = window.scrollY || window.pageYOffset || 0;
+            exploreQueryLoading.value = true;
+            try {
+                const data = await window.ExploreApi.query(dimension, value, label);
+                currentSmartAlbum.value = {
+                    id: null,
+                    name: data.title || `Explore · ${label || ''}`,
+                    description: 'Explore 临时结果 · 未保存为 Smart Album',
+                    is_explore: true,
+                    explore_dimension: dimension,
+                    explore_value: value,
+                };
+                smartAlbumImages.value = (data.images || []).map((image, index) => ({
+                    ...image,
+                    smart_album_id: 'explore',
+                    explore_result: true,
+                    smart_query_order: index,
+                }));
+                smartAlbumQueryError.value = '';
+                smartAlbumSort.value = {field: 'query_order', order: 'asc'};
+                currentFilter.value = 'all';
+                if (data.index) smartAlbumIndex.value = data.index;
+                currentView.value = 'smart-album';
+                await nextTick();
+                window.requestAnimationFrame(() => window.scrollTo(0, 0));
+            } catch (error) {
+                if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
+                ElMessage.error(error.message || 'Explore 查询失败');
+            } finally {
+                exploreQueryLoading.value = false;
+            }
+        };
+
+        const backToExplore = async () => {
+            currentView.value = 'explore';
+            currentSmartAlbum.value = {};
+            smartAlbumImages.value = [];
+            smartAlbumQueryError.value = '';
+            currentImage.value = {};
+            selectionMode.value = false;
+            selectedImages.value = [];
+            await nextTick();
+            window.requestAnimationFrame(() => window.scrollTo(0, Math.max(0, exploreReturnScrollY || 0)));
         };
 
         const runSmartAlbum = async () => {
@@ -5074,6 +5177,16 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
 
         return {
             currentView,
+            exploreStats,
+            exploreLoading,
+            exploreQueryLoading,
+            exploreError,
+            exploreSourceText,
+            formatExplorePercent,
+            openExplore,
+            loadExploreStats,
+            openExploreStat,
+            backToExplore,
             smartAlbums,
             currentSmartAlbum,
             smartAlbumImages,
