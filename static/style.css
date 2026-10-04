@@ -3555,6 +3555,22 @@ body {
 
 
 /* Explore / Statistics */
+/* Load only the statistics region: keep the page background visible and center the spinner in the area being refreshed. */
+.explore-content-loading {
+    position: relative;
+    min-height: calc(100vh - 220px);
+}
+
+.explore-content-loading > .el-loading-mask {
+    background-color: transparent !important;
+}
+
+.explore-content-loading > .el-loading-mask .el-loading-spinner {
+    top: 50%;
+    margin-top: 0;
+    transform: translateY(-50%);
+}
+
 .explore-card-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3579,6 +3595,8 @@ body {
     min-height: 0;
     display: flex;
     flex-direction: column;
+    position: relative;
+    padding-bottom: 72px;
 }
 
 .explore-card-header,
@@ -3655,12 +3673,16 @@ body {
 }
 
 .explore-card-footer {
-    flex: 0 0 44px;
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: 14px;
+    height: 36px;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
-    min-height: 44px;
-    padding-top: 15px;
+    padding: 0;
+    background: #fff;
 }
 
 .explore-card-empty {
@@ -3744,9 +3766,9 @@ body {
     opacity: 1;
 }
 
-/* Keep the Smart View section's trailing gap aligned with the surrounding home groups. */
-.smart-view-group {
-    margin-bottom: 15px;
+/* Use the same home-section gap between Smart View and Local Sources as the other groups. */
+.smart-view-group + .library-source-group {
+    margin-top: 0;
 }
 
 .smart-view-index-placeholder {
