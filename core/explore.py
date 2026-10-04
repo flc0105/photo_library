@@ -139,6 +139,12 @@ def _set_value(payload, dimension):
     raise ValueError('不支持的 Set 统计维度。')
 
 
+def _is_cosplay_set(payload):
+    manifest = payload.get('manifest') if isinstance(payload.get('manifest'), dict) else {}
+    theme = manifest.get('theme') if isinstance(manifest.get('theme'), dict) else {}
+    return str(theme.get('genre') or '').strip().casefold() == 'cosplay'
+
+
 def _set_metric_rows(set_payloads, total_sets, total_images, dimension):
     buckets = defaultdict(lambda: {'set_count': 0, 'image_count': 0})
     for item in set_payloads:
@@ -272,6 +278,8 @@ def _build_stats(smart_db_path, main_db_path):
     )
     total_images = len(photo_payloads)
     total_sets = len(set_payloads)
+    cosplay_sets = [item for item in set_payloads if _is_cosplay_set(item)]
+    cosplay_images = sum(int(item.get('indexed_photo_count') or 0) for item in cosplay_sets)
 
     return {
         'total_images': total_images,
@@ -283,7 +291,7 @@ def _build_stats(smart_db_path, main_db_path):
         'years': _year_rows(set_payloads, total_sets, total_images),
         'models': _set_metric_rows(set_payloads, total_sets, total_images, 'model'),
         'environments': _set_metric_rows(set_payloads, total_sets, total_images, 'environment'),
-        'themes': _set_metric_rows(set_payloads, total_sets, total_images, 'theme'),
+        'themes': _set_metric_rows(cosplay_sets, len(cosplay_sets), cosplay_images, 'theme'),
         'locations': _set_metric_rows(set_payloads, total_sets, total_images, 'location'),
         'focal_lengths': _focal_rows(
             photo_payloads,
@@ -325,10 +333,19 @@ def _set_query_code(dimension, value):
             ']\n'
         )
 
+    if dimension == 'theme':
+        expression = 'set.manifest.theme.source_title'
+        genre_condition = 'str(set.manifest.theme.genre or "").strip().casefold() == "cosplay"'
+        if value is None:
+            condition = f'not str({expression} or "").strip()'
+        else:
+            target = repr(str(value).strip())
+            condition = f'str({expression} or "").strip() == {target}'
+        return f'result = [set for set in sets if {genre_condition} and {condition}]\n'
+
     text_fields = {
         'model': 'set.manifest.model',
         'environment': 'set.manifest.shoot.environment',
-        'theme': 'set.manifest.theme.source_title',
         'location': 'set.manifest.location.name',
     }
     if dimension in text_fields:

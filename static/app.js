@@ -165,7 +165,15 @@ const app = createApp({
         const exploreQueryLoading = ref(false);
         const exploreError = ref('');
         const exploreSelectedYear = ref(null);
-        const EXPLORE_CARD_ITEMS = 8;
+        const exploreMetricModes = ref({
+            model: 'sets',
+            year_month: 'sets',
+            theme: 'sets',
+            location: 'sets',
+            environment: 'sets',
+            focal_length: 'photos',
+        });
+        const EXPLORE_CARD_ITEMS = 6;
         const exploreMoreDialogVisible = ref(false);
         const exploreMoreDialog = ref({
             title: '',
@@ -483,17 +491,32 @@ const app = createApp({
             Number(item.value) === Number(exploreSelectedYear.value)
         ) || null);
         const exploreMonthRows = computed(() => exploreSelectedYearRow.value?.months || []);
-        const visibleExploreRows = rows => (Array.isArray(rows) ? rows : []).slice(0, EXPLORE_CARD_ITEMS);
+        const exploreMetricTarget = dimension => exploreMetricModes.value[dimension] === 'photos' ? 'photos' : 'sets';
+        const exploreMetricCount = (item, dimension) => exploreMetricTarget(dimension) === 'photos'
+            ? Number(item?.image_count || 0)
+            : Number(item?.set_count || 0);
+        const exploreMetricPercentage = (item, dimension) => exploreMetricTarget(dimension) === 'photos'
+            ? Number(item?.image_percentage || 0)
+            : Number(item?.set_percentage || 0);
+        const exploreMetricUnit = dimension => exploreMetricTarget(dimension) === 'photos' ? '张' : '组';
+        const exploreRowsByMetric = (rows, dimension) => (Array.isArray(rows) ? rows : [])
+            .slice()
+            .sort((a, b) => {
+                const byCount = exploreMetricCount(b, dimension) - exploreMetricCount(a, dimension);
+                if (byCount) return byCount;
+                return String(a?.label || '').localeCompare(String(b?.label || ''), 'zh-CN', {numeric: true});
+            });
+        const visibleExploreRows = (rows, dimension) => exploreRowsByMetric(rows, dimension).slice(0, EXPLORE_CARD_ITEMS);
         const exploreHasMore = rows => Array.isArray(rows) && rows.length > EXPLORE_CARD_ITEMS;
         const exploreHiddenCount = rows => Math.max(0, (Array.isArray(rows) ? rows.length : 0) - EXPLORE_CARD_ITEMS);
-        const openExploreMore = (title, dimension, primaryTarget, rows, year = null) => {
-            const items = Array.isArray(rows) ? rows : [];
+        const openExploreMore = (title, dimension, rows, year = null) => {
+            const primaryTarget = exploreMetricTarget(dimension);
             exploreMoreDialog.value = {
                 title: `${title} · 全部`,
                 dimension,
-                primary_target: primaryTarget === 'photos' ? 'photos' : 'sets',
+                primary_target: primaryTarget,
                 year,
-                rows: items,
+                rows: exploreRowsByMetric(rows, dimension),
             };
             exploreMoreDialogVisible.value = true;
         };
@@ -5408,6 +5431,11 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreSelectedYear,
             exploreYearOptions,
             exploreMonthRows,
+            exploreMetricModes,
+            exploreMetricTarget,
+            exploreMetricCount,
+            exploreMetricPercentage,
+            exploreMetricUnit,
             exploreMoreDialogVisible,
             exploreMoreDialog,
             visibleExploreRows,

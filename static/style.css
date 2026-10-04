@@ -3555,20 +3555,13 @@ body {
 
 
 /* Explore / Statistics */
-/* Load only the statistics region: keep the page background visible and center the spinner in the area being refreshed. */
-.explore-content-loading {
+.explore-result-loading {
     position: relative;
-    min-height: calc(100vh - 220px);
+    min-height: calc(100vh - 72px);
 }
 
-.explore-content-loading > .el-loading-mask {
+.explore-result-loading > .el-loading-mask {
     background-color: transparent !important;
-}
-
-.explore-content-loading > .el-loading-mask .el-loading-spinner {
-    top: 50%;
-    margin-top: 0;
-    transform: translateY(-50%);
 }
 
 .explore-card-grid {
@@ -3580,7 +3573,7 @@ body {
 
 .explore-stat-card {
     width: 100%;
-    height: 540px;
+    height: 450px;
     display: flex;
     flex-direction: column;
 }
@@ -3595,8 +3588,6 @@ body {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    position: relative;
-    padding-bottom: 72px;
 }
 
 .explore-card-header,
@@ -3616,24 +3607,28 @@ body {
     min-height: 32px;
 }
 
-.explore-primary-label {
-    color: #909399;
-    font-size: 12px;
-    font-weight: 500;
+.explore-card-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .explore-year-select {
-    width: 112px;
+    width: 104px;
+}
+
+.explore-metric-select {
+    width: 88px;
 }
 
 .explore-stat-list {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
 }
 
 .explore-stat-row {
     cursor: pointer;
-    padding: 9px 0;
+    padding: 8px 0;
     border-bottom: 1px solid #f0f2f5;
 }
 
@@ -3673,16 +3668,14 @@ body {
 }
 
 .explore-card-footer {
-    position: absolute;
-    left: 20px;
-    right: 20px;
-    bottom: 14px;
-    height: 36px;
+    flex: 0 0 54px;
+    min-height: 54px;
+    margin-top: auto;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
-    background: #fff;
+    padding-top: 14px;
 }
 
 .explore-card-empty {
@@ -3766,7 +3759,11 @@ body {
     opacity: 1;
 }
 
-/* Use the same home-section gap between Smart View and Local Sources as the other groups. */
+/* Keep the Smart View section's trailing gap aligned with the surrounding home groups. */
+.smart-view-group {
+    margin-bottom: 30px;
+}
+
 .smart-view-group + .library-source-group {
     margin-top: 0;
 }
