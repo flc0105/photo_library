@@ -188,6 +188,7 @@ result = group_sets(
             primary_target: 'sets',
             year: null,
             block_id: null,
+            count_only: false,
             rows: [],
         });
         const exploreBlocks = ref([]);
@@ -201,7 +202,7 @@ result = group_sets(
             id: null,
             name: '',
             description: '',
-            default_metric: 'sets',
+            display_mode: 'both',
             enabled: true,
             python_code: EXPLORE_BLOCK_DEFAULT_CODE,
         });
@@ -525,12 +526,35 @@ result = group_sets(
         ) || null);
         const exploreMonthRows = computed(() => exploreSelectedYearRow.value?.months || []);
         const exploreBlockDimension = blockId => `block:${blockId}`;
+        const normalizeExploreBlockDisplayMode = block => {
+            const mode = String(block?.display_mode || 'both');
+            return ['sets', 'photos', 'both', 'sets_count_only'].includes(mode) ? mode : 'both';
+        };
+        const exploreBlockDefaultTarget = block => normalizeExploreBlockDisplayMode(block) === 'photos' ? 'photos' : 'sets';
+        const exploreBlockHasMetricSelect = block => normalizeExploreBlockDisplayMode(block) === 'both';
+        const exploreBlockCountOnly = block => normalizeExploreBlockDisplayMode(block) === 'sets_count_only';
+        const exploreBlockMetricTarget = block => {
+            const mode = normalizeExploreBlockDisplayMode(block);
+            if (mode === 'photos') return 'photos';
+            if (mode !== 'both') return 'sets';
+            return exploreMetricModes.value[exploreBlockDimension(block.id)] === 'photos' ? 'photos' : 'sets';
+        };
         const ensureExploreBlockModes = blocks => {
             for (const block of (Array.isArray(blocks) ? blocks : [])) {
                 const dimension = exploreBlockDimension(block.id);
-                if (!['sets', 'photos'].includes(exploreMetricModes.value[dimension])) {
-                    exploreMetricModes.value[dimension] = block.default_metric === 'photos' ? 'photos' : 'sets';
+                const mode = normalizeExploreBlockDisplayMode(block);
+                if (mode === 'photos') {
+                    exploreMetricModes.value[dimension] = 'photos';
+                } else if (mode !== 'both') {
+                    exploreMetricModes.value[dimension] = 'sets';
+                } else if (!['sets', 'photos'].includes(exploreMetricModes.value[dimension])) {
+                    exploreMetricModes.value[dimension] = 'sets';
                 }
+            }
+        };
+        const resetExploreBlockModes = blocks => {
+            for (const block of (Array.isArray(blocks) ? blocks : [])) {
+                exploreMetricModes.value[exploreBlockDimension(block.id)] = exploreBlockDefaultTarget(block);
             }
         };
         const sortExploreBlockItems = items => (Array.isArray(items) ? items : [])
@@ -633,7 +657,7 @@ result = group_sets(
             id: block.id,
             name: block.name || '',
             description: block.description || '',
-            default_metric: block.default_metric === 'photos' ? 'photos' : 'sets',
+            display_mode: normalizeExploreBlockDisplayMode(block),
             display_order: Number(block.display_order || 0),
             enabled: false,
             presentation: block.presentation || 'list',
@@ -704,6 +728,7 @@ result = group_sets(
                 primary_target: primaryTarget,
                 year,
                 block_id: null,
+                count_only: false,
                 rows: exploreRowsByMetric(rows, dimension),
             };
             exploreMoreDialogVisible.value = true;
@@ -717,13 +742,14 @@ result = group_sets(
         };
         const openExploreBlockMore = block => {
             const dimension = exploreBlockDimension(block.id);
-            const primaryTarget = exploreMetricTarget(dimension);
+            const primaryTarget = exploreBlockMetricTarget(block);
             exploreMoreDialog.value = {
                 title: `${block.name} · 全部`,
                 dimension,
                 primary_target: primaryTarget,
                 year: null,
                 block_id: block.id,
+                count_only: exploreBlockCountOnly(block),
                 rows: exploreRowsByMetric(block.rows, dimension),
             };
             exploreMoreDialogVisible.value = true;
@@ -787,6 +813,7 @@ result = group_sets(
             selectionMode.value = false;
             selectedImages.value = [];
             await Promise.all([loadExploreBlocks(), loadExploreStats()]);
+            resetExploreBlockModes(exploreBlocks.value);
             await nextTick();
             window.requestAnimationFrame(() => window.scrollTo(0, 0));
         };
@@ -796,7 +823,7 @@ result = group_sets(
                 id: null,
                 name: '',
                 description: '',
-                default_metric: 'sets',
+                display_mode: 'both',
                 enabled: true,
                 python_code: EXPLORE_BLOCK_DEFAULT_CODE,
             };
@@ -818,7 +845,7 @@ result = group_sets(
                 id: source.id,
                 name: source.name || '',
                 description: source.description || '',
-                default_metric: source.default_metric === 'photos' ? 'photos' : 'sets',
+                display_mode: normalizeExploreBlockDisplayMode(source),
                 enabled: source.enabled !== false,
                 python_code: source.python_code || EXPLORE_BLOCK_DEFAULT_CODE,
             };
@@ -834,7 +861,7 @@ result = group_sets(
                 const data = await window.ExploreApi.previewBlock({
                     name: exploreBlockEditor.value.name || '预览',
                     description: exploreBlockEditor.value.description || '',
-                    default_metric: exploreBlockEditor.value.default_metric,
+                    display_mode: exploreBlockEditor.value.display_mode,
                     python_code: exploreBlockEditor.value.python_code,
                 });
                 exploreBlockPreview.value = data.card || null;
@@ -850,7 +877,7 @@ result = group_sets(
         const exploreBlockPayload = (editor, enabled = editor.enabled !== false) => ({
             name: String(editor.name || '').trim(),
             description: editor.description || '',
-            default_metric: editor.default_metric === 'photos' ? 'photos' : 'sets',
+            display_mode: ['sets', 'photos', 'both', 'sets_count_only'].includes(editor.display_mode) ? editor.display_mode : 'both',
             enabled,
             python_code: editor.python_code || '',
         });
@@ -871,7 +898,7 @@ result = group_sets(
                     : await window.ExploreApi.createBlock(payload);
                 const savedBlock = data?.block || null;
                 if (savedBlock?.id) {
-                    exploreMetricModes.value[exploreBlockDimension(savedBlock.id)] = payload.default_metric;
+                    exploreMetricModes.value[exploreBlockDimension(savedBlock.id)] = exploreBlockDefaultTarget(savedBlock);
                     upsertExploreBlockDefinition(savedBlock);
                     if (savedBlock.enabled === false) {
                         upsertExploreBlockCard(disabledExploreBlockCard(savedBlock));
@@ -905,7 +932,7 @@ result = group_sets(
                 const savedBlock = data?.block || null;
                 editor.enabled = savedBlock?.enabled !== false;
                 if (savedBlock?.id) {
-                    exploreMetricModes.value[exploreBlockDimension(savedBlock.id)] = payload.default_metric;
+                    exploreMetricModes.value[exploreBlockDimension(savedBlock.id)] = exploreBlockDefaultTarget(savedBlock);
                     upsertExploreBlockDefinition(savedBlock);
                     if (savedBlock.enabled === false) {
                         upsertExploreBlockCard(disabledExploreBlockCard(savedBlock));
@@ -956,13 +983,15 @@ result = group_sets(
             }
         };
 
-        const exploreBlockPreviewCount = item => exploreBlockEditor.value.default_metric === 'photos'
+        const exploreBlockPreviewTarget = computed(() => exploreBlockEditor.value.display_mode === 'photos' ? 'photos' : 'sets');
+        const exploreBlockPreviewCount = item => exploreBlockPreviewTarget.value === 'photos'
             ? Number(item?.image_count || 0)
             : Number(item?.set_count || 0);
-        const exploreBlockPreviewPercentage = item => exploreBlockEditor.value.default_metric === 'photos'
+        const exploreBlockPreviewPercentage = item => exploreBlockPreviewTarget.value === 'photos'
             ? Number(item?.image_percentage || 0)
             : Number(item?.set_percentage || 0);
-        const exploreBlockPreviewUnit = computed(() => exploreBlockEditor.value.default_metric === 'photos' ? '张' : '组');
+        const exploreBlockPreviewUnit = computed(() => exploreBlockPreviewTarget.value === 'photos' ? '张' : '组');
+        const exploreBlockPreviewCountOnly = computed(() => exploreBlockEditor.value.display_mode === 'sets_count_only');
 
         const showExploreQueryResult = async (data, metadata = {}, fallbackTitle = 'Explore') => {
             if (data.result_type === 'sets') {
@@ -5856,6 +5885,9 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreMetricCount,
             exploreMetricPercentage,
             exploreMetricUnit,
+            exploreBlockHasMetricSelect,
+            exploreBlockCountOnly,
+            exploreBlockMetricTarget,
             exploreMoreDialogVisible,
             exploreMoreDialog,
             visibleExploreRows,
@@ -5896,6 +5928,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreBlockPreviewCount,
             exploreBlockPreviewPercentage,
             exploreBlockPreviewUnit,
+            exploreBlockPreviewCountOnly,
             backToExplore,
             smartViews,
             showCreateSmartViewDialog,

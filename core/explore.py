@@ -20,8 +20,8 @@ from core.smart_sets import SMART_SET_CONTRACT_GROUPS, _manifest_info, _set_cand
 
 _MISSING_LABEL = '未记录'
 _SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
-_EXPLORE_BLOCK_ENGINE_VERSION = 3
-_EXPLORE_BLOCK_METRICS = {'sets', 'photos'}
+_EXPLORE_BLOCK_ENGINE_VERSION = 4
+_EXPLORE_BLOCK_DISPLAY_MODES = {'sets', 'photos', 'both', 'sets_count_only'}
 DEFAULT_EXPLORE_BLOCK_CODE = '''selected = preferred_versions(photos)
 
 result = group_sets(
@@ -34,15 +34,14 @@ result = group_sets(
 
 
 
-def _init_explore_db(db_path):
-    conn = _connect(db_path)
+def _create_explore_blocks_table(conn):
     conn.execute('''
         CREATE TABLE IF NOT EXISTS explore_blocks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             python_code TEXT NOT NULL,
-            default_metric TEXT NOT NULL DEFAULT 'sets',
+            display_mode TEXT NOT NULL DEFAULT 'both',
             presentation TEXT NOT NULL DEFAULT 'list',
             display_order INTEGER NOT NULL DEFAULT 0,
             enabled INTEGER NOT NULL DEFAULT 1,
@@ -51,8 +50,47 @@ def _init_explore_db(db_path):
             updated_at TEXT NOT NULL
         )
     ''')
-    conn.commit()
-    conn.close()
+
+
+def _init_explore_db(db_path):
+    conn = _connect(db_path)
+    try:
+        columns = [row['name'] for row in conn.execute('PRAGMA table_info(explore_blocks)').fetchall()]
+        if not columns:
+            _create_explore_blocks_table(conn)
+        elif 'default_metric' in columns or 'display_mode' not in columns:
+            # v1.40: replace the old default_metric setting with one four-state display mode.
+            # Old photos-default Blocks become photo-only; old Set-default Blocks keep their
+            # previous ability to switch metrics and become both, whose fixed initial view is Set.
+            legacy_table = 'explore_blocks_legacy_display_mode'
+            conn.execute(f'DROP TABLE IF EXISTS {legacy_table}')
+            conn.execute(f'ALTER TABLE explore_blocks RENAME TO {legacy_table}')
+            _create_explore_blocks_table(conn)
+            legacy_columns = {row['name'] for row in conn.execute(f'PRAGMA table_info({legacy_table})').fetchall()}
+            if 'display_mode' in legacy_columns:
+                mode_expr = (
+                    "CASE WHEN display_mode IN ('sets', 'photos', 'both', 'sets_count_only') "
+                    "THEN display_mode ELSE 'both' END"
+                )
+            elif 'default_metric' in legacy_columns:
+                mode_expr = "CASE WHEN default_metric='photos' THEN 'photos' ELSE 'both' END"
+            else:
+                mode_expr = "'both'"
+            conn.execute(f'''
+                INSERT INTO explore_blocks
+                    (id, name, description, python_code, display_mode, presentation,
+                     display_order, enabled, engine_version, created_at, updated_at)
+                SELECT id, name, description, python_code, {mode_expr}, presentation,
+                       display_order, enabled, engine_version, created_at, updated_at
+                FROM {legacy_table}
+            ''')
+            conn.execute(f'DROP TABLE {legacy_table}')
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _block_dict(row):
@@ -60,7 +98,8 @@ def _block_dict(row):
         return None
     data = dict(row)
     data['enabled'] = bool(data.get('enabled'))
-    data['default_metric'] = 'photos' if data.get('default_metric') == 'photos' else 'sets'
+    mode = str(data.get('display_mode') or 'both').strip().lower()
+    data['display_mode'] = mode if mode in _EXPLORE_BLOCK_DISPLAY_MODES else 'both'
     data['presentation'] = data.get('presentation') or 'list'
     return data
 
@@ -84,16 +123,17 @@ def _next_block_order(conn):
     return int(row['max_order'] or 0) + 10
 
 
-def _normalize_block_metric(value):
-    metric = str(value or 'sets').strip().lower()
-    if metric not in _EXPLORE_BLOCK_METRICS:
-        raise ValueError('默认查看只能是 sets 或 photos。')
-    return metric
+def _normalize_block_display_mode(value):
+    mode = str(value or 'both').strip().lower()
+    if mode not in _EXPLORE_BLOCK_DISPLAY_MODES:
+        raise ValueError('显示模式只能是 sets、photos、both 或 sets_count_only。')
+    return mode
 
 
 def _block_card_payload(row, execution, total_sets):
     block = _block_dict(row)
-    default_metric = block['default_metric']
+    display_mode = block['display_mode']
+    primary_target = 'photos' if display_mode == 'photos' else 'sets'
     source_kind = execution.get('kind') or 'sets'
     population_set_ids = list(execution.get('population_set_ids') or [])
     population_photo_ids = list(execution.get('population_photo_ids') or [])
@@ -104,27 +144,28 @@ def _block_card_payload(row, execution, total_sets):
     for bucket in execution.get('buckets') or []:
         set_count = len(bucket.get('set_ids') or [])
         image_count = len(bucket.get('photo_ids') or [])
+        count_only = display_mode == 'sets_count_only'
         row_payload = {
             'bucket_id': str(bucket.get('bucket_id') or ''),
             'value': bucket.get('value'),
             'label': str(bucket.get('label') or _MISSING_LABEL),
             'set_count': set_count,
             'image_count': image_count,
-            'set_percentage': _percentage(set_count, set_total),
-            'image_percentage': _percentage(image_count, image_total),
-            'primary_metric': 'photo' if default_metric == 'photos' else 'set',
+            'set_percentage': None if count_only else _percentage(set_count, set_total),
+            'image_percentage': None if count_only else _percentage(image_count, image_total),
+            'primary_metric': 'photo' if primary_target == 'photos' else 'set',
         }
-        row_payload['count'] = image_count if default_metric == 'photos' else set_count
-        row_payload['percentage'] = row_payload['image_percentage'] if default_metric == 'photos' else row_payload['set_percentage']
+        row_payload['count'] = image_count if primary_target == 'photos' else set_count
+        row_payload['percentage'] = row_payload['image_percentage'] if primary_target == 'photos' else row_payload['set_percentage']
         rows.append(row_payload)
 
-    metric_field = 'image_count' if default_metric == 'photos' else 'set_count'
+    metric_field = 'image_count' if primary_target == 'photos' else 'set_count'
     rows.sort(key=lambda item: (-int(item[metric_field]), str(item['label']).casefold()))
     return {
         'id': block['id'],
         'name': block['name'],
         'description': block['description'],
-        'default_metric': default_metric,
+        'display_mode': display_mode,
         'display_order': block['display_order'],
         'enabled': block['enabled'],
         'presentation': block['presentation'],
@@ -150,7 +191,7 @@ def _block_disabled_payload(row):
         'id': block['id'],
         'name': block['name'],
         'description': block['description'],
-        'default_metric': block['default_metric'],
+        'display_mode': block['display_mode'],
         'display_order': block['display_order'],
         'enabled': False,
         'presentation': block['presentation'],
@@ -166,7 +207,7 @@ def _block_error_payload(row, exc):
         'id': block['id'],
         'name': block['name'],
         'description': block['description'],
-        'default_metric': block['default_metric'],
+        'display_mode': block['display_mode'],
         'display_order': block['display_order'],
         'enabled': block['enabled'],
         'presentation': block['presentation'],
@@ -688,7 +729,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         if not name:
             return jsonify({'error': '统计名称不能为空。'}), 400
         try:
-            default_metric = _normalize_block_metric(data.get('default_metric'))
+            display_mode = _normalize_block_display_mode(data.get('display_mode'))
             _validate_script(python_code)
         except Exception as exc:
             return jsonify({'error': str(exc)}), 400
@@ -697,10 +738,10 @@ def create_explore_blueprint(admin_guard, main_db_path):
         display_order = _next_block_order(conn)
         cursor = conn.execute(
             '''INSERT INTO explore_blocks
-               (name, description, python_code, default_metric, presentation,
+               (name, description, python_code, display_mode, presentation,
                 display_order, enabled, engine_version, created_at, updated_at)
                VALUES (?, ?, ?, ?, 'list', ?, ?, ?, ?, ?)''',
-            (name, description, python_code, default_metric, display_order, enabled,
+            (name, description, python_code, display_mode, display_order, enabled,
              _EXPLORE_BLOCK_ENGINE_VERSION, now, now),
         )
         block_id = cursor.lastrowid
@@ -725,7 +766,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         python_code = str(data.get('python_code', existing['python_code']) or '')
         enabled = 1 if data.get('enabled', bool(existing['enabled'])) else 0
         try:
-            default_metric = _normalize_block_metric(data.get('default_metric', existing['default_metric']))
+            display_mode = _normalize_block_display_mode(data.get('display_mode', existing['display_mode']))
             if not name:
                 raise ValueError('统计名称不能为空。')
             _validate_script(python_code)
@@ -734,10 +775,10 @@ def create_explore_blueprint(admin_guard, main_db_path):
             return jsonify({'error': str(exc)}), 400
         conn.execute(
             '''UPDATE explore_blocks
-               SET name=?, description=?, python_code=?, default_metric=?, enabled=?,
+               SET name=?, description=?, python_code=?, display_mode=?, enabled=?,
                    engine_version=?, updated_at=?
                WHERE id=?''',
-            (name, description, python_code, default_metric, enabled,
+            (name, description, python_code, display_mode, enabled,
              _EXPLORE_BLOCK_ENGINE_VERSION, _now_iso(), block_id),
         )
         conn.commit()
@@ -768,7 +809,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         data = request.get_json(silent=True) or {}
         python_code = str(data.get('python_code') or '')
         try:
-            default_metric = _normalize_block_metric(data.get('default_metric'))
+            display_mode = _normalize_block_display_mode(data.get('display_mode'))
             _validate_script(python_code)
             photo_payloads, _, set_payloads, _, status = _block_execution_context(smart_db_path, main_db_path)
             execution = run_explore_block(
@@ -782,7 +823,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 'name': str(data.get('name') or '预览').strip() or '预览',
                 'description': str(data.get('description') or ''),
                 'python_code': python_code,
-                'default_metric': default_metric,
+                'display_mode': display_mode,
                 'presentation': 'list',
                 'display_order': 0,
                 'enabled': 1,
@@ -962,6 +1003,11 @@ def create_explore_blueprint(admin_guard, main_db_path):
             return jsonify({'error': 'Explore Block 不存在。'}), 404
         if not bool(row['enabled']):
             return jsonify({'error': '该统计已停用，请先启用后再查询。'}), 409
+        display_mode = _normalize_block_display_mode(row['display_mode'])
+        if display_mode == 'photos' and target != 'photos':
+            return jsonify({'error': '该统计仅允许按图片查看。'}), 400
+        if display_mode in {'sets', 'sets_count_only'} and target != 'sets':
+            return jsonify({'error': '该统计仅允许按 Set 查看。'}), 400
 
         try:
             photo_payloads, photo_rows, set_payloads, set_rows, status = _block_execution_context(

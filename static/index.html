@@ -374,7 +374,7 @@
                                 </div>
                                 <div class="explore-card-controls">
                                     <el-tag v-if="block.enabled === false" type="info" effect="plain" size="small">已停用</el-tag>
-                                    <el-select v-else v-model="exploreMetricModes[exploreBlockDimension(block.id)]" size="small" class="explore-metric-select">
+                                    <el-select v-else-if="exploreBlockHasMetricSelect(block)" v-model="exploreMetricModes[exploreBlockDimension(block.id)]" size="small" class="explore-metric-select">
                                         <el-option label="按 Set" value="sets"></el-option>
                                         <el-option label="按图片" value="photos"></el-option>
                                     </el-select>
@@ -392,16 +392,16 @@
                             <div class="explore-stat-list">
                                 <div v-for="item in visibleExploreRows(block.rows, exploreBlockDimension(block.id))"
                                      :key="`block-${block.id}-${item.bucket_id}`" class="explore-stat-row"
-                                     @click="openExploreBlockStat(block.id, item.bucket_id, exploreMetricTarget(exploreBlockDimension(block.id)))">
+                                     @click="openExploreBlockStat(block.id, item.bucket_id, exploreBlockMetricTarget(block))">
                                     <div class="explore-stat-line">
                                         <span>{{ item.label }}</span>
                                         <span class="explore-stat-metrics">
                                             <button type="button" class="explore-metric-link"
-                                                    @click.stop="openExploreBlockStat(block.id, item.bucket_id, exploreMetricTarget(exploreBlockDimension(block.id)))">{{ exploreMetricCount(item, exploreBlockDimension(block.id)) }} {{ exploreMetricUnit(exploreBlockDimension(block.id)) }}</button>
-                                            <span>· {{ formatExplorePercent(exploreMetricPercentage(item, exploreBlockDimension(block.id))) }}</span>
+                                                    @click.stop="openExploreBlockStat(block.id, item.bucket_id, exploreBlockMetricTarget(block))">{{ exploreMetricCount(item, exploreBlockDimension(block.id)) }} {{ exploreMetricUnit(exploreBlockDimension(block.id)) }}</button>
+                                            <span v-if="!exploreBlockCountOnly(block)">· {{ formatExplorePercent(exploreMetricPercentage(item, exploreBlockDimension(block.id))) }}</span>
                                         </span>
                                     </div>
-                                    <el-progress :percentage="exploreMetricPercentage(item, exploreBlockDimension(block.id))" :show-text="false" :stroke-width="5"></el-progress>
+                                    <el-progress v-if="!exploreBlockCountOnly(block)" :percentage="exploreMetricPercentage(item, exploreBlockDimension(block.id))" :show-text="false" :stroke-width="5"></el-progress>
                                 </div>
                                 <div v-if="!block.rows || block.rows.length === 0" class="explore-card-empty">没有可统计项目。</div>
                             </div>
@@ -422,14 +422,14 @@
                             <span>{{ item.label }}</span>
                             <span class="explore-stat-metrics" v-if="exploreMoreDialog.primary_target === 'photos'">
                                 <button type="button" class="explore-metric-link" @click.stop="openExploreMoreStat(item, 'photos')">{{ item.image_count }} 张</button>
-                                <span>· {{ formatExplorePercent(item.image_percentage) }}</span>
+                                <span v-if="!exploreMoreDialog.count_only">· {{ formatExplorePercent(item.image_percentage) }}</span>
                             </span>
                             <span class="explore-stat-metrics" v-else>
                                 <button type="button" class="explore-metric-link" @click.stop="openExploreMoreStat(item, 'sets')">{{ item.set_count }} 组</button>
-                                <span>· {{ formatExplorePercent(item.set_percentage) }}</span>
+                                <span v-if="!exploreMoreDialog.count_only">· {{ formatExplorePercent(item.set_percentage) }}</span>
                             </span>
                         </div>
-                        <el-progress :percentage="exploreMoreDialog.primary_target === 'photos' ? item.image_percentage : item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
+                        <el-progress v-if="!exploreMoreDialog.count_only" :percentage="exploreMoreDialog.primary_target === 'photos' ? item.image_percentage : item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
                     </div>
                 </div>
             </el-dialog>
@@ -1867,10 +1867,12 @@
             <el-form :model="exploreBlockEditor" label-width="90px">
                 <el-form-item label="名称"><el-input v-model="exploreBlockEditor.name" placeholder="例如：相机"></el-input></el-form-item>
                 <el-form-item label="描述"><el-input v-model="exploreBlockEditor.description" type="textarea" :rows="2" placeholder="可选"></el-input></el-form-item>
-                <el-form-item label="默认查看">
-                    <el-select v-model="exploreBlockEditor.default_metric" style="width:180px;">
-                        <el-option label="按 Set" value="sets"></el-option>
-                        <el-option label="按图片" value="photos"></el-option>
+                <el-form-item label="显示模式">
+                    <el-select v-model="exploreBlockEditor.display_mode" style="width:220px;">
+                        <el-option label="仅 Set" value="sets"></el-option>
+                        <el-option label="仅图片" value="photos"></el-option>
+                        <el-option label="Set / 图片均可" value="both"></el-option>
+                        <el-option label="仅 Set 数量" value="sets_count_only"></el-option>
                     </el-select>
                 </el-form-item>
                 <el-form-item label="Python">
@@ -1893,10 +1895,10 @@
                         <span>{{ item.label }}</span>
                         <span class="explore-stat-metrics">
                             <span>{{ exploreBlockPreviewCount(item) }} {{ exploreBlockPreviewUnit }}</span>
-                            <span>· {{ formatExplorePercent(exploreBlockPreviewPercentage(item)) }}</span>
+                            <span v-if="!exploreBlockPreviewCountOnly">· {{ formatExplorePercent(exploreBlockPreviewPercentage(item)) }}</span>
                         </span>
                     </div>
-                    <el-progress :percentage="exploreBlockPreviewPercentage(item)" :show-text="false" :stroke-width="5"></el-progress>
+                    <el-progress v-if="!exploreBlockPreviewCountOnly" :percentage="exploreBlockPreviewPercentage(item)" :show-text="false" :stroke-width="5"></el-progress>
                 </div>
                 <div v-if="!(exploreBlockPreview.rows || []).length" class="explore-card-empty">没有可统计项目。</div>
             </div>
@@ -1926,8 +1928,8 @@
                 <template v-if="exploreBlockRuntime">
                     <div style="margin-bottom:14px; color:#606266; font-size:13px;">
                         Python 只负责把 Set 或图片分进统计 bucket；代码必须给 <code>result</code> 赋值，并且结果必须来自
-                        <code>group_sets()</code> 或 <code>group_photos()</code>。计数、百分比、按 Set / 按图片切换和点击后的临时 Smart View 都由 Explore 统一处理。
-                        <code>group_sets()</code> 的 Set membership 始终按传入 Set 计算；图片指标默认统计这些 Set 中全部当前 indexed Photo，也可以用 <code>photo_scope=...</code> 限定图片版本范围。<code>group_photos()</code> 的 Set 指标则对匹配图片所属 Set 去重。
+                        <code>group_sets()</code> 或 <code>group_photos()</code>。计数、百分比（显示模式需要时）、可选的 Set / 图片切换和点击后的临时 Smart View 都由 Explore 统一处理。
+                        <code>group_sets()</code> 的 Set membership 始终按传入 Set 计算；图片指标默认统计这些 Set 中全部当前 indexed Photo，也可以用 <code>photo_scope=...</code> 限定图片版本范围。<code>group_photos()</code> 的 Set 指标则对匹配图片所属 Set 去重。显示模式只控制 Card 展示：both 固定初始按 Set；仅图片不提供 Set 切换；仅 Set 数量不显示百分比和进度条。
                     </div>
                     <div style="margin-bottom:14px;">
                         <strong>Helpers</strong>
@@ -4131,6 +4133,6 @@
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
 <script src="explore.js?v=20261005-02"></script>
-<script type="module" src="app.js?v=20261005-05"></script>
+<script type="module" src="app.js?v=20261005-06"></script>
 </body>
 </html>
