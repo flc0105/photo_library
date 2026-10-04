@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261005-03">
+    <link rel="stylesheet" href="style.css?v=20261005-04">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -417,7 +417,7 @@
             <el-dialog v-model="exploreMoreDialogVisible" :title="exploreMoreDialog.title" width="720px" append-to-body class="explore-more-dialog">
                 <div class="explore-more-list">
                     <div v-for="item in exploreMoreDialog.rows" :key="`${exploreMoreDialog.dimension}-${item.label}-${String(item.value)}`"
-                         class="explore-stat-row" @click="openExploreMoreStat(item)">
+                         class="explore-stat-row" :class="{ 'is-count-only': exploreMoreDialog.count_only }" @click="openExploreMoreStat(item)">
                         <div class="explore-stat-line">
                             <span>{{ item.label }}</span>
                             <span class="explore-stat-metrics" v-if="exploreMoreDialog.primary_target === 'photos'">

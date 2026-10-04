@@ -3772,14 +3772,49 @@ body {
 
 
 .explore-more-dialog .el-dialog__body {
-    padding-top: 8px;
+    padding: 8px 20px 18px;
 }
 
-.explore-more-list {
+.explore-more-dialog .explore-more-list {
     max-height: min(68vh, 720px);
     overflow-y: auto;
     overflow-x: hidden;
-    padding-right: 6px;
+    scrollbar-gutter: stable;
+    padding: 0 12px 0 2px;
+}
+
+/* Open-all dialog uses its own row geometry so removing progress bars does not
+   leave the compact count-only layout looking loose or pressed against the scrollbar. */
+.explore-more-dialog .explore-stat-row {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.explore-more-dialog .explore-stat-line {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: center;
+    column-gap: 24px;
+}
+
+.explore-more-dialog .explore-stat-metrics {
+    justify-self: end;
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.explore-more-dialog .explore-stat-row.is-count-only {
+    box-sizing: border-box;
+    min-height: 48px;
+    padding-top: 0;
+    padding-bottom: 0;
+    display: flex;
+    align-items: center;
+}
+
+.explore-more-dialog .explore-stat-row.is-count-only .explore-stat-line {
+    margin-bottom: 0;
 }
 
 @media (max-width: 1100px) {
