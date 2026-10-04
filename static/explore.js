@@ -27,5 +27,42 @@
                 body: JSON.stringify({dimension, value, label, target}),
             });
         },
+        async blocks() {
+            return requestJson('/api/explore/blocks');
+        },
+        async createBlock(payload) {
+            return requestJson('/api/explore/blocks', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+        },
+        async updateBlock(blockId, payload) {
+            return requestJson(`/api/explore/blocks/${blockId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+        },
+        async deleteBlock(blockId) {
+            return requestJson(`/api/explore/blocks/${blockId}`, {method: 'DELETE'});
+        },
+        async previewBlock(payload) {
+            return requestJson('/api/explore/blocks/preview', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+        },
+        async runtime() {
+            return requestJson('/api/explore/runtime');
+        },
+        async queryBlock(blockId, bucketId, target = 'sets') {
+            return requestJson(`/api/explore/blocks/${blockId}/query`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({bucket_id: bucketId, target}),
+            });
+        },
     };
 })();

@@ -3057,8 +3057,9 @@ app.register_blueprint(create_smart_set_blueprint(
     DATABASE,
 ))
 
-# Explore / Statistics is a read-only view over the same Smart Album candidate
-# pool. It owns no second photo index or archive metadata.
+# Explore / Statistics reuses the same Smart Album candidate pool. Custom Python
+# statistic definitions live in smart_albums.db; Explore still owns no second
+# photo index and never writes archive/image metadata.
 app.register_blueprint(create_explore_blueprint(
     _library_admin_guard,
     DATABASE,

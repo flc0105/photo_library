@@ -132,11 +132,12 @@ def _stage_counts(set_dir):
     return counts
 
 
-def _set_candidates(smart_db_path, main_db_path):
+def _set_candidates(smart_db_path, main_db_path, photo_payloads=None):
     sources, status = _source_scope(main_db_path, smart_db_path)
     source_map = {int(source['id']): source for source in sources}
 
-    photo_payloads, _ = _asset_payloads(smart_db_path, main_db_path)
+    if photo_payloads is None:
+        photo_payloads, _ = _asset_payloads(smart_db_path, main_db_path)
     photos_by_set = {}
     for photo in photo_payloads:
         source = photo.get('source') or {}

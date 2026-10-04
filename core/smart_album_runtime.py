@@ -4,6 +4,7 @@ import functools
 import itertools
 import math
 import multiprocessing
+from multiprocessing.connection import wait
 import random
 import re
 import statistics
@@ -89,6 +90,122 @@ class PhotoRecord(AttrMap):
 class SetRecord(AttrMap):
     __slots__ = ()
 
+
+
+
+class _ExploreGrouping:
+    __slots__ = ('kind', 'population_ids', 'buckets')
+
+    def __init__(self, kind, population_ids, buckets):
+        self.kind = kind
+        self.population_ids = population_ids
+        self.buckets = buckets
+
+
+def _normalize_explore_bucket_value(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError('Explore bucket key 不能是 NaN 或 Infinity。')
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    raise ValueError('Explore bucket key 只支持字符串、数字、布尔值、日期或 None。')
+
+
+def _explore_bucket_token(value):
+    # Type prefixes keep 1 / True / "1" as three distinct buckets without
+    # exposing Python object identity outside the isolated worker.
+    if value is None:
+        return 'none:'
+    if isinstance(value, bool):
+        return f'bool:{1 if value else 0}'
+    if isinstance(value, int):
+        return f'int:{value}'
+    if isinstance(value, float):
+        return f'float:{value!r}'
+    return f'str:{value}'
+
+
+def _explore_bucket_label(value, label_func, missing_label):
+    if value is None:
+        return str(missing_label or '未记录')
+    if label_func is None:
+        return str(value)
+    if not callable(label_func):
+        raise TypeError('label 必须是 callable 或 None。')
+    label = str(label_func(value) or '').strip()
+    return label or str(missing_label or '未记录')
+
+
+def _group_explore_records(items, key, *, many, label, missing, record_type, allowed_ids, kind):
+    if not callable(key):
+        raise TypeError('key 必须是 callable。')
+    materialized = list(items)
+    population_ids = []
+    seen_population = set()
+    buckets = {}
+    bucket_order = []
+
+    for item in materialized:
+        if not isinstance(item, record_type):
+            expected = 'Set' if record_type is SetRecord else 'Photo'
+            raise TypeError(f'group_{kind}() 的输入只能包含 {expected} 对象。')
+        item_id = item.id
+        if item_id not in allowed_ids:
+            raise ValueError(f'group_{kind}() 包含不属于当前候选池的对象。')
+        if item_id not in seen_population:
+            seen_population.add(item_id)
+            population_ids.append(item_id)
+
+        raw_value = key(item)
+        if many:
+            if raw_value is None:
+                raw_values = [None]
+            elif isinstance(raw_value, (str, bytes)):
+                raw_values = [raw_value]
+            else:
+                try:
+                    raw_values = list(raw_value)
+                except TypeError:
+                    raw_values = [raw_value]
+                if not raw_values:
+                    raw_values = [None]
+        else:
+            raw_values = [raw_value]
+
+        seen_item_buckets = set()
+        for raw_bucket in raw_values:
+            value = _normalize_explore_bucket_value(raw_bucket)
+            token = _explore_bucket_token(value)
+            if token in seen_item_buckets:
+                continue
+            seen_item_buckets.add(token)
+            if token not in buckets:
+                buckets[token] = {
+                    'bucket_id': token,
+                    'value': value,
+                    'label': _explore_bucket_label(value, label, missing),
+                    'ids': [],
+                }
+                bucket_order.append(token)
+            buckets[token]['ids'].append(item_id)
+
+    return _ExploreGrouping(
+        kind=kind,
+        population_ids=population_ids,
+        buckets=[buckets[token] for token in bucket_order],
+    )
 
 class ExifMap(AttrMap):
     __slots__ = ()
@@ -636,4 +753,183 @@ def run_set_query(code, payloads, timeout_seconds=10):
         error.smart_traceback = message.get('traceback') or ''
         raise error
     return message.get('ids') or []
+
+def _execute_explore_block(code, set_payloads, photo_payloads):
+    tree = _validate_script(code)
+
+    photos = []
+    photos_by_id = {}
+    for payload in photo_payloads:
+        photo = PhotoRecord({key: _wrap(value) for key, value in payload.items()})
+        photos.append(photo)
+        photos_by_id[photo.id] = photo
+
+    sets = []
+    sets_by_id = {}
+    photo_to_set_id = {}
+    for payload in set_payloads:
+        wrapped = {key: _wrap(value) for key, value in payload.items() if key != 'photos'}
+        wrapped_photos = []
+        for photo_payload in (payload.get('photos') or []):
+            photo_id = photo_payload.get('id')
+            photo = photos_by_id.get(photo_id)
+            if photo is None:
+                photo = PhotoRecord({key: _wrap(value) for key, value in photo_payload.items()})
+            wrapped_photos.append(photo)
+        wrapped['photos'] = wrapped_photos
+        item = SetRecord(wrapped)
+        sets.append(item)
+        sets_by_id[item.id] = item
+        for photo in wrapped_photos:
+            photo_to_set_id[photo.id] = item.id
+
+    allowed_set_ids = set(sets_by_id)
+    allowed_photo_ids = set(photos_by_id)
+
+    def group_sets(items, key, many=False, label=None, missing='未记录'):
+        return _group_explore_records(
+            items, key, many=bool(many), label=label, missing=missing,
+            record_type=SetRecord, allowed_ids=allowed_set_ids, kind='sets',
+        )
+
+    def group_photos(items, key, many=False, label=None, missing='未记录'):
+        return _group_explore_records(
+            items, key, many=bool(many), label=label, missing=missing,
+            record_type=PhotoRecord, allowed_ids=allowed_photo_ids, kind='photos',
+        )
+
+    namespace = _query_globals(photos)
+    namespace.update({
+        'sets': sets,
+        'group_sets': group_sets,
+        'group_photos': group_photos,
+    })
+    compiled = compile(tree, '<explore-block>', 'exec')
+    exec(compiled, namespace, namespace)
+
+    if 'result' not in namespace:
+        raise ValueError('Python code 必须给变量 result 赋值。')
+    grouping = namespace.get('result')
+    if not isinstance(grouping, _ExploreGrouping):
+        raise ValueError('Explore Block 的 result 必须是 group_sets() 或 group_photos() 的返回值。')
+
+    if grouping.kind == 'sets':
+        population_set_ids = list(grouping.population_ids)
+        population_set_id_set = set(population_set_ids)
+        population_photo_ids = [
+            photo.id for photo in photos
+            if photo_to_set_id.get(photo.id) in population_set_id_set
+        ]
+    else:
+        population_photo_ids = list(grouping.population_ids)
+        population_set_ids = []
+        seen_set_ids = set()
+        for photo_id in population_photo_ids:
+            set_id = photo_to_set_id.get(photo_id)
+            if set_id is not None and set_id not in seen_set_ids:
+                seen_set_ids.add(set_id)
+                population_set_ids.append(set_id)
+
+    buckets = []
+    for bucket in grouping.buckets:
+        direct_ids = list(bucket.get('ids') or [])
+        if grouping.kind == 'sets':
+            set_ids = direct_ids
+            set_id_set = set(set_ids)
+            photo_ids = [
+                photo.id for photo in photos
+                if photo_to_set_id.get(photo.id) in set_id_set
+            ]
+        else:
+            photo_ids = direct_ids
+            set_ids = []
+            seen_set_ids = set()
+            for photo_id in photo_ids:
+                set_id = photo_to_set_id.get(photo_id)
+                if set_id is not None and set_id not in seen_set_ids:
+                    seen_set_ids.add(set_id)
+                    set_ids.append(set_id)
+        buckets.append({
+            'bucket_id': bucket['bucket_id'],
+            'value': bucket['value'],
+            'label': bucket['label'],
+            'set_ids': set_ids,
+            'photo_ids': photo_ids,
+        })
+
+    return {
+        'kind': grouping.kind,
+        'population_set_ids': population_set_ids,
+        'population_photo_ids': population_photo_ids,
+        'buckets': buckets,
+    }
+
+
+def _explore_worker_main(conn, code, set_payloads, photo_payloads):
+    try:
+        result = _execute_explore_block(code, set_payloads, photo_payloads)
+        conn.send({'ok': True, 'result': result})
+    except Exception as exc:
+        trace = traceback.format_exc(limit=8)
+        conn.send({
+            'ok': False,
+            'error': str(exc),
+            'error_type': type(exc).__name__,
+            'traceback': trace,
+        })
+    finally:
+        conn.close()
+
+
+def run_explore_block(code, set_payloads, photo_payloads, timeout_seconds=10):
+    """Execute one Explore grouping script in the existing isolated Python sandbox."""
+    _validate_script(code)
+    parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
+    process = multiprocessing.Process(
+        target=_explore_worker_main,
+        args=(child_conn, code, set_payloads, photo_payloads),
+        daemon=True,
+    )
+    process.start()
+    child_conn.close()
+
+    # Explore results can contain the population IDs plus every bucket's Set /
+    # Photo membership.  That payload can exceed the OS pipe buffer.  Waiting
+    # for the worker to exit before reading the pipe deadlocks in that case:
+    # the child blocks in send() while the parent blocks in join().  Wait for
+    # either pipe data or worker exit, receive first, then reap the process.
+    ready = wait([parent_conn, process.sentinel], timeout_seconds)
+    if parent_conn in ready:
+        try:
+            message = parent_conn.recv()
+        except EOFError as exc:
+            process.join(2)
+            parent_conn.close()
+            raise RuntimeError(
+                f'Explore Block Python worker 异常退出 (exit={process.exitcode})。'
+            ) from exc
+    elif process.sentinel in ready:
+        process.join(2)
+        if parent_conn.poll():
+            message = parent_conn.recv()
+        else:
+            exit_code = process.exitcode
+            parent_conn.close()
+            raise RuntimeError(f'Explore Block Python worker 异常退出 (exit={exit_code})。')
+    else:
+        process.terminate()
+        process.join(2)
+        parent_conn.close()
+        raise TimeoutError(f'Explore Block Python 执行超过 {timeout_seconds} 秒，已停止。')
+
+    process.join(2)
+    if process.is_alive():
+        process.terminate()
+        process.join(2)
+    parent_conn.close()
+    if not message.get('ok'):
+        error = RuntimeError(message.get('error') or 'Explore Block Python 执行失败')
+        error.smart_traceback = message.get('traceback') or ''
+        raise error
+    return message.get('result') or {'kind': 'sets', 'population_set_ids': [], 'population_photo_ids': [], 'buckets': []}
 

@@ -148,6 +148,11 @@ const app = createApp({
             });
         });
 
+        const EXPLORE_BLOCK_DEFAULT_CODE = `result = group_sets(
+    sets,
+    key=lambda item: item.manifest.model or "未记录",
+)
+`;
         const emptyExploreStats = () => ({
             total_images: 0,
             total_sets: 0,
@@ -158,6 +163,7 @@ const app = createApp({
             themes: [],
             locations: [],
             focal_lengths: [],
+            custom_blocks: [],
             index: null,
         });
         const exploreStats = ref(emptyExploreStats());
@@ -181,8 +187,25 @@ const app = createApp({
             dimension: '',
             primary_target: 'sets',
             year: null,
+            block_id: null,
             rows: [],
         });
+        const exploreBlocks = ref([]);
+        const showExploreBlockDialog = ref(false);
+        const exploreBlockSaving = ref(false);
+        const exploreBlockPreviewLoading = ref(false);
+        const exploreBlockPreview = ref(null);
+        const exploreBlockEditor = ref({
+            id: null,
+            name: '',
+            description: '',
+            default_metric: 'sets',
+            enabled: true,
+            python_code: EXPLORE_BLOCK_DEFAULT_CODE,
+        });
+        const showExploreBlockHelpDialog = ref(false);
+        const exploreBlockHelpLoading = ref(false);
+        const exploreBlockRuntime = ref(null);
         let exploreReturnScrollY = 0;
 
 
@@ -492,6 +515,15 @@ const app = createApp({
             Number(item.value) === Number(exploreSelectedYear.value)
         ) || null);
         const exploreMonthRows = computed(() => exploreSelectedYearRow.value?.months || []);
+        const exploreBlockDimension = blockId => `block:${blockId}`;
+        const ensureExploreBlockModes = blocks => {
+            for (const block of (Array.isArray(blocks) ? blocks : [])) {
+                const dimension = exploreBlockDimension(block.id);
+                if (!['sets', 'photos'].includes(exploreMetricModes.value[dimension])) {
+                    exploreMetricModes.value[dimension] = block.default_metric === 'photos' ? 'photos' : 'sets';
+                }
+            }
+        };
         const exploreMetricTarget = dimension => exploreMetricModes.value[dimension] === 'photos' ? 'photos' : 'sets';
         const exploreMetricCount = (item, dimension) => exploreMetricTarget(dimension) === 'photos'
             ? Number(item?.image_count || 0)
@@ -517,6 +549,7 @@ const app = createApp({
                 dimension,
                 primary_target: primaryTarget,
                 year,
+                block_id: null,
                 rows: exploreRowsByMetric(rows, dimension),
             };
             exploreMoreDialogVisible.value = true;
@@ -528,11 +561,41 @@ const app = createApp({
             }
             return label;
         };
+        const openExploreBlockMore = block => {
+            const dimension = exploreBlockDimension(block.id);
+            const primaryTarget = exploreMetricTarget(dimension);
+            exploreMoreDialog.value = {
+                title: `${block.name} · 全部`,
+                dimension,
+                primary_target: primaryTarget,
+                year: null,
+                block_id: block.id,
+                rows: exploreRowsByMetric(block.rows, dimension),
+            };
+            exploreMoreDialogVisible.value = true;
+        };
         const openExploreMoreStat = (item, target = null) => {
             const detail = exploreMoreDialog.value;
             const resolvedTarget = target || detail.primary_target || 'sets';
             exploreMoreDialogVisible.value = false;
+            if (detail.block_id) {
+                return openExploreBlockStat(detail.block_id, item?.bucket_id, resolvedTarget);
+            }
             return openExploreStat(detail.dimension, item?.value, exploreMoreQueryLabel(item), resolvedTarget);
+        };
+
+        const loadExploreBlocks = async () => {
+            if (!isAdmin.value || !window.ExploreApi) {
+                exploreBlocks.value = [];
+                return;
+            }
+            try {
+                const data = await window.ExploreApi.blocks();
+                exploreBlocks.value = Array.isArray(data.blocks) ? data.blocks : [];
+                ensureExploreBlockModes(exploreBlocks.value);
+            } catch (error) {
+                console.error('加载 Explore Blocks 失败:', error);
+            }
         };
 
         const loadExploreStats = async () => {
@@ -543,6 +606,7 @@ const app = createApp({
             try {
                 const data = await window.ExploreApi.stats();
                 exploreStats.value = {...emptyExploreStats(), ...data};
+                ensureExploreBlockModes(data.custom_blocks);
                 const years = (Array.isArray(data.years) ? data.years : [])
                     .map(item => Number(item && item.value))
                     .filter(Number.isFinite)
@@ -568,7 +632,185 @@ const app = createApp({
             currentImage.value = {};
             selectionMode.value = false;
             selectedImages.value = [];
-            await loadExploreStats();
+            await Promise.all([loadExploreBlocks(), loadExploreStats()]);
+            await nextTick();
+            window.requestAnimationFrame(() => window.scrollTo(0, 0));
+        };
+
+        const openCreateExploreBlock = () => {
+            exploreBlockEditor.value = {
+                id: null,
+                name: '',
+                description: '',
+                default_metric: 'sets',
+                enabled: true,
+                python_code: EXPLORE_BLOCK_DEFAULT_CODE,
+            };
+            exploreBlockPreview.value = null;
+            showExploreBlockDialog.value = true;
+        };
+
+        const openEditExploreBlock = async block => {
+            let source = exploreBlocks.value.find(item => Number(item.id) === Number(block?.id));
+            if (!source) {
+                await loadExploreBlocks();
+                source = exploreBlocks.value.find(item => Number(item.id) === Number(block?.id));
+            }
+            if (!source) {
+                ElMessage.error('Explore Block 不存在');
+                return;
+            }
+            exploreBlockEditor.value = {
+                id: source.id,
+                name: source.name || '',
+                description: source.description || '',
+                default_metric: source.default_metric === 'photos' ? 'photos' : 'sets',
+                enabled: source.enabled !== false,
+                python_code: source.python_code || EXPLORE_BLOCK_DEFAULT_CODE,
+            };
+            exploreBlockPreview.value = null;
+            showExploreBlockDialog.value = true;
+        };
+
+        const previewExploreBlock = async () => {
+            if (!window.ExploreApi || exploreBlockPreviewLoading.value) return;
+            exploreBlockPreviewLoading.value = true;
+            exploreBlockPreview.value = null;
+            try {
+                const data = await window.ExploreApi.previewBlock({
+                    name: exploreBlockEditor.value.name || '预览',
+                    description: exploreBlockEditor.value.description || '',
+                    default_metric: exploreBlockEditor.value.default_metric,
+                    python_code: exploreBlockEditor.value.python_code,
+                });
+                exploreBlockPreview.value = data.card || null;
+                if (data.index) smartAlbumIndex.value = data.index;
+            } catch (error) {
+                if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
+                ElMessage.error(error.message || '预览 Explore Block 失败');
+            } finally {
+                exploreBlockPreviewLoading.value = false;
+            }
+        };
+
+        const saveExploreBlock = async () => {
+            if (!window.ExploreApi || exploreBlockSaving.value) return;
+            const editor = exploreBlockEditor.value;
+            const name = String(editor.name || '').trim();
+            if (!name) {
+                ElMessage.warning('请输入统计名称');
+                return;
+            }
+            exploreBlockSaving.value = true;
+            try {
+                const payload = {
+                    name,
+                    description: editor.description || '',
+                    default_metric: editor.default_metric === 'photos' ? 'photos' : 'sets',
+                    enabled: editor.enabled !== false,
+                    python_code: editor.python_code || '',
+                };
+                const data = editor.id
+                    ? await window.ExploreApi.updateBlock(editor.id, payload)
+                    : await window.ExploreApi.createBlock(payload);
+                if (data?.block?.id) {
+                    exploreMetricModes.value[exploreBlockDimension(data.block.id)] = payload.default_metric;
+                }
+                showExploreBlockDialog.value = false;
+                await Promise.all([loadExploreBlocks(), loadExploreStats()]);
+                ElMessage.success(editor.id ? '统计已保存' : '统计已创建');
+            } catch (error) {
+                ElMessage.error(error.message || '保存 Explore Block 失败');
+            } finally {
+                exploreBlockSaving.value = false;
+            }
+        };
+
+        const deleteExploreBlock = async block => {
+            const blockId = Number(block?.id || exploreBlockEditor.value.id || 0);
+            if (!blockId || !window.ExploreApi) return;
+            const blockName = block?.name || exploreBlockEditor.value.name || '';
+            try {
+                await ElMessageBox.confirm(
+                    `确定删除统计“${blockName}”吗？只会删除统计定义，不会删除任何 Set 或图片。`,
+                    '删除 Explore 统计',
+                    {confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning'}
+                );
+                await window.ExploreApi.deleteBlock(blockId);
+                if (Number(exploreBlockEditor.value.id) === blockId) showExploreBlockDialog.value = false;
+                await Promise.all([loadExploreBlocks(), loadExploreStats()]);
+                ElMessage.success('统计已删除');
+            } catch (error) {
+                if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '删除统计失败');
+            }
+        };
+
+        const openExploreBlockHelp = async () => {
+            showExploreBlockHelpDialog.value = true;
+            if (exploreBlockRuntime.value || !window.ExploreApi) return;
+            exploreBlockHelpLoading.value = true;
+            try {
+                exploreBlockRuntime.value = await window.ExploreApi.runtime();
+            } catch (error) {
+                ElMessage.error(error.message || '读取 Explore Python 帮助失败');
+            } finally {
+                exploreBlockHelpLoading.value = false;
+            }
+        };
+
+        const exploreBlockPreviewCount = item => exploreBlockEditor.value.default_metric === 'photos'
+            ? Number(item?.image_count || 0)
+            : Number(item?.set_count || 0);
+        const exploreBlockPreviewPercentage = item => exploreBlockEditor.value.default_metric === 'photos'
+            ? Number(item?.image_percentage || 0)
+            : Number(item?.set_percentage || 0);
+        const exploreBlockPreviewUnit = computed(() => exploreBlockEditor.value.default_metric === 'photos' ? '张' : '组');
+
+        const showExploreQueryResult = async (data, metadata = {}, fallbackTitle = 'Explore') => {
+            if (data.result_type === 'sets') {
+                smartSetEntryContext = null;
+                currentSmartSet.value = {
+                    id: null,
+                    name: data.title || fallbackTitle,
+                    description: 'Explore 临时结果 · 未保存为 Smart Set',
+                    is_explore: true,
+                    explore_target: 'sets',
+                    ...metadata,
+                };
+                smartSetResults.value = (data.sets || []).map((item, index) => ({
+                    ...item,
+                    smart_query_order: index,
+                }));
+                smartSetDirectoryItems.value = [];
+                smartSetQueryError.value = '';
+                setSearchQuery.value = '';
+                await hydrateSmartSetDirectoryItems(smartSetResults.value);
+                if (data.index) smartAlbumIndex.value = data.index;
+                currentView.value = 'smart-set';
+                await nextTick();
+                window.requestAnimationFrame(() => window.scrollTo(0, 0));
+                return;
+            }
+
+            currentSmartAlbum.value = {
+                id: null,
+                name: data.title || fallbackTitle,
+                description: 'Explore 临时结果 · 未保存为 Smart Album',
+                is_explore: true,
+                explore_target: 'photos',
+                ...metadata,
+            };
+            smartAlbumImages.value = (data.images || []).map((image, index) => ({
+                ...image,
+                smart_album_id: 'explore',
+                explore_result: true,
+                smart_query_order: index,
+            }));
+            smartAlbumQueryError.value = '';
+            smartAlbumSort.value = {field: 'query_order', order: 'asc'};
+            currentFilter.value = 'all';
+            if (data.index) smartAlbumIndex.value = data.index;
+            currentView.value = 'smart-album';
             await nextTick();
             window.requestAnimationFrame(() => window.scrollTo(0, 0));
         };
@@ -579,54 +821,28 @@ const app = createApp({
             exploreQueryLoading.value = true;
             try {
                 const data = await window.ExploreApi.query(dimension, value, label, target);
-                if (data.result_type === 'sets') {
-                    smartSetEntryContext = null;
-                    currentSmartSet.value = {
-                        id: null,
-                        name: data.title || `Explore · ${label || ''}`,
-                        description: 'Explore 临时结果 · 未保存为 Smart Set',
-                        is_explore: true,
-                        explore_dimension: dimension,
-                        explore_value: value,
-                        explore_target: 'sets',
-                    };
-                    smartSetResults.value = (data.sets || []).map((item, index) => ({
-                        ...item,
-                        smart_query_order: index,
-                    }));
-                    smartSetDirectoryItems.value = [];
-                    smartSetQueryError.value = '';
-                    setSearchQuery.value = '';
-                    await hydrateSmartSetDirectoryItems(smartSetResults.value);
-                    if (data.index) smartAlbumIndex.value = data.index;
-                    currentView.value = 'smart-set';
-                    await nextTick();
-                    window.requestAnimationFrame(() => window.scrollTo(0, 0));
-                    return;
-                }
-
-                currentSmartAlbum.value = {
-                    id: null,
-                    name: data.title || `Explore · ${label || ''}`,
-                    description: 'Explore 临时结果 · 未保存为 Smart Album',
-                    is_explore: true,
+                await showExploreQueryResult(data, {
                     explore_dimension: dimension,
                     explore_value: value,
-                    explore_target: 'photos',
-                };
-                smartAlbumImages.value = (data.images || []).map((image, index) => ({
-                    ...image,
-                    smart_album_id: 'explore',
-                    explore_result: true,
-                    smart_query_order: index,
-                }));
-                smartAlbumQueryError.value = '';
-                smartAlbumSort.value = {field: 'query_order', order: 'asc'};
-                currentFilter.value = 'all';
-                if (data.index) smartAlbumIndex.value = data.index;
-                currentView.value = 'smart-album';
-                await nextTick();
-                window.requestAnimationFrame(() => window.scrollTo(0, 0));
+                }, `Explore · ${label || ''}`);
+            } catch (error) {
+                if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
+                ElMessage.error(error.message || 'Explore 查询失败');
+            } finally {
+                exploreQueryLoading.value = false;
+            }
+        };
+
+        const openExploreBlockStat = async (blockId, bucketId, target = 'sets') => {
+            if (!window.ExploreApi || exploreQueryLoading.value || !blockId || !bucketId) return;
+            exploreReturnScrollY = window.scrollY || window.pageYOffset || 0;
+            exploreQueryLoading.value = true;
+            try {
+                const data = await window.ExploreApi.queryBlock(blockId, bucketId, target);
+                await showExploreQueryResult(data, {
+                    explore_block_id: blockId,
+                    explore_bucket_id: bucketId,
+                });
             } catch (error) {
                 if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
                 ElMessage.error(error.message || 'Explore 查询失败');
@@ -5447,11 +5663,33 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreHasMore,
             exploreHiddenCount,
             openExploreMore,
+            openExploreBlockMore,
             openExploreMoreStat,
             formatExplorePercent,
             openExplore,
             loadExploreStats,
+            loadExploreBlocks,
             openExploreStat,
+            openExploreBlockStat,
+            exploreBlockDimension,
+            exploreBlocks,
+            showExploreBlockDialog,
+            exploreBlockSaving,
+            exploreBlockPreviewLoading,
+            exploreBlockPreview,
+            exploreBlockEditor,
+            showExploreBlockHelpDialog,
+            exploreBlockHelpLoading,
+            exploreBlockRuntime,
+            openCreateExploreBlock,
+            openEditExploreBlock,
+            previewExploreBlock,
+            saveExploreBlock,
+            deleteExploreBlock,
+            openExploreBlockHelp,
+            exploreBlockPreviewCount,
+            exploreBlockPreviewPercentage,
+            exploreBlockPreviewUnit,
             backToExplore,
             smartViews,
             showCreateSmartViewDialog,

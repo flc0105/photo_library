@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261004-07">
+    <link rel="stylesheet" href="style.css?v=20261004-08">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -225,6 +225,9 @@
                     <div style="color:#606266; margin-top:6px;">每项统计可切换按 Set 或按图片查看。</div>
                 </div>
                 <div class="album-actions">
+                    <el-button type="primary" @click="openCreateExploreBlock">
+                        <el-icon><Plus /></el-icon><span>新建统计</span>
+                    </el-button>
                     <el-button @click="loadExploreStats">刷新统计</el-button>
                 </div>
             </div>
@@ -402,6 +405,50 @@
                             </div>
                         </div>
                         <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.focal_lengths)" text size="small" @click="openExploreMore('焦段', 'focal_length', exploreStats.focal_lengths)">显示全部</el-button></div>
+                    </el-card>
+
+                    <el-card v-for="block in exploreStats.custom_blocks" :key="`explore-block-${block.id}`" shadow="never" class="explore-stat-card">
+                        <template #header>
+                            <div class="explore-card-header">
+                                <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                                    <strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ block.name }}</strong>
+                                    <el-tooltip v-if="block.description" :content="block.description" placement="top">
+                                        <el-icon style="color:#909399; flex:0 0 auto;"><InfoFilled /></el-icon>
+                                    </el-tooltip>
+                                </div>
+                                <div class="explore-card-controls">
+                                    <el-select v-model="exploreMetricModes[exploreBlockDimension(block.id)]" size="small" class="explore-metric-select">
+                                        <el-option label="按 Set" value="sets"></el-option>
+                                        <el-option label="按图片" value="photos"></el-option>
+                                    </el-select>
+                                    <el-button text circle size="small" aria-label="编辑统计" @click.stop="openEditExploreBlock(block)">
+                                        <el-icon><Edit /></el-icon>
+                                    </el-button>
+                                </div>
+                            </div>
+                        </template>
+                        <template v-if="!block.error">
+                            <div class="explore-stat-list">
+                                <div v-for="item in visibleExploreRows(block.rows, exploreBlockDimension(block.id))"
+                                     :key="`block-${block.id}-${item.bucket_id}`" class="explore-stat-row"
+                                     @click="openExploreBlockStat(block.id, item.bucket_id, exploreMetricTarget(exploreBlockDimension(block.id)))">
+                                    <div class="explore-stat-line">
+                                        <span>{{ item.label }}</span>
+                                        <span class="explore-stat-metrics">
+                                            <button type="button" class="explore-metric-link"
+                                                    @click.stop="openExploreBlockStat(block.id, item.bucket_id, exploreMetricTarget(exploreBlockDimension(block.id)))">{{ exploreMetricCount(item, exploreBlockDimension(block.id)) }} {{ exploreMetricUnit(exploreBlockDimension(block.id)) }}</button>
+                                            <span>· {{ formatExplorePercent(exploreMetricPercentage(item, exploreBlockDimension(block.id))) }}</span>
+                                        </span>
+                                    </div>
+                                    <el-progress :percentage="exploreMetricPercentage(item, exploreBlockDimension(block.id))" :show-text="false" :stroke-width="5"></el-progress>
+                                </div>
+                                <div v-if="!block.rows || block.rows.length === 0" class="explore-card-empty">没有可统计项目。</div>
+                            </div>
+                            <div class="explore-card-footer"><el-button v-if="exploreHasMore(block.rows)" text size="small" @click="openExploreBlockMore(block)">显示全部</el-button></div>
+                        </template>
+                        <div v-else class="explore-card-error">
+                            <el-alert :title="block.error" type="error" :closable="false" show-icon></el-alert>
+                        </div>
                     </el-card>
                 </div>
             </template>
@@ -1853,6 +1900,96 @@
                 <div>取消不会提交未完成的重建或同步。</div>
             </div>
             <template #footer><el-button @click="showSmartAlbumIndexHelpDialog = false">关闭</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="showExploreBlockDialog" :title="exploreBlockEditor.id ? '编辑 Explore 统计' : '新建 Explore 统计'" width="780px" append-to-body>
+            <el-form :model="exploreBlockEditor" label-width="90px">
+                <el-form-item label="名称"><el-input v-model="exploreBlockEditor.name" placeholder="例如：相机"></el-input></el-form-item>
+                <el-form-item label="描述"><el-input v-model="exploreBlockEditor.description" type="textarea" :rows="2" placeholder="可选"></el-input></el-form-item>
+                <el-form-item label="默认查看">
+                    <el-select v-model="exploreBlockEditor.default_metric" style="width:180px;">
+                        <el-option label="按 Set" value="sets"></el-option>
+                        <el-option label="按图片" value="photos"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="Python">
+                    <el-input v-model="exploreBlockEditor.python_code" type="textarea" :rows="18" resize="vertical"
+                              style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
+                </el-form-item>
+                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                    <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
+                               aria-label="查看 Explore Python 帮助" @click="openExploreBlockHelp">?</el-button>
+                </div>
+            </el-form>
+
+            <div v-if="exploreBlockPreview" class="explore-block-preview" v-loading="exploreBlockPreviewLoading">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                    <strong>预览</strong>
+                    <span style="color:#909399; font-size:12px;">{{ (exploreBlockPreview.rows || []).length }} 个统计项</span>
+                </div>
+                <div v-for="item in (exploreBlockPreview.rows || []).slice(0, 6)" :key="`preview-${item.bucket_id}`" class="explore-stat-row" style="cursor:default;">
+                    <div class="explore-stat-line">
+                        <span>{{ item.label }}</span>
+                        <span class="explore-stat-metrics">
+                            <span>{{ exploreBlockPreviewCount(item) }} {{ exploreBlockPreviewUnit }}</span>
+                            <span>· {{ formatExplorePercent(exploreBlockPreviewPercentage(item)) }}</span>
+                        </span>
+                    </div>
+                    <el-progress :percentage="exploreBlockPreviewPercentage(item)" :show-text="false" :stroke-width="5"></el-progress>
+                </div>
+                <div v-if="!(exploreBlockPreview.rows || []).length" class="explore-card-empty">没有可统计项目。</div>
+            </div>
+
+            <template #footer>
+                <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                    <el-button v-if="exploreBlockEditor.id" type="danger" plain @click="deleteExploreBlock({id: exploreBlockEditor.id, name: exploreBlockEditor.name})">删除</el-button>
+                    <span v-else></span>
+                    <div>
+                        <el-button @click="showExploreBlockDialog = false">取消</el-button>
+                        <el-button :loading="exploreBlockPreviewLoading" @click="previewExploreBlock">验证 / 预览</el-button>
+                        <el-button type="primary" :loading="exploreBlockSaving" @click="saveExploreBlock">保存</el-button>
+                    </div>
+                </div>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showExploreBlockHelpDialog" title="Explore Python" width="860px" append-to-body>
+            <div v-loading="exploreBlockHelpLoading" style="line-height:1.65;">
+                <template v-if="exploreBlockRuntime">
+                    <div style="margin-bottom:14px; color:#606266; font-size:13px;">
+                        Python 只负责把 Set 或图片分进统计 bucket；代码必须给 <code>result</code> 赋值，并且结果必须来自
+                        <code>group_sets()</code> 或 <code>group_photos()</code>。计数、百分比、按 Set / 按图片切换和点击后的临时 Smart View 都由 Explore 统一处理。
+                        <code>group_sets()</code> 的图片指标统计这些 Set 中全部当前 indexed Photo；<code>group_photos()</code> 的 Set 指标则对匹配图片所属 Set 去重。
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <strong>Helpers</strong>
+                        <div style="display:flex; flex-direction:column; gap:6px; margin-top:7px;">
+                            <code v-for="helper in (exploreBlockRuntime.helpers || [])" :key="helper"
+                                  style="padding:5px 8px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ helper }}</code>
+                        </div>
+                        <div style="margin-top:8px; color:#909399; font-size:12px;">
+                            <code>many=True</code> 允许同一个 Set / Photo 同时进入多个 bucket；同一对象在同一 bucket 只计一次。
+                        </div>
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <strong>示例</strong>
+                        <pre style="white-space:pre-wrap; padding:10px; background:#f7f8fa; border:1px solid #ebeef5; border-radius:4px; font-size:12px;">{{ exploreBlockRuntime.default_code }}</pre>
+                    </div>
+                    <div v-for="group in (exploreBlockRuntime.set_contract_groups || [])" :key="`set-${group.label}`" style="margin-bottom:12px;">
+                        <strong>Set · {{ group.label }}</strong>
+                        <div style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-top:6px;">
+                            <code v-for="field in group.fields" :key="field" style="padding:3px 7px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ field }}</code>
+                        </div>
+                    </div>
+                    <div v-for="group in (exploreBlockRuntime.photo_contract_groups || [])" :key="`photo-${group.label}`" style="margin-bottom:12px;">
+                        <strong>Photo · {{ group.label }}</strong>
+                        <div style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-top:6px;">
+                            <code v-for="field in group.fields" :key="field" style="padding:3px 7px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ field }}</code>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <template #footer><el-button @click="showExploreBlockHelpDialog = false">关闭</el-button></template>
         </el-dialog>
 
         <el-dialog v-model="showCreateSmartViewDialog" title="创建智能视图" width="760px">
@@ -4023,7 +4160,7 @@
 <script src="set-insights.js?v=20260920-02"></script>
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
-<script src="explore.js?v=20261003-02"></script>
-<script type="module" src="app.js?v=20261004-06"></script>
+<script src="explore.js?v=20261004-03"></script>
+<script type="module" src="app.js?v=20261004-07"></script>
 </body>
 </html>
