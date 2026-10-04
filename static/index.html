@@ -110,69 +110,53 @@
             </div>
 
 
-            <!-- Smart Album：保存 Python 查询定义，不拥有也不复制照片。 -->
-            <div v-if="isAdmin" class="album-group smart-album-group">
+            <!-- 智能视图：Smart Album 与 Smart Set 共享一个入口，底层按结果类型继续使用各自已验证的查询路径。 -->
+            <div v-if="isAdmin" class="album-group smart-view-group">
                 <div class="group-header">
-                    <div class="group-title" @click="toggleGroupCollapse('smart-albums')">
-                        <h2>智能相册 <span class="album-count">({{ smartAlbums.length }}个相册)</span></h2>
+                    <div class="group-title" @click="toggleGroupCollapse('smart-views')">
+                        <h2>智能视图 <span class="album-count">({{ smartViews.length }}个)</span></h2>
                     </div>
                     <div class="group-actions">
-                        <el-button size="small" @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-button>
-                        <el-button size="small" @click="openSmartAlbumIndexSync">同步索引</el-button>
+                        <span class="el-dropdown-link"
+                              @click="openCreateSmartView"
+                              title="创建智能视图">
+                            <el-icon><Plus /></el-icon>
+                        </span>
+                        <el-dropdown @command="handleSmartViewCommand" size="small">
+                            <span class="el-dropdown-link" title="更多">
+                                <el-icon><More /></el-icon>
+                            </span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item command="refresh-index">{{ smartAlbumIndexRefreshing ? '查看索引进度' : '刷新索引' }}</el-dropdown-item>
+                                    <el-dropdown-item command="sync-index">同步索引</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                     </div>
                 </div>
-                <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('smart-albums') }">
-                    <div v-if="smartAlbums.length" class="album-grid">
-                        <div v-for="album in smartAlbums" :key="album.id" class="album-card smart-album-card"
-                             @click="openSmartAlbum(album)">
+                <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('smart-views') }">
+                    <div v-if="smartViews.length" class="album-grid">
+                        <div v-for="item in smartViews" :key="item.smart_view_key" class="album-card smart-album-card"
+                             @click="openSmartView(item)">
                             <div class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
                                 <div class="lock-icon" style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight:800; line-height:1;">Py</div>
                             </div>
                             <div class="album-info">
-                                <div class="album-name">{{ album.name }}</div>
+                                <div class="album-name">[{{ item.smart_view_type === 'set' ? 'Set' : 'Album' }}] {{ item.name }}</div>
                                 <div class="album-meta">
-                                    <div>结果: {{ album.last_result_count == null ? '—' : album.last_result_count }}</div>
-                                    <div>更新: {{ formatDate(album.updated_at) }}</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-else class="empty-state">
-                        <p>还没有 Smart Album。通过“新建相册 → 智能相册”创建。</p>
-                    </div>
-                    <div v-if="smartAlbumIndex.last_refresh_at" style="margin-top:8px; color:#909399; font-size:12px;">
-                        索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set · {{ formatDate(smartAlbumIndex.last_refresh_at) }}
-                    </div>
-                </div>
-            </div>
-
-            <!-- Smart Set：保存 Set-level Python 查询定义，不复制任何 Set 或照片。 -->
-            <div v-if="isAdmin" class="album-group smart-set-group">
-                <div class="group-header">
-                    <div class="group-title" @click="toggleGroupCollapse('smart-sets')">
-                        <h2>智能 Set <span class="album-count">({{ smartSets.length }}个)</span></h2>
-                    </div>
-                    <div class="group-actions">
-                        <el-button size="small" type="primary" @click="openCreateSmartSet">新建 Smart Set</el-button>
-                    </div>
-                </div>
-                <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('smart-sets') }">
-                    <div v-if="smartSets.length" class="album-grid">
-                        <div v-for="item in smartSets" :key="item.id" class="album-card smart-album-card"
-                             @click="openSmartSet(item)">
-                            <div class="album-cover locked-cover" style="display:flex; align-items:center; justify-content:center;">
-                                <div class="lock-icon" style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight:800; line-height:1; font-size:30px;">Set</div>
-                            </div>
-                            <div class="album-info">
-                                <div class="album-name">{{ item.name }}</div>
-                                <div class="album-meta">
-                                    <div>结果: {{ item.last_result_count == null ? '—' : item.last_result_count }} Sets</div>
+                                    <div>{{ smartViewResultText(item) }}</div>
                                     <div>更新: {{ formatDate(item.updated_at) }}</div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div v-else class="empty-state"><p>还没有 Smart Set。</p></div>
+                    <div v-else class="empty-state">
+                        <p>还没有智能视图。点击右上角“+”创建。</p>
+                    </div>
+                    <div v-if="smartAlbumIndex.last_refresh_at" style="margin-top:8px; color:#909399; font-size:12px;">
+                        索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set · {{ formatDate(smartAlbumIndex.last_refresh_at) }}
+                    </div>
                 </div>
             </div>
 
@@ -206,7 +190,7 @@
                 </div>
             </div>
 
-            <div v-if="albumGroups.length === 0 && (!ungroupedAlbums || ungroupedAlbums.length === 0) && (!isAdmin || (smartAlbums.length === 0 && smartSets.length === 0 && librarySources.length === 0))"
+            <div v-if="albumGroups.length === 0 && (!ungroupedAlbums || ungroupedAlbums.length === 0) && (!isAdmin || (smartViews.length === 0 && librarySources.length === 0))"
                  class="empty-state">
                 <p>还没有相册，创建一个吧！</p>
             </div>
@@ -1510,17 +1494,10 @@
         <!-- 创建相册对话框 -->
         <el-dialog v-model="showCreateAlbumDialog" title="新建相册" width="720px">
             <el-form :model="newAlbum" label-width="90px">
-                <el-form-item label="类型">
-                    <el-select v-model="newAlbum.type" style="width:100%;">
-                        <el-option label="普通相册" value="uploaded"></el-option>
-                        <el-option label="智能相册" value="smart"></el-option>
-                    </el-select>
-                </el-form-item>
                 <el-form-item label="相册名称">
                     <el-input v-model="newAlbum.name" placeholder="请输入相册名称"></el-input>
                 </el-form-item>
-                <template v-if="newAlbum.type === 'uploaded'">
-                    <el-form-item label="所属分组">
+                <el-form-item label="所属分组">
                         <el-select v-model="newAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
                             <el-option
                                     v-for="group in allGroups"
@@ -1539,26 +1516,12 @@
                     <el-form-item label="模特">
                         <el-input v-model="newAlbum.model_name" placeholder="请输入模特名字"></el-input>
                     </el-form-item>
-                    <el-form-item label="地点">
-                        <el-input v-model="newAlbum.location" placeholder="请输入拍摄地点"></el-input>
-                    </el-form-item>
-                </template>
+                <el-form-item label="地点">
+                    <el-input v-model="newAlbum.location" placeholder="请输入拍摄地点"></el-input>
+                </el-form-item>
                 <el-form-item label="描述">
                     <el-input v-model="newAlbum.description" type="textarea" placeholder="请输入相册描述"></el-input>
                 </el-form-item>
-                <template v-if="newAlbum.type === 'smart'">
-                    <el-form-item label="Python">
-                        <el-input v-model="newAlbum.python_code" type="textarea" :rows="16"
-                                  resize="vertical"
-                                  style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"
-                                  placeholder="result = [...]">
-                        </el-input>
-                    </el-form-item>
-                    <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
-                        <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
-                                   aria-label="查看 Smart Album Python 帮助" @click="openSmartAlbumHelp">?</el-button>
-                    </div>
-                </template>
             </el-form>
             <template #footer>
                 <el-button @click="showCreateAlbumDialog = false">取消</el-button>
@@ -1772,22 +1735,28 @@
             </template>
         </el-dialog>
 
-        <el-dialog v-model="showCreateSmartSetDialog" title="新建 Smart Set" width="760px">
-            <el-form :model="smartSetEditor" label-width="90px">
-                <el-form-item label="名称"><el-input v-model="smartSetEditor.name"></el-input></el-form-item>
-                <el-form-item label="描述"><el-input v-model="smartSetEditor.description" type="textarea" :rows="2"></el-input></el-form-item>
+        <el-dialog v-model="showCreateSmartViewDialog" title="创建智能视图" width="760px">
+            <el-form :model="smartViewCreateEditor" label-width="90px">
+                <el-form-item label="类型">
+                    <el-select v-model="smartViewCreateEditor.type" style="width:100%;" @change="changeSmartViewCreateType">
+                        <el-option label="Album（照片）" value="album"></el-option>
+                        <el-option label="Set" value="set"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="名称"><el-input v-model="smartViewCreateEditor.name"></el-input></el-form-item>
+                <el-form-item label="描述"><el-input v-model="smartViewCreateEditor.description" type="textarea" :rows="2"></el-input></el-form-item>
                 <el-form-item label="Python">
-                    <el-input v-model="smartSetEditor.python_code" type="textarea" :rows="18" resize="vertical"
+                    <el-input v-model="smartViewCreateEditor.python_code" type="textarea" :rows="18" resize="vertical"
                               style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
                 </el-form-item>
                 <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
-                               aria-label="查看 Smart Set Python 帮助" @click="openSmartSetHelp">?</el-button>
+                               aria-label="查看智能视图 Python 帮助" @click="openSmartViewCreateHelp">?</el-button>
                 </div>
             </el-form>
             <template #footer>
-                <el-button @click="showCreateSmartSetDialog = false">取消</el-button>
-                <el-button type="primary" @click="createSmartSet">创建</el-button>
+                <el-button @click="showCreateSmartViewDialog = false">取消</el-button>
+                <el-button type="primary" @click="createSmartView">创建</el-button>
             </template>
         </el-dialog>
 
@@ -3935,6 +3904,6 @@
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
 <script src="explore.js?v=20261003-02"></script>
-<script type="module" src="app.js?v=20261003-09"></script>
+<script type="module" src="app.js?v=20261004-01"></script>
 </body>
 </html>

@@ -31,11 +31,11 @@ result = [
             model_name: '',
             location: '',
             group_ids: [], // 所属分组ID列表
-            python_code: SMART_ALBUM_DEFAULT_CODE
         });
 
-        // Smart Album stays separate from uploaded albums and Library browsing.
-        // Only a few hooks live here; API/runtime/index logic is isolated in smart-albums.js + core/smart_albums.py.
+        // Smart Album and Smart Set share one Smart View presentation on the home page.
+        // Their proven query/index backends stay separate by result type and continue to reuse
+        // the same Smart Album index/runtime infrastructure underneath.
         const emptySmartAlbumIndexProgress = () => ({
             active: false,
             percent: 0,
@@ -104,6 +104,14 @@ result = [
 
         const SMART_SET_DEFAULT_CODE = `result = list(sets)
 `;
+        const showCreateSmartViewDialog = ref(false);
+        const smartViewCreateEditor = ref({
+            type: 'album',
+            name: '',
+            description: '',
+            python_code: SMART_ALBUM_DEFAULT_CODE,
+        });
+        let smartViewCreatePreviousType = 'album';
         const smartSets = ref([]);
         const currentSmartSet = ref({});
         const smartSetResults = ref([]);
@@ -116,12 +124,28 @@ result = [
         let smartSetEntryContext = null;
         const smartSetLoading = ref(false);
         const smartSetQueryError = ref('');
-        const showCreateSmartSetDialog = ref(false);
         const showEditSmartSetDialog = ref(false);
         const showSmartSetHelpDialog = ref(false);
         const smartSetHelpLoading = ref(false);
         const smartSetRuntime = ref(null);
         const smartSetEditor = ref({id: null, name: '', description: '', python_code: SMART_SET_DEFAULT_CODE});
+        const smartViews = computed(() => {
+            const albums = smartAlbums.value.map(item => ({
+                ...item,
+                smart_view_type: 'album',
+                smart_view_key: `album:${item.id}`,
+            }));
+            const sets = smartSets.value.map(item => ({
+                ...item,
+                smart_view_type: 'set',
+                smart_view_key: `set:${item.id}`,
+            }));
+            return [...albums, ...sets].sort((a, b) => {
+                const byCreated = String(b.created_at || '').localeCompare(String(a.created_at || ''));
+                if (byCreated) return byCreated;
+                return String(b.smart_view_key).localeCompare(String(a.smart_view_key));
+            });
+        });
 
         const emptyExploreStats = () => ({
             total_images: 0,
@@ -993,6 +1017,94 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             }
         };
 
+        const loadSmartViews = async () => {
+            await Promise.all([loadSmartAlbums(), loadSmartSets()]);
+        };
+
+        const openSmartView = async (item) => {
+            if (!item) return;
+            if (item.smart_view_type === 'set') {
+                await openSmartSet(item);
+                return;
+            }
+            await openSmartAlbum(item);
+        };
+
+        const smartViewResultText = (item) => {
+            if (!item || item.last_result_count == null) return '结果: —';
+            return item.smart_view_type === 'set'
+                ? `结果: ${item.last_result_count} Set`
+                : `结果: ${item.last_result_count} 张`;
+        };
+
+        const openCreateSmartView = () => {
+            smartViewCreatePreviousType = 'album';
+            smartViewCreateEditor.value = {
+                type: 'album',
+                name: '',
+                description: '',
+                python_code: SMART_ALBUM_DEFAULT_CODE,
+            };
+            showCreateSmartViewDialog.value = true;
+        };
+
+        const changeSmartViewCreateType = (nextType) => {
+            const previousDefault = smartViewCreatePreviousType === 'set'
+                ? SMART_SET_DEFAULT_CODE
+                : SMART_ALBUM_DEFAULT_CODE;
+            const nextDefault = nextType === 'set' ? SMART_SET_DEFAULT_CODE : SMART_ALBUM_DEFAULT_CODE;
+            const currentCode = String(smartViewCreateEditor.value.python_code || '');
+            if (!currentCode.trim() || currentCode === previousDefault) {
+                smartViewCreateEditor.value.python_code = nextDefault;
+            }
+            smartViewCreatePreviousType = nextType;
+        };
+
+        const openSmartViewCreateHelp = async () => {
+            if (smartViewCreateEditor.value.type === 'set') {
+                await openSmartSetHelp();
+                return;
+            }
+            await openSmartAlbumHelp();
+        };
+
+        const createSmartView = async () => {
+            const editor = smartViewCreateEditor.value;
+            const name = String(editor.name || '').trim();
+            if (!name) {
+                ElMessage.warning('请输入智能视图名称');
+                return;
+            }
+            const isSet = editor.type === 'set';
+            const api = isSet ? window.SmartSetApi : window.SmartAlbumApi;
+            if (!api) {
+                ElMessage.error('智能视图 API 不可用');
+                return;
+            }
+            try {
+                await api.create({
+                    name,
+                    description: editor.description || '',
+                    python_code: editor.python_code || (isSet ? SMART_SET_DEFAULT_CODE : SMART_ALBUM_DEFAULT_CODE),
+                });
+                showCreateSmartViewDialog.value = false;
+                await loadSmartViews();
+                ElMessage.success(`${isSet ? 'Smart Set' : 'Smart Album'} 创建成功`);
+            } catch (error) {
+                ElMessage.error(error.message || '创建智能视图失败');
+            }
+        };
+
+        const handleSmartViewCommand = async (command) => {
+            if (command === 'refresh-index') {
+                await refreshSmartAlbumIndex();
+                return;
+            }
+            if (command === 'sync-index') {
+                await openSmartAlbumIndexSync();
+            }
+        };
+
         const hydrateSmartSetDirectoryItems = async (rows) => {
             const results = Array.isArray(rows) ? rows : [];
             if (!results.length) {
@@ -1072,30 +1184,6 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                 ElMessage.error(error.message || 'Smart Set 执行失败');
             } finally {
                 smartSetLoading.value = false;
-            }
-        };
-
-        const openCreateSmartSet = () => {
-            smartSetEditor.value = {id: null, name: '', description: '', python_code: SMART_SET_DEFAULT_CODE};
-            showCreateSmartSetDialog.value = true;
-        };
-
-        const createSmartSet = async () => {
-            if (!smartSetEditor.value.name.trim()) {
-                ElMessage.warning('请输入 Smart Set 名称');
-                return;
-            }
-            try {
-                await window.SmartSetApi.create({
-                    name: smartSetEditor.value.name,
-                    description: smartSetEditor.value.description,
-                    python_code: smartSetEditor.value.python_code || SMART_SET_DEFAULT_CODE
-                });
-                showCreateSmartSetDialog.value = false;
-                await loadSmartSets();
-                ElMessage.success('Smart Set 创建成功');
-            } catch (error) {
-                ElMessage.error(error.message || '创建 Smart Set 失败');
             }
         };
 
@@ -1201,23 +1289,6 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
         const createAlbum = async () => {
             if (!newAlbum.value.name) {
                 ElMessage.warning('请输入相册名称');
-                return;
-            }
-
-            if (newAlbum.value.type === 'smart') {
-                try {
-                    await window.SmartAlbumApi.create({
-                        name: newAlbum.value.name,
-                        description: newAlbum.value.description,
-                        python_code: newAlbum.value.python_code || SMART_ALBUM_DEFAULT_CODE
-                    });
-                    ElMessage.success('Smart Album 创建成功');
-                    showCreateAlbumDialog.value = false;
-                    resetNewAlbumForm(false);
-                    await loadSmartAlbums();
-                } catch (error) {
-                    ElMessage.error('创建 Smart Album 失败: ' + (error.message || '未知错误'));
-                }
                 return;
             }
 
@@ -1329,8 +1400,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
 
             loadAlbums();
             if (isAdmin.value) {
-                loadSmartAlbums();
-                loadSmartSets();
+                loadSmartViews();
             }
         };
 
@@ -3597,8 +3667,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
 
             if (isAdmin.value) {
                 await loadLibrarySources();
-                await loadSmartAlbums();
-                await loadSmartSets();
+                await loadSmartViews();
             }
 
             if (sourceId && isAdmin.value) {
@@ -4850,7 +4919,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                     showAdminLogin.value = false;
                     adminPassword.value = '';
                     await loadLibrarySources();
-                    await loadSmartAlbums();
+                    await loadSmartViews();
                     ElMessage.success('管理员登录成功');
                 } else {
                     const errorData = await response.json();
@@ -4874,6 +4943,10 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartAlbums.value = [];
             currentSmartAlbum.value = {};
             smartAlbumImages.value = [];
+            smartSets.value = [];
+            currentSmartSet.value = {};
+            smartSetResults.value = [];
+            smartSetDirectoryItems.value = [];
             localStorage.removeItem('admin_token');
             ElMessage.success('已退出管理员模式');
         };
@@ -5238,7 +5311,6 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
                 model_name: '',
                 location: '',
                 group_ids: [],
-                python_code: SMART_ALBUM_DEFAULT_CODE
             };
             if (showDialog) showCreateAlbumDialog.value = true;
         };
@@ -5278,6 +5350,17 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             loadExploreStats,
             openExploreStat,
             backToExplore,
+            smartViews,
+            showCreateSmartViewDialog,
+            smartViewCreateEditor,
+            openCreateSmartView,
+            changeSmartViewCreateType,
+            openSmartViewCreateHelp,
+            createSmartView,
+            openSmartView,
+            smartViewResultText,
+            handleSmartViewCommand,
+            loadSmartViews,
             smartAlbums,
             currentSmartAlbum,
             smartAlbumImages,
@@ -5312,7 +5395,6 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             smartSetDirectoryItems,
             smartSetLoading,
             smartSetQueryError,
-            showCreateSmartSetDialog,
             showEditSmartSetDialog,
             showSmartSetHelpDialog,
             smartSetHelpLoading,
@@ -5321,8 +5403,6 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             loadSmartSets,
             openSmartSet,
             runSmartSet,
-            openCreateSmartSet,
-            createSmartSet,
             editSmartSet,
             saveSmartSet,
             deleteSmartSet,
