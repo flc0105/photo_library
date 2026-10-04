@@ -206,6 +206,13 @@ const app = createApp({
         const showExploreBlockHelpDialog = ref(false);
         const exploreBlockHelpLoading = ref(false);
         const exploreBlockRuntime = ref(null);
+        const exploreFullscreenLoading = computed(() => (
+            exploreLoading.value
+            || exploreQueryLoading.value
+            || exploreBlockPreviewLoading.value
+            || exploreBlockSaving.value
+            || exploreBlockHelpLoading.value
+        ));
         let exploreReturnScrollY = 0;
 
 
@@ -5647,6 +5654,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreLoading,
             exploreStatsLoaded,
             exploreQueryLoading,
+            exploreFullscreenLoading,
             exploreError,
             exploreSourceText,
             exploreSelectedYear,

@@ -3555,9 +3555,9 @@ body {
 
 
 /* Explore / Statistics */
-/* Explore drill-down queries use a viewport-level mask so the spinner stays centered
-   even when the statistics page itself is taller than the viewport. */
-.explore-query-fullscreen-mask {
+/* Every Explore loading state uses the same viewport-level mask so no spinner can
+   be positioned from a long page, dialog body, preview panel, or button. */
+.explore-fullscreen-loading-mask {
     position: fixed;
     inset: 0;
     z-index: 10000;
@@ -3567,16 +3567,16 @@ body {
     background: rgba(245, 247, 250, 0.68);
 }
 
-.explore-query-fullscreen-spinner {
+.explore-fullscreen-loading-spinner {
     width: 42px;
     height: 42px;
     border: 3px solid rgba(64, 158, 255, 0.22);
     border-top-color: #409eff;
     border-radius: 50%;
-    animation: explore-query-spin 0.8s linear infinite;
+    animation: explore-fullscreen-loading-spin 0.8s linear infinite;
 }
 
-@keyframes explore-query-spin {
+@keyframes explore-fullscreen-loading-spin {
     to {
         transform: rotate(360deg);
     }
@@ -3587,9 +3587,6 @@ body {
     min-height: calc(100vh - 72px);
 }
 
-.explore-result-loading > .el-loading-mask {
-    background-color: transparent !important;
-}
 
 .explore-card-grid {
     display: grid;
