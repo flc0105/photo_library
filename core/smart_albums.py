@@ -50,7 +50,7 @@ _STAGE_DEFS = SMART_ALBUM_INDEX_STAGE_DEFS
 _SKIP_DIR_NAMES = {'deleted', 'discards', 'intermediates'}
 _CAPTURE_METADATA_MODES = {'asset', 'original_jpg', 'original_jpg_raw'}
 
-DEFAULT_QUERY_CODE = """# `photos` contains all indexed photos from enabled Library Sources.\n# Return Photo objects through `result`.\nresult = list(photos)\n"""
+DEFAULT_QUERY_CODE = """result = [\n    photo\n    for photo in photos\n    if photo.state.favorite\n]\n"""
 
 PHOTO_CONTRACT_GROUPS = [
     {'label': 'Identity', 'fields': ['photo.id', 'photo.stage', 'photo.logical_id']},
@@ -71,13 +71,10 @@ PHOTO_CONTRACT_GROUPS = [
     {'label': 'Set / Manifest', 'fields': ['photo.set.name', 'photo.set.path', 'photo.set.manifest']},
 ]
 
-SMART_ALBUM_HELP_EXAMPLE = '''SOURCE = "2026"
-result = [
+SMART_ALBUM_HELP_EXAMPLE = '''result = [
     photo
     for photo in photos
-    if photo.source.name == SOURCE
-    and photo.state.favorite
-    and photo.stage == "final"
+    if photo.state.favorite
 ]
 '''
 
@@ -336,7 +333,7 @@ def _run_exiftool_records(exiftool_path, files, *, progress_callback=None, cance
     total = len(unique)
     for offset in range(0, total, SMART_ALBUM_EXIF_BATCH_SIZE):
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引刷新已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引重建已取消')
         chunk = unique[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
         command = [
             exiftool_path,
@@ -364,7 +361,7 @@ def _run_exiftool_records(exiftool_path, files, *, progress_callback=None, cance
             if source:
                 records_by_path[str(Path(source).resolve())] = record
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引刷新已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引重建已取消')
         if progress_callback:
             progress_callback(min(offset + len(chunk), total), total)
     return records_by_path
@@ -645,7 +642,7 @@ def _new_index_steps():
     return [
         {
             'id': 'discover_sets',
-            'label': '扫描 Source / Set',
+            'label': '扫描 Source',
             'status': 'pending',
             'current': 0,
             'total': 0,
@@ -659,16 +656,16 @@ def _new_index_steps():
             'current': 0,
             'total': 0,
             'unit': 'Set',
-            'detail': '等待 Set 扫描完成',
+            'detail': '等待 Source 扫描完成',
         },
         {
             'id': 'index_assets',
-            'label': '读取图片 Metadata / EXIF 并写入索引',
+            'label': '读取图片信息并写入索引',
             'status': 'pending',
             'current': 0,
             'total': 0,
             'unit': '图片',
-            'detail': '包含尺寸、方向、Color Space、Bit Depth 与 capture metadata',
+            'detail': '等待候选图片统计完成',
         },
         {
             'id': 'verify',
@@ -709,7 +706,7 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
 
     def check_cancelled():
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引刷新已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引重建已取消')
 
     def emit(phase, message, *, current=None, total=None, percent=None):
         nonlocal overall_current, overall_total, overall_ready
@@ -768,8 +765,8 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
     # First discover projects (Sets), then fix the image denominator. The overall
     # bar never switches to Source/Set counts.
     discover_step = step_map['discover_sets']
-    discover_step.update(status='active', current=0, total=len(sources), detail='开始扫描 enabled Library Sources')
-    emit('discover_sets', '扫描 Source / Set')
+    discover_step.update(status='active', current=0, total=len(sources), detail='开始扫描已启用的 Source')
+    emit('discover_sets', '扫描 Source')
 
     for source_index, source in enumerate(sources, start=1):
         check_cancelled()
@@ -849,7 +846,7 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
     emit('plan_assets', f'候选图片统计完成：{total_assets} 张', current=0, total=total_assets, percent=0)
 
     index_step = step_map['index_assets']
-    index_step.update(status='active', current=0, total=total_assets, detail='准备读取图片 Metadata / EXIF')
+    index_step.update(status='active', current=0, total=total_assets, detail='准备读取图片信息')
 
     check_cancelled()
     conn = _connect(smart_db_path)
@@ -874,7 +871,7 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
                 batch_start = indexed_done + 1 if batch_plans else indexed_done
                 batch_end = indexed_done + len(batch_plans)
                 index_step['detail'] = (
-                    f"{source['name']}：读取第 {batch_start}–{batch_end} / {total_assets} 张图片的 Metadata / EXIF"
+                    f"{source['name']}：读取第 {batch_start}–{batch_end} / {total_assets} 张图片信息"
                     if total_assets else f"{source['name']}：没有候选图片"
                 )
                 emit('index_assets', index_step['detail'], current=indexed_done, total=total_assets)
@@ -942,7 +939,7 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
         check_cancelled()
         row_count = conn.execute('SELECT COUNT(*) AS count FROM smart_album_assets').fetchone()['count']
         if int(row_count) != int(asset_count):
-            raise RuntimeError(f'Smart Album 索引校验失败：写入 {asset_count} 张，但数据库中为 {row_count} 张')
+            raise RuntimeError(f'Smart View 索引校验失败：写入 {asset_count} 张，但数据库中为 {row_count} 张')
 
         if unavailable_sources:
             warnings.append('不可用 Source：' + ', '.join(unavailable_sources))
@@ -970,7 +967,7 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
     finally:
         conn.close()
 
-    emit('done', f'Smart Album 索引完成：{asset_count} 张图片', current=asset_count, total=asset_count, percent=100)
+    emit('done', f'索引重建完成：{asset_count} 张图片', current=asset_count, total=asset_count, percent=100)
     return {
         'last_refresh_at': indexed_at,
         'asset_count': asset_count,
@@ -1193,7 +1190,7 @@ def _sync_old_detail(row, source_name=''):
 def _build_sync_plan(smart_db_path, main_db_path, source_ids):
     status = _index_status(smart_db_path)
     if not status['ready']:
-        raise RuntimeError('请先使用现有“刷新索引”完成一次完整重建，再使用同步索引。')
+        raise RuntimeError('请先完成一次索引重建，再使用同步。')
 
     inventory = _scan_sync_inventory(main_db_path, source_ids)
     source_name_map = {int(source['id']): source['name'] for source in inventory['sources']}
@@ -1276,21 +1273,21 @@ def _public_sync_plan(plan):
 
 def _verify_sync_plan(plan, smart_db_path, main_db_path):
     if plan.get('policy_signature') != _index_policy_signature():
-        raise RuntimeError('Smart Album 索引配置已变化，请先完整重建索引。')
+        raise RuntimeError('Smart View 索引配置已变化，请先完整重建索引。')
     fresh = _build_sync_plan(smart_db_path, main_db_path, plan['source_ids'])
     if fresh['inventory_signature'] != plan['inventory_signature']:
         raise RuntimeError('扫描后文件列表或文件状态已经变化，请重新“扫描变化”后再同步。')
     if fresh['index_signature'] != plan['index_signature']:
-        raise RuntimeError('Smart Album 索引在扫描后已经变化，请重新“扫描变化”后再同步。')
+        raise RuntimeError('Smart View 索引在扫描后已经变化，请重新“扫描变化”后再同步。')
     return fresh
 
 
 def _new_sync_steps():
     return [
         {'id': 'verify_plan', 'label': '核对扫描计划', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '等待开始'},
-        {'id': 'process_assets', 'label': '读取新增 / 修改图片 Metadata / EXIF', 'status': 'pending', 'current': 0, 'total': 0, 'unit': '图片', 'detail': '未变化图片不会重新读取'},
+        {'id': 'process_assets', 'label': '读取新增 / 修改图片信息', 'status': 'pending', 'current': 0, 'total': 0, 'unit': '图片', 'detail': '等待开始'},
         {'id': 'apply_changes', 'label': '更新索引', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '写入新增/修改，并移除已删除记录'},
-        {'id': 'verify_commit', 'label': '校验并提交', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '旧索引会保留到最终提交成功'},
+        {'id': 'verify_commit', 'label': '校验并提交', 'status': 'pending', 'current': 0, 'total': 1, 'unit': '项', 'detail': '等待提交'},
     ]
 
 
@@ -1303,7 +1300,7 @@ def _prepare_sync_rows(plan, exiftool, *, progress_callback=None, cancel_callbac
 
     for offset in range(0, total, SMART_ALBUM_EXIF_BATCH_SIZE):
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引同步已取消')
         batch_keys = keys[offset:offset + SMART_ALBUM_EXIF_BATCH_SIZE]
         batch_items = [plan['records'][key] for key in batch_keys]
         metadata_files = []
@@ -1319,7 +1316,7 @@ def _prepare_sync_rows(plan, exiftool, *, progress_callback=None, cancel_callbac
             cancel_callback=cancel_callback,
         ) if exiftool else {}
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引同步已取消')
 
         for item in batch_items:
             path = item['path']
@@ -1362,7 +1359,7 @@ def _prepare_sync_rows(plan, exiftool, *, progress_callback=None, cancel_callbac
 
 def _apply_sync_changes(plan, prepared_rows, smart_db_path, main_db_path, exiftool_version, *, cancel_callback=None):
     if cancel_callback and cancel_callback():
-        raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+        raise SmartAlbumIndexCancelled('Smart View 索引同步已取消')
 
     status_before = _index_status(smart_db_path)
     existing_ids = [int(value) for value in status_before.get('indexed_source_ids') or []]
@@ -1386,7 +1383,7 @@ def _apply_sync_changes(plan, prepared_rows, smart_db_path, main_db_path, exifto
     conn.execute('BEGIN IMMEDIATE')
     try:
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引同步已取消')
 
         for source_id, relative_path in [*plan['deleted_keys'], *plan['changed_keys']]:
             conn.execute('DELETE FROM smart_album_assets WHERE source_id=? AND relative_path=?', (source_id, relative_path))
@@ -1448,7 +1445,7 @@ def _apply_sync_changes(plan, prepared_rows, smart_db_path, main_db_path, exifto
         _meta_set(conn, 'indexed_source_names_json', json.dumps(indexed_names, ensure_ascii=False))
 
         if cancel_callback and cancel_callback():
-            raise SmartAlbumIndexCancelled('Smart Album 索引同步已取消')
+            raise SmartAlbumIndexCancelled('Smart View 索引同步已取消')
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1489,7 +1486,7 @@ def _index_status(smart_db_path):
     conn.close()
     policy_matches = stored_policy == current_policy
     if last_refresh_at and not policy_matches:
-        warnings = [*warnings, 'Smart Album 索引配置已变化，请重新刷新索引。']
+        warnings = [*warnings, 'Smart View 索引配置已变化，请重新重建索引。']
     return {
         'ready': bool(last_refresh_at) and policy_matches,
         'last_refresh_at': last_refresh_at or None,
@@ -1737,7 +1734,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             if index_job.get('cancel_requested'):
                 progress = dict(progress)
                 progress['phase'] = 'cancelling'
-                progress['message'] = '正在取消刷新；当前批次结束后回滚未完成的新索引'
+                progress['message'] = '正在取消重建…'
             index_job.update(progress)
 
     def run_index_refresh_job(selected_source_ids):
@@ -1756,7 +1753,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 active=False,
                 percent=100,
                 phase='done',
-                message=f"Smart Album 索引完成：{status['asset_count']} 张图片",
+                message=f"索引重建完成：{status['asset_count']} 张图片",
                 current=status['asset_count'],
                 total=status['asset_count'],
                 overall=overall,
@@ -1774,7 +1771,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_index_job(
                 active=False,
                 phase='cancelled',
-                message='已取消刷新；保留上一次可用索引',
+                message='已取消重建',
                 steps=cancelled_steps,
                 error='',
                 cancel_requested=False,
@@ -1789,7 +1786,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_index_job(
                 active=False,
                 phase='error',
-                message='Smart Album 索引刷新失败',
+                message='Smart View 索引重建失败',
                 steps=failed_steps,
                 error=str(exc),
                 cancel_requested=False,
@@ -1883,9 +1880,9 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             process_total = verified['summary']['process_total']
             process_step.update(status='active', current=0, total=process_total)
             if process_total:
-                process_step['detail'] = f'只处理 {process_total} 张新增 / 修改图片；未变化图片跳过'
+                process_step['detail'] = f'待处理 {process_total} 张新增 / 修改图片'
             else:
-                process_step['detail'] = '没有新增 / 修改图片；无需读取 Metadata / EXIF'
+                process_step['detail'] = '没有新增 / 修改图片；无需读取图片信息'
             publish('process_assets', process_step['detail'], current=0, total=change_total)
 
             def on_processed(done, total):
@@ -1900,7 +1897,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 progress_callback=on_processed,
                 cancel_callback=sync_cancel_requested,
             )
-            process_step.update(status='done', current=process_total, total=process_total, detail=f'新增 / 修改 Metadata 完成：{process_total} 张')
+            process_step.update(status='done', current=process_total, total=process_total, detail=f'新增 / 修改图片信息读取完成：{process_total} 张')
 
             # Metadata extraction can take time. Re-scan before touching SQLite so
             # execution always commits the exact previewed plan.
@@ -1919,7 +1916,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                     f"删除 {verified_again['summary']['deleted_count']}"
                 ),
             )
-            publish('apply_changes', '更新 Smart Album 索引', current=process_total, total=change_total)
+            publish('apply_changes', '更新 Smart View 索引', current=process_total, total=change_total)
             status = _apply_sync_changes(
                 verified_again,
                 prepared_rows,
@@ -1958,7 +1955,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_sync_job(
                 active=False,
                 phase='cancelled',
-                message='已取消同步；同步前的完整索引保持不变',
+                message='已取消同步',
                 steps=copy.deepcopy(steps),
                 error='',
                 cancel_requested=False,
@@ -1972,7 +1969,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_sync_job(
                 active=False,
                 phase='error',
-                message='Smart Album 索引同步失败',
+                message='Smart View 索引同步失败',
                 steps=copy.deepcopy(steps),
                 error=str(exc),
                 cancel_requested=False,
@@ -2109,7 +2106,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Smart Album 索引尚未建立，请先点击“刷新索引”。',
+                    'error': 'Smart View 索引尚未建立，请先重建索引。',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                     'traceback': '',
@@ -2138,7 +2135,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
         if not selected_sources:
-            return jsonify({'error': '没有可用于 Smart Album 索引的 enabled Source'}), 400
+            return jsonify({'error': '没有可用于 Smart View 索引的已启用 Source'}), 400
         if not any(Path(source['root_path']).expanduser().is_dir() for source in selected_sources):
             return jsonify({'error': '所选 Source 当前均不可用，无法建立索引'}), 400
         selected_source_ids = [int(source['id']) for source in selected_sources]
@@ -2151,7 +2148,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 'active': True,
                 'percent': 0,
                 'phase': 'starting',
-                'message': '准备刷新 Smart Album 索引',
+                'message': '准备重建 Smart View 索引',
                 'current': 0,
                 'total': 0,
                 'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
@@ -2187,7 +2184,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 return jsonify(copy.deepcopy(index_job))
             index_job['cancel_requested'] = True
             index_job['phase'] = 'cancelling'
-            index_job['message'] = '正在取消刷新；当前批次结束后回滚未完成的新索引'
+            index_job['message'] = '正在取消重建…'
             snapshot = copy.deepcopy(index_job)
         return jsonify(snapshot), 202
 
@@ -2245,7 +2242,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             sync_job.update({
                 'active': True,
                 'phase': 'starting',
-                'message': '准备同步 Smart Album 索引',
+                'message': '准备同步 Smart View 索引',
                 'percent': 0,
                 'current': 0,
                 'total': change_total,
@@ -2269,7 +2266,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 return jsonify(copy.deepcopy(sync_job))
             sync_job['cancel_requested'] = True
             sync_job['phase'] = 'cancelling'
-            sync_job['message'] = '正在取消同步；当前 Metadata 批次结束后停止，旧索引保持不变'
+            sync_job['message'] = '正在取消同步…'
             snapshot = copy.deepcopy(sync_job)
         return jsonify(snapshot), 202
 

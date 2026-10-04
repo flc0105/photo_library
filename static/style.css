@@ -3658,3 +3658,60 @@ body {
     font-size: 13px;
     padding: 18px 0;
 }
+
+/* Smart View: keep type/edit affordances lightweight inside the existing album card. */
+.smart-view-card-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+.smart-view-card-title-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.smart-view-card-title-main .album-name {
+    margin-bottom: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.smart-view-type-tag {
+    --el-tag-font-size: 10px;
+    --el-tag-bg-color: transparent;
+    --el-tag-border-color: #e4e7ed;
+    --el-tag-text-color: #909399;
+    height: 18px;
+    padding: 0 5px;
+    line-height: 16px;
+    flex: 0 0 auto;
+}
+
+.smart-view-edit-btn {
+    height: 18px !important;
+    min-height: 18px !important;
+    padding: 0 2px !important;
+    margin: 1px 0 0 !important;
+    font-size: 11px !important;
+    color: #a8abb2 !important;
+    opacity: 0.82;
+    flex: 0 0 auto;
+}
+
+.smart-view-edit-btn:hover {
+    color: #606266 !important;
+    background: transparent !important;
+    opacity: 1;
+}
+
+/* Loading a Smart View should not flash an opaque white display area. */
+.smart-view-result-loading > .el-loading-mask {
+    background-color: transparent !important;
+}
