@@ -162,6 +162,7 @@ const app = createApp({
         });
         const exploreStats = ref(emptyExploreStats());
         const exploreLoading = ref(false);
+        const exploreStatsLoaded = ref(false);
         const exploreQueryLoading = ref(false);
         const exploreError = ref('');
         const exploreSelectedYear = ref(null);
@@ -537,6 +538,7 @@ const app = createApp({
         const loadExploreStats = async () => {
             if (!isAdmin.value || !window.ExploreApi) return;
             exploreLoading.value = true;
+            exploreStatsLoaded.value = false;
             exploreError.value = '';
             try {
                 const data = await window.ExploreApi.stats();
@@ -549,8 +551,10 @@ const app = createApp({
                     exploreSelectedYear.value = years.length ? years[0] : null;
                 }
                 if (data.index) smartAlbumIndex.value = data.index;
+                exploreStatsLoaded.value = true;
             } catch (error) {
                 exploreStats.value = emptyExploreStats();
+                exploreStatsLoaded.value = false;
                 if (error?.payload?.index) smartAlbumIndex.value = error.payload.index;
                 exploreError.value = error.message || 'Explore 统计加载失败';
             } finally {
@@ -5425,6 +5429,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             currentView,
             exploreStats,
             exploreLoading,
+            exploreStatsLoaded,
             exploreQueryLoading,
             exploreError,
             exploreSourceText,

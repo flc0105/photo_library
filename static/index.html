@@ -5,13 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261004-06">
+    <link rel="stylesheet" href="style.css?v=20261004-07">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
 </head>
 <body>
 <div id="app">
+    <div v-if="exploreQueryLoading"
+         class="explore-query-fullscreen-mask"
+         role="status" aria-label="Explore 查询加载中"
+         @wheel.prevent @touchmove.prevent>
+        <div class="explore-query-fullscreen-spinner" aria-hidden="true"></div>
+    </div>
+
     <div class="container">
 
         <!-- 相册列表页面 -->
@@ -207,7 +214,7 @@
 
 
         <!-- Explore：Photo 与 Set 共享同一智能索引 Source 范围，可反向进入临时 Smart Album / Smart Set。 -->
-        <div v-if="currentView === 'explore'" class="explore-result-loading" v-loading="exploreLoading || exploreQueryLoading">
+        <div v-if="currentView === 'explore'" class="explore-result-loading" v-loading="exploreLoading">
             <div class="back-button">
                 <el-button @click="backToAlbums">返回相册列表</el-button>
             </div>
@@ -419,7 +426,7 @@
                 </div>
             </el-dialog>
 
-            <div v-else-if="!exploreError && !exploreLoading" class="empty-state">
+            <div v-if="exploreStatsLoaded && !exploreError && !exploreLoading && exploreStats.total_sets === 0 && exploreStats.total_images === 0" class="empty-state">
                 <p>当前智能索引范围没有可统计的 Set 或图片。</p>
             </div>
         </div>
