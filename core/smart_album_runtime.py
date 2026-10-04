@@ -94,12 +94,13 @@ class SetRecord(AttrMap):
 
 
 class _ExploreGrouping:
-    __slots__ = ('kind', 'population_ids', 'buckets')
+    __slots__ = ('kind', 'population_ids', 'buckets', 'photo_scope_ids')
 
-    def __init__(self, kind, population_ids, buckets):
+    def __init__(self, kind, population_ids, buckets, photo_scope_ids=None):
         self.kind = kind
         self.population_ids = population_ids
         self.buckets = buckets
+        self.photo_scope_ids = photo_scope_ids
 
 
 def _normalize_explore_bucket_value(value):
@@ -815,14 +816,38 @@ def _execute_explore_block(code, set_payloads, photo_payloads):
     allowed_set_ids = set(sets_by_id)
     allowed_photo_ids = set(photos_by_id)
 
-    def group_sets(items, key, many=False, label=None, missing='未记录', include_missing=True):
+    def group_sets(
+        items, key, many=False, label=None, missing='未记录', include_missing=True,
+        photo_scope=None,
+    ):
         if not isinstance(include_missing, bool):
             raise TypeError('include_missing 必须是 bool。')
-        return _group_explore_records(
+        grouping = _group_explore_records(
             items, key, many=bool(many), label=label, missing=missing,
             include_missing=include_missing,
             record_type=SetRecord, allowed_ids=allowed_set_ids, kind='sets',
         )
+        if photo_scope is None:
+            return grouping
+
+        scope_ids = []
+        seen_scope_ids = set()
+        try:
+            scope_items = list(photo_scope)
+        except TypeError as exc:
+            raise TypeError('photo_scope 必须是 Photo iterable 或 None。') from exc
+        for photo in scope_items:
+            if not isinstance(photo, PhotoRecord):
+                raise TypeError('photo_scope 只能包含 Photo 对象。')
+            photo_id = photo.id
+            if photo_id not in allowed_photo_ids:
+                raise ValueError('photo_scope 包含不属于当前候选池的 Photo 对象。')
+            if photo_id in seen_scope_ids:
+                continue
+            seen_scope_ids.add(photo_id)
+            scope_ids.append(photo_id)
+        grouping.photo_scope_ids = scope_ids
+        return grouping
 
     def group_photos(items, key, many=False, label=None, missing='未记录', include_missing=True):
         if not isinstance(include_missing, bool):
@@ -851,8 +876,16 @@ def _execute_explore_block(code, set_payloads, photo_payloads):
     if grouping.kind == 'sets':
         population_set_ids = list(grouping.population_ids)
         population_set_id_set = set(population_set_ids)
+        if grouping.photo_scope_ids is None:
+            scoped_photos = photos
+        else:
+            scoped_photos = [
+                photos_by_id[photo_id]
+                for photo_id in grouping.photo_scope_ids
+                if photo_id in photos_by_id
+            ]
         population_photo_ids = [
-            photo.id for photo in photos
+            photo.id for photo in scoped_photos
             if photo_to_set_id.get(photo.id) in population_set_id_set
         ]
     else:
@@ -872,7 +905,7 @@ def _execute_explore_block(code, set_payloads, photo_payloads):
             set_ids = direct_ids
             set_id_set = set(set_ids)
             photo_ids = [
-                photo.id for photo in photos
+                photo.id for photo in scoped_photos
                 if photo_to_set_id.get(photo.id) in set_id_set
             ]
         else:

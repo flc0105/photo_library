@@ -1919,7 +1919,7 @@
                     <div style="margin-bottom:14px; color:#606266; font-size:13px;">
                         Python 只负责把 Set 或图片分进统计 bucket；代码必须给 <code>result</code> 赋值，并且结果必须来自
                         <code>group_sets()</code> 或 <code>group_photos()</code>。计数、百分比、按 Set / 按图片切换和点击后的临时 Smart View 都由 Explore 统一处理。
-                        <code>group_sets()</code> 的图片指标统计这些 Set 中全部当前 indexed Photo；<code>group_photos()</code> 的 Set 指标则对匹配图片所属 Set 去重。
+                        <code>group_sets()</code> 的 Set membership 始终按传入 Set 计算；图片指标默认统计这些 Set 中全部当前 indexed Photo，也可以用 <code>photo_scope=...</code> 限定图片版本范围。<code>group_photos()</code> 的 Set 指标则对匹配图片所属 Set 去重。
                     </div>
                     <div style="margin-bottom:14px;">
                         <strong>Helpers</strong>
@@ -1930,7 +1930,7 @@
                         <div style="margin-top:8px; color:#909399; font-size:12px;">
                             <code>many=True</code> 允许同一个 Set / Photo 同时进入多个 bucket；同一对象在同一 bucket 只计一次。
                             <code>include_missing=False</code> 会排除空值 / “未记录”，并把它们从该分组的百分比分母中移除；默认 <code>True</code>。
-                            图片版本范围由传给 <code>group_photos()</code> 的集合决定：当前版本可用 <code>preferred_versions(photos)</code>，切全 Final 时改为 <code>finals(photos)</code>。
+                            图片版本范围由 Python 显式决定：<code>group_photos()</code> 直接传筛选后的 Photo；<code>group_sets()</code> 则用 <code>photo_scope=preferred_versions(photos)</code>，切全 Final 时改为 <code>photo_scope=finals(photos)</code>。
                         </div>
                     </div>
                     <div style="margin-bottom:14px;">
@@ -4122,7 +4122,7 @@
 <script src="set-insights.js?v=20260920-02"></script>
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
-<script src="explore.js?v=20261004-03"></script>
-<script type="module" src="app.js?v=20261005-02"></script>
+<script src="explore.js?v=20261005-01"></script>
+<script type="module" src="app.js?v=20261005-03"></script>
 </body>
 </html>

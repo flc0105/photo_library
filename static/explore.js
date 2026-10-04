@@ -57,6 +57,9 @@
         async runtime() {
             return requestJson('/api/explore/runtime');
         },
+        async blockStats(blockId) {
+            return requestJson(`/api/explore/blocks/${blockId}/stats`);
+        },
         async queryBlock(blockId, bucketId, target = 'sets') {
             return requestJson(`/api/explore/blocks/${blockId}/query`, {
                 method: 'POST',

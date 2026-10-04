@@ -148,10 +148,13 @@ const app = createApp({
             });
         });
 
-        const EXPLORE_BLOCK_DEFAULT_CODE = `result = group_sets(
+        const EXPLORE_BLOCK_DEFAULT_CODE = `selected = preferred_versions(photos)
+
+result = group_sets(
     sets,
     key=lambda item: item.manifest.model,
     include_missing=True,
+    photo_scope=selected,
 )
 `;
         const emptyExploreStats = () => ({
@@ -528,6 +531,72 @@ const app = createApp({
                 }
             }
         };
+        const sortExploreBlockItems = items => (Array.isArray(items) ? items : [])
+            .slice()
+            .sort((a, b) => {
+                const byOrder = Number(a?.display_order || 0) - Number(b?.display_order || 0);
+                if (byOrder) return byOrder;
+                return Number(a?.id || 0) - Number(b?.id || 0);
+            });
+        const upsertExploreBlockDefinition = block => {
+            if (!block?.id) return;
+            const blockId = Number(block.id);
+            const items = (Array.isArray(exploreBlocks.value) ? exploreBlocks.value : []).filter(
+                item => Number(item?.id) !== blockId
+            );
+            items.push(block);
+            exploreBlocks.value = sortExploreBlockItems(items);
+            ensureExploreBlockModes([block]);
+        };
+        const disabledExploreBlockCard = block => ({
+            id: block.id,
+            name: block.name || '',
+            description: block.description || '',
+            default_metric: block.default_metric === 'photos' ? 'photos' : 'sets',
+            display_order: Number(block.display_order || 0),
+            enabled: false,
+            presentation: block.presentation || 'list',
+            source_kind: null,
+            rows: [],
+            error: '',
+        });
+        const upsertExploreBlockCard = card => {
+            if (!card?.id) return;
+            const blockId = Number(card.id);
+            const items = (Array.isArray(exploreStats.value?.custom_blocks) ? exploreStats.value.custom_blocks : []).filter(
+                item => Number(item?.id) !== blockId
+            );
+            items.push(card);
+            exploreStats.value = {
+                ...exploreStats.value,
+                custom_blocks: sortExploreBlockItems(items),
+            };
+            ensureExploreBlockModes([card]);
+        };
+        const removeExploreBlockLocal = blockId => {
+            const targetId = Number(blockId);
+            exploreBlocks.value = (Array.isArray(exploreBlocks.value) ? exploreBlocks.value : []).filter(
+                item => Number(item?.id) !== targetId
+            );
+            exploreStats.value = {
+                ...exploreStats.value,
+                custom_blocks: (Array.isArray(exploreStats.value?.custom_blocks) ? exploreStats.value.custom_blocks : []).filter(
+                    item => Number(item?.id) !== targetId
+                ),
+            };
+            delete exploreMetricModes.value[exploreBlockDimension(targetId)];
+            if (Number(exploreMoreDialog.value?.block_id) === targetId) {
+                exploreMoreDialogVisible.value = false;
+            }
+        };
+        const loadExploreBlockStat = async blockId => {
+            if (!window.ExploreApi || !blockId) return null;
+            const data = await window.ExploreApi.blockStats(blockId);
+            if (data?.card) upsertExploreBlockCard(data.card);
+            if (data?.index) smartAlbumIndex.value = data.index;
+            return data?.card || null;
+        };
+
         const exploreMetricTarget = dimension => exploreMetricModes.value[dimension] === 'photos' ? 'photos' : 'sets';
         const exploreMetricCount = (item, dimension) => exploreMetricTarget(dimension) === 'photos'
             ? Number(item?.image_count || 0)
@@ -595,7 +664,7 @@ const app = createApp({
             }
             try {
                 const data = await window.ExploreApi.blocks();
-                exploreBlocks.value = Array.isArray(data.blocks) ? data.blocks : [];
+                exploreBlocks.value = sortExploreBlockItems(data.blocks);
                 ensureExploreBlockModes(exploreBlocks.value);
             } catch (error) {
                 console.error('加载 Explore Blocks 失败:', error);
@@ -708,6 +777,7 @@ const app = createApp({
         const saveExploreBlock = async () => {
             if (!window.ExploreApi || exploreBlockSaving.value) return;
             const editor = exploreBlockEditor.value;
+            const wasExisting = Boolean(editor.id);
             const payload = exploreBlockPayload(editor);
             if (!payload.name) {
                 ElMessage.warning('请输入统计名称');
@@ -718,12 +788,18 @@ const app = createApp({
                 const data = editor.id
                     ? await window.ExploreApi.updateBlock(editor.id, payload)
                     : await window.ExploreApi.createBlock(payload);
-                if (data?.block?.id) {
-                    exploreMetricModes.value[exploreBlockDimension(data.block.id)] = payload.default_metric;
+                const savedBlock = data?.block || null;
+                if (savedBlock?.id) {
+                    exploreMetricModes.value[exploreBlockDimension(savedBlock.id)] = payload.default_metric;
+                    upsertExploreBlockDefinition(savedBlock);
+                    if (savedBlock.enabled === false) {
+                        upsertExploreBlockCard(disabledExploreBlockCard(savedBlock));
+                    } else {
+                        await loadExploreBlockStat(savedBlock.id);
+                    }
                 }
                 showExploreBlockDialog.value = false;
-                await Promise.all([loadExploreBlocks(), loadExploreStats()]);
-                ElMessage.success(editor.id ? '统计已保存' : '统计已创建');
+                ElMessage.success(wasExisting ? '统计已保存' : '统计已创建');
             } catch (error) {
                 ElMessage.error(error.message || '保存 Explore Block 失败');
             } finally {
@@ -745,11 +821,20 @@ const app = createApp({
             exploreBlockSaving.value = true;
             try {
                 const data = await window.ExploreApi.updateBlock(blockId, payload);
-                editor.enabled = data?.block?.enabled !== false;
-                if (data?.block?.id) {
-                    exploreMetricModes.value[exploreBlockDimension(data.block.id)] = payload.default_metric;
+                const savedBlock = data?.block || null;
+                editor.enabled = savedBlock?.enabled !== false;
+                if (savedBlock?.id) {
+                    exploreMetricModes.value[exploreBlockDimension(savedBlock.id)] = payload.default_metric;
+                    upsertExploreBlockDefinition(savedBlock);
+                    if (savedBlock.enabled === false) {
+                        upsertExploreBlockCard(disabledExploreBlockCard(savedBlock));
+                        if (Number(exploreMoreDialog.value?.block_id) === Number(savedBlock.id)) {
+                            exploreMoreDialogVisible.value = false;
+                        }
+                    } else {
+                        await loadExploreBlockStat(savedBlock.id);
+                    }
                 }
-                await Promise.all([loadExploreBlocks(), loadExploreStats()]);
                 ElMessage.success(editor.enabled ? '统计已启用' : '统计已停用');
             } catch (error) {
                 ElMessage.error(error.message || (nextEnabled ? '启用统计失败' : '停用统计失败'));
@@ -770,7 +855,7 @@ const app = createApp({
                 );
                 await window.ExploreApi.deleteBlock(blockId);
                 if (Number(exploreBlockEditor.value.id) === blockId) showExploreBlockDialog.value = false;
-                await Promise.all([loadExploreBlocks(), loadExploreStats()]);
+                removeExploreBlockLocal(blockId);
                 ElMessage.success('统计已删除');
             } catch (error) {
                 if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '删除统计失败');

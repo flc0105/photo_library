@@ -20,12 +20,15 @@ from core.smart_sets import SMART_SET_CONTRACT_GROUPS, _manifest_info, _set_cand
 
 _MISSING_LABEL = '未记录'
 _SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
-_EXPLORE_BLOCK_ENGINE_VERSION = 2
+_EXPLORE_BLOCK_ENGINE_VERSION = 3
 _EXPLORE_BLOCK_METRICS = {'sets', 'photos'}
-DEFAULT_EXPLORE_BLOCK_CODE = '''result = group_sets(
+DEFAULT_EXPLORE_BLOCK_CODE = '''selected = preferred_versions(photos)
+
+result = group_sets(
     sets,
     key=lambda item: item.manifest.model,
     include_missing=True,
+    photo_scope=selected,
 )
 '''
 
@@ -757,6 +760,39 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 }), 409
             return jsonify({'error': str(exc), 'traceback': getattr(exc, 'smart_traceback', '')}), 400
 
+    @bp.route('/api/explore/blocks/<int:block_id>/stats', methods=['GET'])
+    def explore_block_stats(block_id):
+        denied = guard()
+        if denied:
+            return denied
+
+        conn = _connect(smart_db_path)
+        row = _block_row(conn, block_id)
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Explore Block 不存在。'}), 404
+        if not bool(row['enabled']):
+            return jsonify({'card': _block_disabled_payload(row), 'index': _index_status(smart_db_path)})
+
+        try:
+            photo_payloads, _, set_payloads, _, status = _block_execution_context(
+                smart_db_path,
+                main_db_path,
+            )
+            try:
+                card = _run_block_card(row, set_payloads, photo_payloads, len(set_payloads))
+            except Exception as exc:
+                card = _block_error_payload(row, exc)
+            return jsonify({'card': card, 'index': status})
+        except Exception as exc:
+            if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
+                return jsonify({
+                    'error': 'Explore 使用 Smart Album 索引；请先建立索引。',
+                    'code': 'smart_album_index_required',
+                    'index': _index_status(smart_db_path),
+                }), 409
+            return jsonify({'error': str(exc)}), 400
+
     @bp.route('/api/explore/runtime', methods=['GET'])
     def explore_runtime_contract():
         denied = guard()
@@ -766,7 +802,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
             'engine_version': _EXPLORE_BLOCK_ENGINE_VERSION,
             'default_code': DEFAULT_EXPLORE_BLOCK_CODE,
             'helpers': [
-                'group_sets(items, key, many=False, label=None, missing="未记录", include_missing=True)',
+                'group_sets(items, key, many=False, label=None, missing="未记录", include_missing=True, photo_scope=None)',
                 'group_photos(items, key, many=False, label=None, missing="未记录", include_missing=True)',
                 'preferred_versions(items)',
                 'finals(items)',
