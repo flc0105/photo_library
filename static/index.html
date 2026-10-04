@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261005-02">
+    <link rel="stylesheet" href="style.css?v=20261005-03">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -355,10 +355,18 @@
                         <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.locations)" text size="small" @click="openExploreMore('地点', 'location', exploreStats.locations)">显示全部</el-button></div>
                     </el-card>
 
-                    <el-card v-for="block in exploreStats.custom_blocks" :key="`explore-block-${block.id}`" shadow="never" class="explore-stat-card">
+                    <el-card v-for="block in exploreStats.custom_blocks" :key="`explore-block-${block.id}`" shadow="never"
+                             class="explore-stat-card explore-custom-block-card"
+                             :class="{'is-dragging': Number(exploreBlockDragId) === Number(block.id), 'is-drag-over': Number(exploreBlockDragOverId) === Number(block.id)}"
+                             @dragover.prevent="overExploreBlockDrag(block, $event)"
+                             @drop.prevent.stop="dropExploreBlock(block, $event)">
                         <template #header>
                             <div class="explore-card-header">
                                 <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                                    <span class="explore-block-drag-handle" draggable="true" title="拖拽调整显示顺序" aria-label="拖拽调整显示顺序"
+                                          @click.stop @dragstart.stop="startExploreBlockDrag(block, $event)" @dragend="clearExploreBlockDrag">
+                                        <el-icon><Rank /></el-icon>
+                                    </span>
                                     <strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ block.name }}</strong>
                                     <el-tooltip v-if="block.description" :content="block.description" placement="top">
                                         <el-icon style="color:#909399; flex:0 0 auto;"><InfoFilled /></el-icon>
@@ -4122,7 +4130,7 @@
 <script src="set-insights.js?v=20260920-02"></script>
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
-<script src="explore.js?v=20261005-01"></script>
-<script type="module" src="app.js?v=20261005-03"></script>
+<script src="explore.js?v=20261005-02"></script>
+<script type="module" src="app.js?v=20261005-05"></script>
 </body>
 </html>

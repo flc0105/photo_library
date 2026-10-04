@@ -30,6 +30,13 @@
         async blocks() {
             return requestJson('/api/explore/blocks');
         },
+        async reorderBlocks(blockIds) {
+            return requestJson('/api/explore/blocks/reorder', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({block_ids: blockIds}),
+            });
+        },
         async createBlock(payload) {
             return requestJson('/api/explore/blocks', {
                 method: 'POST',

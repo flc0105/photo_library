@@ -191,6 +191,8 @@ result = group_sets(
             rows: [],
         });
         const exploreBlocks = ref([]);
+        const exploreBlockDragId = ref(null);
+        const exploreBlockDragOverId = ref(null);
         const showExploreBlockDialog = ref(false);
         const exploreBlockSaving = ref(false);
         const exploreBlockPreviewLoading = ref(false);
@@ -538,6 +540,85 @@ result = group_sets(
                 if (byOrder) return byOrder;
                 return Number(a?.id || 0) - Number(b?.id || 0);
             });
+        const applyExploreBlockOrder = blockIds => {
+            const orderById = new Map((Array.isArray(blockIds) ? blockIds : []).map(
+                (blockId, index) => [Number(blockId), (index + 1) * 10]
+            ));
+            const withOrder = items => sortExploreBlockItems((Array.isArray(items) ? items : []).map(item => {
+                const displayOrder = orderById.get(Number(item?.id));
+                return displayOrder == null ? item : {...item, display_order: displayOrder};
+            }));
+            exploreBlocks.value = withOrder(exploreBlocks.value);
+            exploreStats.value = {
+                ...exploreStats.value,
+                custom_blocks: withOrder(exploreStats.value?.custom_blocks),
+            };
+        };
+        const clearExploreBlockDrag = () => {
+            exploreBlockDragId.value = null;
+            exploreBlockDragOverId.value = null;
+        };
+        const startExploreBlockDrag = (block, event) => {
+            const blockId = Number(block?.id || 0);
+            if (!blockId) return;
+            exploreBlockDragId.value = blockId;
+            exploreBlockDragOverId.value = null;
+            if (event?.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', String(blockId));
+            }
+        };
+        const overExploreBlockDrag = (block, event) => {
+            const targetId = Number(block?.id || 0);
+            if (!exploreBlockDragId.value || !targetId || targetId === Number(exploreBlockDragId.value)) {
+                exploreBlockDragOverId.value = null;
+                return;
+            }
+            if (event?.dataTransfer) event.dataTransfer.dropEffect = 'move';
+            exploreBlockDragOverId.value = targetId;
+        };
+        const dropExploreBlock = async (block, event) => {
+            const draggedId = Number(exploreBlockDragId.value || 0);
+            const targetId = Number(block?.id || 0);
+            const current = sortExploreBlockItems(exploreStats.value?.custom_blocks);
+            const previousIds = current.map(item => Number(item.id));
+            if (!draggedId || !targetId || draggedId === targetId || !previousIds.includes(draggedId)) {
+                clearExploreBlockDrag();
+                return;
+            }
+
+            const draggedIndex = current.findIndex(item => Number(item.id) === draggedId);
+            const targetIndex = current.findIndex(item => Number(item.id) === targetId);
+            if (draggedIndex < 0 || targetIndex < 0) {
+                clearExploreBlockDrag();
+                return;
+            }
+
+            // The Explore cards use a two-column grid. Treat dropping on another card
+            // as an exact position swap so horizontal, vertical, and diagonal moves
+            // never shift unrelated cards through the row-major list.
+            const reordered = [...current];
+            [reordered[draggedIndex], reordered[targetIndex]] = [
+                reordered[targetIndex],
+                reordered[draggedIndex],
+            ];
+            const nextIds = reordered.map(item => Number(item.id));
+            if (nextIds.every((id, index) => id === previousIds[index])) {
+                clearExploreBlockDrag();
+                return;
+            }
+
+            applyExploreBlockOrder(nextIds);
+            clearExploreBlockDrag();
+            try {
+                const data = await window.ExploreApi.reorderBlocks(nextIds);
+                const persistedIds = sortExploreBlockItems(data?.blocks).map(item => Number(item.id));
+                if (persistedIds.length === nextIds.length) applyExploreBlockOrder(persistedIds);
+            } catch (error) {
+                applyExploreBlockOrder(previousIds);
+                ElMessage.error(error.message || '调整统计顺序失败');
+            }
+        };
         const upsertExploreBlockDefinition = block => {
             if (!block?.id) return;
             const blockId = Number(block.id);
@@ -5791,6 +5872,12 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             openExploreBlockStat,
             exploreBlockDimension,
             exploreBlocks,
+            exploreBlockDragId,
+            exploreBlockDragOverId,
+            startExploreBlockDrag,
+            overExploreBlockDrag,
+            dropExploreBlock,
+            clearExploreBlockDrag,
             showExploreBlockDialog,
             exploreBlockSaving,
             exploreBlockPreviewLoading,

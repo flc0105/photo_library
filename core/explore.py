@@ -634,6 +634,47 @@ def create_explore_blueprint(admin_guard, main_db_path):
             return denied
         return jsonify({'blocks': [_block_dict(row) for row in _list_block_rows(smart_db_path)]})
 
+    @bp.route('/api/explore/blocks/reorder', methods=['PUT'])
+    def reorder_explore_blocks():
+        denied = guard()
+        if denied:
+            return denied
+        data = request.get_json(silent=True) or {}
+        raw_ids = data.get('block_ids')
+        if not isinstance(raw_ids, list):
+            return jsonify({'error': 'block_ids 必须是完整的统计 ID 列表。'}), 400
+        try:
+            block_ids = [int(value) for value in raw_ids]
+        except (TypeError, ValueError):
+            return jsonify({'error': 'block_ids 只能包含统计 ID。'}), 400
+        if any(block_id <= 0 for block_id in block_ids) or len(set(block_ids)) != len(block_ids):
+            return jsonify({'error': 'block_ids 包含无效或重复的统计 ID。'}), 400
+
+        conn = _connect(smart_db_path)
+        rows = conn.execute('SELECT id FROM explore_blocks').fetchall()
+        current_ids = {int(row['id']) for row in rows}
+        if set(block_ids) != current_ids or len(block_ids) != len(current_ids):
+            conn.close()
+            return jsonify({'error': '统计列表已变化，请刷新 Explore 后再排序。'}), 409
+
+        try:
+            for index, block_id in enumerate(block_ids, start=1):
+                conn.execute(
+                    'UPDATE explore_blocks SET display_order=? WHERE id=?',
+                    (index * 10, block_id),
+                )
+            ordered_rows = conn.execute(
+                'SELECT * FROM explore_blocks ORDER BY display_order ASC, id ASC'
+            ).fetchall()
+            conn.commit()
+            ordered = [_block_dict(row) for row in ordered_rows]
+        except Exception:
+            conn.rollback()
+            conn.close()
+            raise
+        conn.close()
+        return jsonify({'blocks': ordered})
+
     @bp.route('/api/explore/blocks', methods=['POST'])
     def create_explore_block():
         denied = guard()
