@@ -189,6 +189,8 @@ def _year_rows(set_payloads, total_sets, total_images):
 
     output = []
     for year, data in years.items():
+        year_set_count = data['set_count']
+        year_image_count = data['image_count']
         months = []
         for month, counts in data['months'].items():
             set_count = counts['set_count']
@@ -198,24 +200,24 @@ def _year_rows(set_payloads, total_sets, total_images):
                 'label': f'{month}月',
                 'set_count': set_count,
                 'image_count': image_count,
-                'set_percentage': _percentage(set_count, total_sets),
-                'image_percentage': _percentage(image_count, total_images),
+                # Month percentages describe the selected year, so the visible months
+                # form a complete distribution instead of a fraction of the whole library.
+                'set_percentage': _percentage(set_count, year_set_count),
+                'image_percentage': _percentage(image_count, year_image_count),
                 'count': set_count,
-                'percentage': _percentage(set_count, total_sets),
+                'percentage': _percentage(set_count, year_set_count),
                 'primary_metric': 'set',
             })
         months.sort(key=lambda row: (-row['set_count'], row['value']['month']))
-        set_count = data['set_count']
-        image_count = data['image_count']
         output.append({
             'value': year,
             'label': str(year),
-            'set_count': set_count,
-            'image_count': image_count,
-            'set_percentage': _percentage(set_count, total_sets),
-            'image_percentage': _percentage(image_count, total_images),
-            'count': set_count,
-            'percentage': _percentage(set_count, total_sets),
+            'set_count': year_set_count,
+            'image_count': year_image_count,
+            'set_percentage': _percentage(year_set_count, total_sets),
+            'image_percentage': _percentage(year_image_count, total_images),
+            'count': year_set_count,
+            'percentage': _percentage(year_set_count, total_sets),
             'primary_metric': 'set',
             'months': months,
         })

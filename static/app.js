@@ -489,11 +489,11 @@ const app = createApp({
         const openExploreMore = (title, dimension, primaryTarget, rows, year = null) => {
             const items = Array.isArray(rows) ? rows : [];
             exploreMoreDialog.value = {
-                title: `${title} · 更多`,
+                title: `${title} · 全部`,
                 dimension,
                 primary_target: primaryTarget === 'photos' ? 'photos' : 'sets',
                 year,
-                rows: items.slice(EXPLORE_CARD_ITEMS),
+                rows: items,
             };
             exploreMoreDialogVisible.value = true;
         };

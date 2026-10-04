@@ -3655,12 +3655,12 @@ body {
 }
 
 .explore-card-footer {
-    flex: 0 0 32px;
+    flex: 0 0 44px;
     display: flex;
-    align-items: flex-end;
+    align-items: flex-start;
     justify-content: center;
-    min-height: 32px;
-    padding-top: 8px;
+    min-height: 44px;
+    padding-top: 15px;
 }
 
 .explore-card-empty {
@@ -3742,6 +3742,20 @@ body {
     color: #606266 !important;
     background: transparent !important;
     opacity: 1;
+}
+
+/* Keep the Smart View section's trailing gap aligned with the surrounding home groups. */
+.smart-view-group {
+    margin-bottom: 15px;
+}
+
+.smart-view-index-placeholder {
+    min-height: 360px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #909399;
+    font-size: 14px;
 }
 
 /* Keep Smart View loading centered in the result area without restoring an opaque mask. */
