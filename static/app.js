@@ -165,16 +165,14 @@ const app = createApp({
         const exploreQueryLoading = ref(false);
         const exploreError = ref('');
         const exploreSelectedYear = ref(null);
-        const EXPLORE_COLLAPSED_ROWS = 10;
-        const EXPLORE_STAT_COLUMNS = 2;
-        const EXPLORE_COLLAPSED_ITEMS = EXPLORE_COLLAPSED_ROWS * EXPLORE_STAT_COLUMNS;
-        const exploreExpandedSections = ref({
-            months: false,
-            models: false,
-            environments: false,
-            themes: false,
-            locations: false,
-            focal_lengths: false,
+        const EXPLORE_CARD_ITEMS = 8;
+        const exploreMoreDialogVisible = ref(false);
+        const exploreMoreDialog = ref({
+            title: '',
+            dimension: '',
+            primary_target: 'sets',
+            year: null,
+            rows: [],
         });
         let exploreReturnScrollY = 0;
 
@@ -485,18 +483,32 @@ const app = createApp({
             Number(item.value) === Number(exploreSelectedYear.value)
         ) || null);
         const exploreMonthRows = computed(() => exploreSelectedYearRow.value?.months || []);
-        const visibleExploreRows = (section, rows) => {
+        const visibleExploreRows = rows => (Array.isArray(rows) ? rows : []).slice(0, EXPLORE_CARD_ITEMS);
+        const exploreHasMore = rows => Array.isArray(rows) && rows.length > EXPLORE_CARD_ITEMS;
+        const exploreHiddenCount = rows => Math.max(0, (Array.isArray(rows) ? rows.length : 0) - EXPLORE_CARD_ITEMS);
+        const openExploreMore = (title, dimension, primaryTarget, rows, year = null) => {
             const items = Array.isArray(rows) ? rows : [];
-            return exploreExpandedSections.value[section] ? items : items.slice(0, EXPLORE_COLLAPSED_ITEMS);
-        };
-        const exploreCanExpand = rows => Array.isArray(rows) && rows.length > EXPLORE_COLLAPSED_ITEMS;
-        const exploreHiddenCount = rows => Math.max(0, (Array.isArray(rows) ? rows.length : 0) - EXPLORE_COLLAPSED_ITEMS);
-        const toggleExploreSection = section => {
-            if (!Object.prototype.hasOwnProperty.call(exploreExpandedSections.value, section)) return;
-            exploreExpandedSections.value = {
-                ...exploreExpandedSections.value,
-                [section]: !exploreExpandedSections.value[section],
+            exploreMoreDialog.value = {
+                title: `${title} · 更多`,
+                dimension,
+                primary_target: primaryTarget === 'photos' ? 'photos' : 'sets',
+                year,
+                rows: items.slice(EXPLORE_CARD_ITEMS),
             };
+            exploreMoreDialogVisible.value = true;
+        };
+        const exploreMoreQueryLabel = item => {
+            const label = String(item?.label || '');
+            if (exploreMoreDialog.value.dimension === 'year_month' && exploreMoreDialog.value.year != null) {
+                return `${exploreMoreDialog.value.year}-${label}`;
+            }
+            return label;
+        };
+        const openExploreMoreStat = (item, target = null) => {
+            const detail = exploreMoreDialog.value;
+            const resolvedTarget = target || detail.primary_target || 'sets';
+            exploreMoreDialogVisible.value = false;
+            return openExploreStat(detail.dimension, item?.value, exploreMoreQueryLabel(item), resolvedTarget);
         };
 
         const loadExploreStats = async () => {
@@ -1139,12 +1151,25 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             }
         };
 
-        const handleSmartViewCommand = async (command) => {
-            if (command === 'refresh-index') {
-                await refreshSmartAlbumIndex();
+        const openSmartViewIndexDialog = async () => {
+            if (smartAlbumIndexRefreshing.value) {
+                await refreshSmartAlbumIndex(true);
                 return;
             }
-            if (command === 'sync-index') await openSmartAlbumIndexSync();
+            if (smartAlbumSyncActive.value || smartAlbumSyncScanning.value) {
+                smartAlbumIndexTab.value = 'sync';
+                showSmartAlbumIndexDialog.value = true;
+                return;
+            }
+            if (smartAlbumIndexTab.value === 'sync') {
+                await openSmartAlbumIndexSync();
+                return;
+            }
+            await refreshSmartAlbumIndex();
+        };
+
+        const handleSmartViewCommand = async (command) => {
+            if (command === 'index') await openSmartViewIndexDialog();
         };
 
         const hydrateSmartSetDirectoryItems = async (rows) => {
@@ -5383,11 +5408,13 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             exploreSelectedYear,
             exploreYearOptions,
             exploreMonthRows,
-            exploreExpandedSections,
+            exploreMoreDialogVisible,
+            exploreMoreDialog,
             visibleExploreRows,
-            exploreCanExpand,
+            exploreHasMore,
             exploreHiddenCount,
-            toggleExploreSection,
+            openExploreMore,
+            openExploreMoreStat,
             formatExplorePercent,
             openExplore,
             loadExploreStats,

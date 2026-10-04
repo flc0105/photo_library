@@ -3557,16 +3557,26 @@ body {
 /* Explore / Statistics */
 .explore-card-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
+    align-items: stretch;
 }
 
 .explore-stat-card {
     width: 100%;
+    height: 540px;
+    display: flex;
+    flex-direction: column;
+}
+
+.explore-stat-card > .el-card__header {
+    flex: 0 0 auto;
 }
 
 .explore-stat-card > .el-card__body {
     box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 }
@@ -3599,9 +3609,8 @@ body {
 }
 
 .explore-stat-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 28px;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .explore-stat-row {
@@ -3646,7 +3655,9 @@ body {
 }
 
 .explore-card-footer {
+    flex: 0 0 32px;
     display: flex;
+    align-items: flex-end;
     justify-content: center;
     min-height: 32px;
     padding-top: 8px;
@@ -3657,6 +3668,24 @@ body {
     color: #909399;
     font-size: 13px;
     padding: 18px 0;
+}
+
+
+.explore-more-dialog .el-dialog__body {
+    padding-top: 8px;
+}
+
+.explore-more-list {
+    max-height: min(68vh, 720px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+}
+
+@media (max-width: 1100px) {
+    .explore-card-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* Smart View: keep type/edit affordances lightweight inside the existing album card. */
@@ -3695,14 +3724,18 @@ body {
 }
 
 .smart-view-edit-btn {
-    height: 18px !important;
-    min-height: 18px !important;
-    padding: 0 2px !important;
-    margin: 1px 0 0 !important;
-    font-size: 11px !important;
+    width: 20px !important;
+    height: 20px !important;
+    min-height: 20px !important;
+    padding: 0 !important;
+    margin: 0 !important;
     color: #a8abb2 !important;
-    opacity: 0.82;
+    opacity: 0.78;
     flex: 0 0 auto;
+}
+
+.smart-view-edit-btn .el-icon {
+    font-size: 13px;
 }
 
 .smart-view-edit-btn:hover {
@@ -3711,7 +3744,66 @@ body {
     opacity: 1;
 }
 
-/* Loading a Smart View should not flash an opaque white display area. */
+/* Keep Smart View loading centered in the result area without restoring an opaque mask. */
+.smart-view-result-loading {
+    position: relative;
+    min-height: calc(100vh - 72px);
+}
+
 .smart-view-result-loading > .el-loading-mask {
     background-color: transparent !important;
+}
+
+/* The index scope stays fixed; only the active rebuild/sync tab scrolls. */
+.smart-view-index-dialog {
+    height: min(760px, calc(100vh - 64px));
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-view-index-dialog .el-dialog__header,
+.smart-view-index-dialog .el-dialog__footer {
+    flex: 0 0 auto;
+}
+
+.smart-view-index-dialog .el-dialog__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.smart-view-index-layout {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-view-index-scope {
+    flex: 0 0 auto;
+}
+
+.smart-view-index-tabs {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-view-index-tabs > .el-tabs__header {
+    flex: 0 0 auto;
+}
+
+.smart-view-index-tabs > .el-tabs__content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+}
+
+@media (max-width: 768px) {
+    .smart-view-index-dialog {
+        height: calc(100vh - 40px);
+    }
 }

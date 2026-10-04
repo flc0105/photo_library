@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261004-01">
+    <link rel="stylesheet" href="style.css?v=20261004-04">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -128,8 +128,7 @@
                             </span>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item command="refresh-index">{{ smartAlbumIndexRefreshing ? '查看重建进度' : '重建索引' }}</el-dropdown-item>
-                                    <el-dropdown-item command="sync-index">{{ smartAlbumSyncActive || smartAlbumSyncScanning ? '查看同步进度' : '同步索引' }}</el-dropdown-item>
+                                    <el-dropdown-item command="index">{{ smartAlbumIndexDialogBusy ? '查看索引进度' : '索引' }}</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -148,7 +147,10 @@
                                         <div class="album-name">{{ item.name }}</div>
                                         <el-tag class="smart-view-type-tag" size="small" effect="plain" type="info">{{ item.smart_view_type === 'set' ? 'Set' : 'Album' }}</el-tag>
                                     </div>
-                                    <el-button class="smart-view-edit-btn" text size="small" @click.stop="editSmartView(item)">编辑</el-button>
+                                    <el-button class="smart-view-edit-btn" text circle size="small" title="编辑" aria-label="编辑智能视图"
+                                               @click.stop="editSmartView(item)">
+                                        <el-icon><EditPen /></el-icon>
+                                    </el-button>
                                 </div>
                                 <div class="album-meta">
                                     <div>{{ smartViewResultText(item) }}</div>
@@ -240,7 +242,7 @@
                             </div>
                         </template>
                         <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows('months', exploreMonthRows)" :key="`month-${exploreSelectedYear}-${item.label}`"
+                            <div v-for="item in visibleExploreRows(exploreMonthRows)" :key="`month-${exploreSelectedYear}-${item.label}`"
                                  class="explore-stat-row" @click="openExploreStat('year_month', item.value, `${exploreSelectedYear}-${item.label}`, 'sets')">
                                 <div class="explore-stat-line">
                                     <span>{{ item.label }}</span>
@@ -255,67 +257,91 @@
                             </div>
                             <div v-if="exploreMonthRows.length === 0" class="explore-card-empty">当前年份没有可统计 Set。</div>
                         </div>
-                        <div class="explore-card-footer" v-if="exploreCanExpand(exploreMonthRows)">
-                            <el-button text size="small" @click="toggleExploreSection('months')">{{ exploreExpandedSections.months ? '收起' : `展开更多 (${exploreHiddenCount(exploreMonthRows)})` }}</el-button>
+                        <div class="explore-card-footer">
+                            <el-button v-if="exploreHasMore(exploreMonthRows)" text size="small" @click="openExploreMore('月份', 'year_month', 'sets', exploreMonthRows, exploreSelectedYear)">更多 ({{ exploreHiddenCount(exploreMonthRows) }})</el-button>
                         </div>
                     </el-card>
 
                     <el-card shadow="never" class="explore-stat-card">
                         <template #header><div class="explore-card-header"><strong>模特</strong><span class="explore-primary-label">按 Set</span></div></template>
                         <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows('models', exploreStats.models)" :key="`model-${item.label}`" class="explore-stat-row" @click="openExploreStat('model', item.value, item.label, 'sets')">
+                            <div v-for="item in visibleExploreRows(exploreStats.models)" :key="`model-${item.label}`" class="explore-stat-row" @click="openExploreStat('model', item.value, item.label, 'sets')">
                                 <div class="explore-stat-line"><span>{{ item.label }}</span><span class="explore-stat-metrics"><button type="button" class="explore-metric-link" @click.stop="openExploreStat('model', item.value, item.label, 'sets')">{{ item.set_count }} 组</button><span>·</span><button type="button" class="explore-metric-link" @click.stop="openExploreStat('model', item.value, item.label, 'photos')">{{ item.image_count }} 张</button><span>· {{ formatExplorePercent(item.set_percentage) }}</span></span></div>
                                 <el-progress :percentage="item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
                             </div>
                         </div>
-                        <div class="explore-card-footer" v-if="exploreCanExpand(exploreStats.models)"><el-button text size="small" @click="toggleExploreSection('models')">{{ exploreExpandedSections.models ? '收起' : `展开更多 (${exploreHiddenCount(exploreStats.models)})` }}</el-button></div>
+                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.models)" text size="small" @click="openExploreMore('模特', 'model', 'sets', exploreStats.models)">更多 ({{ exploreHiddenCount(exploreStats.models) }})</el-button></div>
                     </el-card>
 
                     <el-card shadow="never" class="explore-stat-card">
                         <template #header><div class="explore-card-header"><strong>环境</strong><span class="explore-primary-label">按 Set</span></div></template>
                         <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows('environments', exploreStats.environments)" :key="`env-${item.label}`" class="explore-stat-row" @click="openExploreStat('environment', item.value, item.label, 'sets')">
+                            <div v-for="item in visibleExploreRows(exploreStats.environments)" :key="`env-${item.label}`" class="explore-stat-row" @click="openExploreStat('environment', item.value, item.label, 'sets')">
                                 <div class="explore-stat-line"><span>{{ item.label }}</span><span class="explore-stat-metrics"><button type="button" class="explore-metric-link" @click.stop="openExploreStat('environment', item.value, item.label, 'sets')">{{ item.set_count }} 组</button><span>·</span><button type="button" class="explore-metric-link" @click.stop="openExploreStat('environment', item.value, item.label, 'photos')">{{ item.image_count }} 张</button><span>· {{ formatExplorePercent(item.set_percentage) }}</span></span></div>
                                 <el-progress :percentage="item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
                             </div>
                         </div>
-                        <div class="explore-card-footer" v-if="exploreCanExpand(exploreStats.environments)"><el-button text size="small" @click="toggleExploreSection('environments')">{{ exploreExpandedSections.environments ? '收起' : `展开更多 (${exploreHiddenCount(exploreStats.environments)})` }}</el-button></div>
+                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.environments)" text size="small" @click="openExploreMore('环境', 'environment', 'sets', exploreStats.environments)">更多 ({{ exploreHiddenCount(exploreStats.environments) }})</el-button></div>
                     </el-card>
 
                     <el-card shadow="never" class="explore-stat-card">
                         <template #header><div class="explore-card-header"><strong>题材</strong><span class="explore-primary-label">按 Set</span></div></template>
                         <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows('themes', exploreStats.themes)" :key="`theme-${item.label}`" class="explore-stat-row" @click="openExploreStat('theme', item.value, item.label, 'sets')">
+                            <div v-for="item in visibleExploreRows(exploreStats.themes)" :key="`theme-${item.label}`" class="explore-stat-row" @click="openExploreStat('theme', item.value, item.label, 'sets')">
                                 <div class="explore-stat-line"><span>{{ item.label }}</span><span class="explore-stat-metrics"><button type="button" class="explore-metric-link" @click.stop="openExploreStat('theme', item.value, item.label, 'sets')">{{ item.set_count }} 组</button><span>·</span><button type="button" class="explore-metric-link" @click.stop="openExploreStat('theme', item.value, item.label, 'photos')">{{ item.image_count }} 张</button><span>· {{ formatExplorePercent(item.set_percentage) }}</span></span></div>
                                 <el-progress :percentage="item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
                             </div>
                         </div>
-                        <div class="explore-card-footer" v-if="exploreCanExpand(exploreStats.themes)"><el-button text size="small" @click="toggleExploreSection('themes')">{{ exploreExpandedSections.themes ? '收起' : `展开更多 (${exploreHiddenCount(exploreStats.themes)})` }}</el-button></div>
+                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.themes)" text size="small" @click="openExploreMore('题材', 'theme', 'sets', exploreStats.themes)">更多 ({{ exploreHiddenCount(exploreStats.themes) }})</el-button></div>
                     </el-card>
 
                     <el-card shadow="never" class="explore-stat-card">
                         <template #header><div class="explore-card-header"><strong>地点</strong><span class="explore-primary-label">按 Set</span></div></template>
                         <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows('locations', exploreStats.locations)" :key="`location-${item.label}`" class="explore-stat-row" @click="openExploreStat('location', item.value, item.label, 'sets')">
+                            <div v-for="item in visibleExploreRows(exploreStats.locations)" :key="`location-${item.label}`" class="explore-stat-row" @click="openExploreStat('location', item.value, item.label, 'sets')">
                                 <div class="explore-stat-line"><span>{{ item.label }}</span><span class="explore-stat-metrics"><button type="button" class="explore-metric-link" @click.stop="openExploreStat('location', item.value, item.label, 'sets')">{{ item.set_count }} 组</button><span>·</span><button type="button" class="explore-metric-link" @click.stop="openExploreStat('location', item.value, item.label, 'photos')">{{ item.image_count }} 张</button><span>· {{ formatExplorePercent(item.set_percentage) }}</span></span></div>
                                 <el-progress :percentage="item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
                             </div>
                         </div>
-                        <div class="explore-card-footer" v-if="exploreCanExpand(exploreStats.locations)"><el-button text size="small" @click="toggleExploreSection('locations')">{{ exploreExpandedSections.locations ? '收起' : `展开更多 (${exploreHiddenCount(exploreStats.locations)})` }}</el-button></div>
+                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.locations)" text size="small" @click="openExploreMore('地点', 'location', 'sets', exploreStats.locations)">更多 ({{ exploreHiddenCount(exploreStats.locations) }})</el-button></div>
                     </el-card>
 
                     <el-card shadow="never" class="explore-stat-card">
                         <template #header><div class="explore-card-header"><strong>焦段</strong><span class="explore-primary-label">按图片</span></div></template>
                         <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows('focal_lengths', exploreStats.focal_lengths)" :key="`focal-${item.label}`" class="explore-stat-row" @click="openExploreStat('focal_length', item.value, item.label, 'photos')">
+                            <div v-for="item in visibleExploreRows(exploreStats.focal_lengths)" :key="`focal-${item.label}`" class="explore-stat-row" @click="openExploreStat('focal_length', item.value, item.label, 'photos')">
                                 <div class="explore-stat-line"><span>{{ item.label }}</span><span class="explore-stat-metrics"><button type="button" class="explore-metric-link" @click.stop="openExploreStat('focal_length', item.value, item.label, 'photos')">{{ item.image_count }} 张</button><span>·</span><button type="button" class="explore-metric-link" @click.stop="openExploreStat('focal_length', item.value, item.label, 'sets')">{{ item.set_count }} 组</button><span>· {{ formatExplorePercent(item.image_percentage) }}</span></span></div>
                                 <el-progress :percentage="item.image_percentage" :show-text="false" :stroke-width="5"></el-progress>
                             </div>
                         </div>
-                        <div class="explore-card-footer" v-if="exploreCanExpand(exploreStats.focal_lengths)"><el-button text size="small" @click="toggleExploreSection('focal_lengths')">{{ exploreExpandedSections.focal_lengths ? '收起' : `展开更多 (${exploreHiddenCount(exploreStats.focal_lengths)})` }}</el-button></div>
+                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.focal_lengths)" text size="small" @click="openExploreMore('焦段', 'focal_length', 'photos', exploreStats.focal_lengths)">更多 ({{ exploreHiddenCount(exploreStats.focal_lengths) }})</el-button></div>
                     </el-card>
                 </div>
             </template>
+
+            <el-dialog v-model="exploreMoreDialogVisible" :title="exploreMoreDialog.title" width="720px" append-to-body class="explore-more-dialog">
+                <div class="explore-more-list">
+                    <div v-for="item in exploreMoreDialog.rows" :key="`${exploreMoreDialog.dimension}-${item.label}-${String(item.value)}`"
+                         class="explore-stat-row" @click="openExploreMoreStat(item)">
+                        <div class="explore-stat-line">
+                            <span>{{ item.label }}</span>
+                            <span class="explore-stat-metrics" v-if="exploreMoreDialog.primary_target === 'photos'">
+                                <button type="button" class="explore-metric-link" @click.stop="openExploreMoreStat(item, 'photos')">{{ item.image_count }} 张</button>
+                                <span>·</span>
+                                <button type="button" class="explore-metric-link" @click.stop="openExploreMoreStat(item, 'sets')">{{ item.set_count }} 组</button>
+                                <span>· {{ formatExplorePercent(item.image_percentage) }}</span>
+                            </span>
+                            <span class="explore-stat-metrics" v-else>
+                                <button type="button" class="explore-metric-link" @click.stop="openExploreMoreStat(item, 'sets')">{{ item.set_count }} 组</button>
+                                <span>·</span>
+                                <button type="button" class="explore-metric-link" @click.stop="openExploreMoreStat(item, 'photos')">{{ item.image_count }} 张</button>
+                                <span>· {{ formatExplorePercent(item.set_percentage) }}</span>
+                            </span>
+                        </div>
+                        <el-progress :percentage="exploreMoreDialog.primary_target === 'photos' ? item.image_percentage : item.set_percentage" :show-text="false" :stroke-width="5"></el-progress>
+                    </div>
+                </div>
+            </el-dialog>
 
             <div v-else-if="!exploreError && !exploreLoading" class="empty-state">
                 <p>当前智能索引范围没有可统计的 Set 或图片。</p>
@@ -1537,7 +1563,7 @@
         </el-dialog>
 
         <!-- Smart View 索引：Source 选择共用，重建与同步保持各自已验证的执行流程。 -->
-        <el-dialog v-model="showSmartAlbumIndexDialog" width="920px"
+        <el-dialog v-model="showSmartAlbumIndexDialog" width="920px" class="smart-view-index-dialog"
                    :close-on-click-modal="!smartAlbumIndexDialogBusy" :close-on-press-escape="!smartAlbumIndexDialogBusy">
             <template #header>
                 <div class="validation-dialog-title">
@@ -1547,8 +1573,8 @@
                 </div>
             </template>
 
-            <div style="line-height:1.6;">
-                <div style="padding:12px 14px; border:1px solid #dcdfe6; border-radius:8px; margin-bottom:16px;">
+            <div class="smart-view-index-layout" style="line-height:1.6;">
+                <div class="smart-view-index-scope" style="padding:12px 14px; border:1px solid #dcdfe6; border-radius:8px; margin-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
                         <strong>索引范围</strong>
                         <span v-if="smartAlbumIndexedSourceText" style="font-size:12px; color:#909399;">当前索引：{{ smartAlbumIndexedSourceText }}</span>
@@ -1563,7 +1589,7 @@
                     <div v-if="!enabledSmartAlbumIndexSources.length" style="font-size:12px; color:#f56c6c;">没有已启用的 Library Source。</div>
                 </div>
 
-                <el-tabs v-model="smartAlbumIndexTab" @tab-change="handleSmartAlbumIndexTabChange">
+                <el-tabs v-model="smartAlbumIndexTab" class="smart-view-index-tabs" @tab-change="handleSmartAlbumIndexTabChange">
                     <el-tab-pane label="重建" name="rebuild" :disabled="smartAlbumSyncActive || smartAlbumSyncScanning">
                         <div style="padding:14px; border:1px solid #ebeef5; border-radius:8px; margin-bottom:16px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
@@ -1571,13 +1597,13 @@
                                 <span v-if="smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.ready" style="font-size:12px; color:#606266;">
                                     {{ smartAlbumIndexProgress.overall.current || 0 }} / {{ smartAlbumIndexProgress.overall.total || 0 }} 张
                                 </span>
-                                <span v-else style="font-size:12px; color:#909399;">正在扫描所选 Source…</span>
+                                <span v-else-if="smartAlbumIndexProgress.active" style="font-size:12px; color:#909399;">正在扫描所选 Source…</span>
                             </div>
                             <el-progress :percentage="(smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.percent) || 0"
                                          :status="smartAlbumIndexProgress.error ? 'exception' : (smartAlbumIndexProgress.phase === 'done' ? 'success' : '')"></el-progress>
                             <div style="margin-top:8px; font-size:12px; color:#606266; display:flex; justify-content:space-between; gap:12px;">
                                 <span>{{ smartAlbumIndexProgress.message || '等待开始' }}</span>
-                                <span>{{ smartAlbumStepSummary(smartAlbumIndexProgress.steps) }}</span>
+                                <span v-if="smartAlbumIndexProgress.steps && smartAlbumIndexProgress.steps.length">{{ smartAlbumStepSummary(smartAlbumIndexProgress.steps) }}</span>
                             </div>
                         </div>
 
@@ -3911,6 +3937,6 @@
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
 <script src="explore.js?v=20261003-02"></script>
-<script type="module" src="app.js?v=20261004-02"></script>
+<script type="module" src="app.js?v=20261004-04"></script>
 </body>
 </html>
