@@ -20,11 +20,12 @@ from core.smart_sets import SMART_SET_CONTRACT_GROUPS, _manifest_info, _set_cand
 
 _MISSING_LABEL = '未记录'
 _SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
-_EXPLORE_BLOCK_ENGINE_VERSION = 1
+_EXPLORE_BLOCK_ENGINE_VERSION = 2
 _EXPLORE_BLOCK_METRICS = {'sets', 'photos'}
 DEFAULT_EXPLORE_BLOCK_CODE = '''result = group_sets(
     sets,
-    key=lambda item: item.manifest.model or "未记录",
+    key=lambda item: item.manifest.model,
+    include_missing=True,
 )
 '''
 
@@ -138,6 +139,22 @@ def _run_block_card(row, set_payloads, photo_payloads, total_sets):
         timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     )
     return _block_card_payload(row, execution, total_sets)
+
+
+def _block_disabled_payload(row):
+    block = _block_dict(row)
+    return {
+        'id': block['id'],
+        'name': block['name'],
+        'description': block['description'],
+        'default_metric': block['default_metric'],
+        'display_order': block['display_order'],
+        'enabled': False,
+        'presentation': block['presentation'],
+        'source_kind': None,
+        'rows': [],
+        'error': '',
+    }
 
 
 def _block_error_payload(row, exc):
@@ -434,20 +451,26 @@ def _build_stats(smart_db_path, main_db_path):
     cosplay_images = sum(int(item.get('indexed_photo_count') or 0) for item in cosplay_sets)
 
     custom_blocks = []
-    block_rows = _list_block_rows(smart_db_path, enabled_only=True)
-    if block_rows:
-        # Custom Python Blocks get the full Smart Set contract. Build it once and
-        # share the same Set/Photo payloads across every Block in this refresh.
+    block_rows = _list_block_rows(smart_db_path)
+    enabled_block_rows = [row for row in block_rows if bool(row['enabled'])]
+    block_set_payloads = None
+    if enabled_block_rows:
+        # Only enabled Blocks need the full Smart Set contract. Build it once
+        # and share it across enabled Blocks; disabled Blocks remain visible but
+        # execute no Python when Explore opens.
         block_set_payloads, _, _ = _set_candidates(
             smart_db_path,
             main_db_path,
             photo_payloads=photo_payloads,
         )
-        for block_row in block_rows:
-            try:
-                custom_blocks.append(_run_block_card(block_row, block_set_payloads, photo_payloads, total_sets))
-            except Exception as exc:
-                custom_blocks.append(_block_error_payload(block_row, exc))
+    for block_row in block_rows:
+        if not bool(block_row['enabled']):
+            custom_blocks.append(_block_disabled_payload(block_row))
+            continue
+        try:
+            custom_blocks.append(_run_block_card(block_row, block_set_payloads, photo_payloads, total_sets))
+        except Exception as exc:
+            custom_blocks.append(_block_error_payload(block_row, exc))
 
     return {
         'total_images': total_images,
@@ -458,16 +481,9 @@ def _build_stats(smart_db_path, main_db_path):
         ],
         'years': _year_rows(set_payloads, total_sets, total_images),
         'models': _set_metric_rows(set_payloads, total_sets, total_images, 'model'),
-        'environments': _set_metric_rows(set_payloads, total_sets, total_images, 'environment'),
         'themes': _set_metric_rows(cosplay_sets, len(cosplay_sets), cosplay_images, 'theme'),
         'locations': _set_metric_rows(set_payloads, total_sets, total_images, 'location'),
         'custom_blocks': custom_blocks,
-        'focal_lengths': _focal_rows(
-            photo_payloads,
-            total_sets,
-            total_images,
-            valid_set_keys={(int(item['source']['id']), str(item['path'])) for item in set_payloads},
-        ),
         'index': set_status,
     }
 
@@ -750,8 +766,10 @@ def create_explore_blueprint(admin_guard, main_db_path):
             'engine_version': _EXPLORE_BLOCK_ENGINE_VERSION,
             'default_code': DEFAULT_EXPLORE_BLOCK_CODE,
             'helpers': [
-                'group_sets(items, key, many=False, label=None, missing="未记录")',
-                'group_photos(items, key, many=False, label=None, missing="未记录")',
+                'group_sets(items, key, many=False, label=None, missing="未记录", include_missing=True)',
+                'group_photos(items, key, many=False, label=None, missing="未记录", include_missing=True)',
+                'preferred_versions(items)',
+                'finals(items)',
             ],
             'set_contract_groups': SMART_SET_CONTRACT_GROUPS,
             'photo_contract_groups': PHOTO_CONTRACT_GROUPS,
@@ -865,6 +883,8 @@ def create_explore_blueprint(admin_guard, main_db_path):
         conn.close()
         if not row:
             return jsonify({'error': 'Explore Block 不存在。'}), 404
+        if not bool(row['enabled']):
+            return jsonify({'error': '该统计已停用，请先启用后再查询。'}), 409
 
         try:
             photo_payloads, photo_rows, set_payloads, set_rows, status = _block_execution_context(

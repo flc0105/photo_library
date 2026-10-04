@@ -150,7 +150,8 @@ const app = createApp({
 
         const EXPLORE_BLOCK_DEFAULT_CODE = `result = group_sets(
     sets,
-    key=lambda item: item.manifest.model or "未记录",
+    key=lambda item: item.manifest.model,
+    include_missing=True,
 )
 `;
         const emptyExploreStats = () => ({
@@ -159,10 +160,8 @@ const app = createApp({
             sources: [],
             years: [],
             models: [],
-            environments: [],
             themes: [],
             locations: [],
-            focal_lengths: [],
             custom_blocks: [],
             index: null,
         });
@@ -177,8 +176,6 @@ const app = createApp({
             year_month: 'sets',
             theme: 'sets',
             location: 'sets',
-            environment: 'sets',
-            focal_length: 'photos',
         });
         const EXPLORE_CARD_ITEMS = 6;
         const exploreMoreDialogVisible = ref(false);
@@ -700,23 +697,24 @@ const app = createApp({
             }
         };
 
+        const exploreBlockPayload = (editor, enabled = editor.enabled !== false) => ({
+            name: String(editor.name || '').trim(),
+            description: editor.description || '',
+            default_metric: editor.default_metric === 'photos' ? 'photos' : 'sets',
+            enabled,
+            python_code: editor.python_code || '',
+        });
+
         const saveExploreBlock = async () => {
             if (!window.ExploreApi || exploreBlockSaving.value) return;
             const editor = exploreBlockEditor.value;
-            const name = String(editor.name || '').trim();
-            if (!name) {
+            const payload = exploreBlockPayload(editor);
+            if (!payload.name) {
                 ElMessage.warning('请输入统计名称');
                 return;
             }
             exploreBlockSaving.value = true;
             try {
-                const payload = {
-                    name,
-                    description: editor.description || '',
-                    default_metric: editor.default_metric === 'photos' ? 'photos' : 'sets',
-                    enabled: editor.enabled !== false,
-                    python_code: editor.python_code || '',
-                };
                 const data = editor.id
                     ? await window.ExploreApi.updateBlock(editor.id, payload)
                     : await window.ExploreApi.createBlock(payload);
@@ -728,6 +726,33 @@ const app = createApp({
                 ElMessage.success(editor.id ? '统计已保存' : '统计已创建');
             } catch (error) {
                 ElMessage.error(error.message || '保存 Explore Block 失败');
+            } finally {
+                exploreBlockSaving.value = false;
+            }
+        };
+
+        const toggleExploreBlockEnabled = async () => {
+            if (!window.ExploreApi || exploreBlockSaving.value) return;
+            const editor = exploreBlockEditor.value;
+            const blockId = Number(editor.id || 0);
+            if (!blockId) return;
+            const nextEnabled = editor.enabled === false;
+            const payload = exploreBlockPayload(editor, nextEnabled);
+            if (!payload.name) {
+                ElMessage.warning('请输入统计名称');
+                return;
+            }
+            exploreBlockSaving.value = true;
+            try {
+                const data = await window.ExploreApi.updateBlock(blockId, payload);
+                editor.enabled = data?.block?.enabled !== false;
+                if (data?.block?.id) {
+                    exploreMetricModes.value[exploreBlockDimension(data.block.id)] = payload.default_metric;
+                }
+                await Promise.all([loadExploreBlocks(), loadExploreStats()]);
+                ElMessage.success(editor.enabled ? '统计已启用' : '统计已停用');
+            } catch (error) {
+                ElMessage.error(error.message || (nextEnabled ? '启用统计失败' : '停用统计失败'));
             } finally {
                 exploreBlockSaving.value = false;
             }
@@ -5693,6 +5718,7 @@ ${trace}` : (error.message || 'Smart Album 执行失败');
             openEditExploreBlock,
             previewExploreBlock,
             saveExploreBlock,
+            toggleExploreBlockEnabled,
             deleteExploreBlock,
             openExploreBlockHelp,
             exploreBlockPreviewCount,

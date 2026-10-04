@@ -148,7 +148,18 @@ def _explore_bucket_label(value, label_func, missing_label):
     return label or str(missing_label or '未记录')
 
 
-def _group_explore_records(items, key, *, many, label, missing, record_type, allowed_ids, kind):
+def _group_explore_records(
+    items,
+    key,
+    *,
+    many,
+    label,
+    missing,
+    include_missing,
+    record_type,
+    allowed_ids,
+    kind,
+):
     if not callable(key):
         raise TypeError('key 必须是 callable。')
     materialized = list(items)
@@ -156,6 +167,7 @@ def _group_explore_records(items, key, *, many, label, missing, record_type, all
     seen_population = set()
     buckets = {}
     bucket_order = []
+    missing_label = str(missing or '未记录').strip() or '未记录'
 
     for item in materialized:
         if not isinstance(item, record_type):
@@ -164,9 +176,6 @@ def _group_explore_records(items, key, *, many, label, missing, record_type, all
         item_id = item.id
         if item_id not in allowed_ids:
             raise ValueError(f'group_{kind}() 包含不属于当前候选池的对象。')
-        if item_id not in seen_population:
-            seen_population.add(item_id)
-            population_ids.append(item_id)
 
         raw_value = key(item)
         if many:
@@ -184,18 +193,38 @@ def _group_explore_records(items, key, *, many, label, missing, record_type, all
         else:
             raw_values = [raw_value]
 
+        item_buckets = []
         seen_item_buckets = set()
         for raw_bucket in raw_values:
             value = _normalize_explore_bucket_value(raw_bucket)
+            # Treat the configured missing label itself as missing too.  This
+            # keeps older blocks that explicitly returned "未记录" compatible
+            # with the new include_missing switch.
+            if isinstance(value, str) and value == missing_label:
+                value = None
+            if value is None and not include_missing:
+                continue
             token = _explore_bucket_token(value)
             if token in seen_item_buckets:
                 continue
             seen_item_buckets.add(token)
+            item_buckets.append((token, value))
+
+        # When missing values are excluded they must also leave the grouping
+        # population; otherwise the visible buckets would no longer add up to
+        # 100% for a normal single-value grouping.
+        if not item_buckets:
+            continue
+        if item_id not in seen_population:
+            seen_population.add(item_id)
+            population_ids.append(item_id)
+
+        for token, value in item_buckets:
             if token not in buckets:
                 buckets[token] = {
                     'bucket_id': token,
                     'value': value,
-                    'label': _explore_bucket_label(value, label, missing),
+                    'label': _explore_bucket_label(value, label, missing_label),
                     'ids': [],
                 }
                 bucket_order.append(token)
@@ -786,15 +815,21 @@ def _execute_explore_block(code, set_payloads, photo_payloads):
     allowed_set_ids = set(sets_by_id)
     allowed_photo_ids = set(photos_by_id)
 
-    def group_sets(items, key, many=False, label=None, missing='未记录'):
+    def group_sets(items, key, many=False, label=None, missing='未记录', include_missing=True):
+        if not isinstance(include_missing, bool):
+            raise TypeError('include_missing 必须是 bool。')
         return _group_explore_records(
             items, key, many=bool(many), label=label, missing=missing,
+            include_missing=include_missing,
             record_type=SetRecord, allowed_ids=allowed_set_ids, kind='sets',
         )
 
-    def group_photos(items, key, many=False, label=None, missing='未记录'):
+    def group_photos(items, key, many=False, label=None, missing='未记录', include_missing=True):
+        if not isinstance(include_missing, bool):
+            raise TypeError('include_missing 必须是 bool。')
         return _group_explore_records(
             items, key, many=bool(many), label=label, missing=missing,
+            include_missing=include_missing,
             record_type=PhotoRecord, allowed_ids=allowed_photo_ids, kind='photos',
         )
 

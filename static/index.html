@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261005-01">
+    <link rel="stylesheet" href="style.css?v=20261005-02">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -355,58 +355,6 @@
                         <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.locations)" text size="small" @click="openExploreMore('地点', 'location', exploreStats.locations)">显示全部</el-button></div>
                     </el-card>
 
-                    <el-card shadow="never" class="explore-stat-card">
-                        <template #header>
-                            <div class="explore-card-header">
-                                <strong>环境</strong>
-                                <el-select v-model="exploreMetricModes.environment" size="small" class="explore-metric-select">
-                                    <el-option label="按 Set" value="sets"></el-option>
-                                    <el-option label="按图片" value="photos"></el-option>
-                                </el-select>
-                            </div>
-                        </template>
-                        <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows(exploreStats.environments, 'environment')" :key="`env-${item.label}`" class="explore-stat-row"
-                                 @click="openExploreStat('environment', item.value, item.label, exploreMetricTarget('environment'))">
-                                <div class="explore-stat-line">
-                                    <span>{{ item.label }}</span>
-                                    <span class="explore-stat-metrics">
-                                        <button type="button" class="explore-metric-link" @click.stop="openExploreStat('environment', item.value, item.label, exploreMetricTarget('environment'))">{{ exploreMetricCount(item, 'environment') }} {{ exploreMetricUnit('environment') }}</button>
-                                        <span>· {{ formatExplorePercent(exploreMetricPercentage(item, 'environment')) }}</span>
-                                    </span>
-                                </div>
-                                <el-progress :percentage="exploreMetricPercentage(item, 'environment')" :show-text="false" :stroke-width="5"></el-progress>
-                            </div>
-                        </div>
-                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.environments)" text size="small" @click="openExploreMore('环境', 'environment', exploreStats.environments)">显示全部</el-button></div>
-                    </el-card>
-
-                    <el-card shadow="never" class="explore-stat-card">
-                        <template #header>
-                            <div class="explore-card-header">
-                                <strong>焦段</strong>
-                                <el-select v-model="exploreMetricModes.focal_length" size="small" class="explore-metric-select">
-                                    <el-option label="按 Set" value="sets"></el-option>
-                                    <el-option label="按图片" value="photos"></el-option>
-                                </el-select>
-                            </div>
-                        </template>
-                        <div class="explore-stat-list">
-                            <div v-for="item in visibleExploreRows(exploreStats.focal_lengths, 'focal_length')" :key="`focal-${item.label}`" class="explore-stat-row"
-                                 @click="openExploreStat('focal_length', item.value, item.label, exploreMetricTarget('focal_length'))">
-                                <div class="explore-stat-line">
-                                    <span>{{ item.label }}</span>
-                                    <span class="explore-stat-metrics">
-                                        <button type="button" class="explore-metric-link" @click.stop="openExploreStat('focal_length', item.value, item.label, exploreMetricTarget('focal_length'))">{{ exploreMetricCount(item, 'focal_length') }} {{ exploreMetricUnit('focal_length') }}</button>
-                                        <span>· {{ formatExplorePercent(exploreMetricPercentage(item, 'focal_length')) }}</span>
-                                    </span>
-                                </div>
-                                <el-progress :percentage="exploreMetricPercentage(item, 'focal_length')" :show-text="false" :stroke-width="5"></el-progress>
-                            </div>
-                        </div>
-                        <div class="explore-card-footer"><el-button v-if="exploreHasMore(exploreStats.focal_lengths)" text size="small" @click="openExploreMore('焦段', 'focal_length', exploreStats.focal_lengths)">显示全部</el-button></div>
-                    </el-card>
-
                     <el-card v-for="block in exploreStats.custom_blocks" :key="`explore-block-${block.id}`" shadow="never" class="explore-stat-card">
                         <template #header>
                             <div class="explore-card-header">
@@ -417,7 +365,8 @@
                                     </el-tooltip>
                                 </div>
                                 <div class="explore-card-controls">
-                                    <el-select v-model="exploreMetricModes[exploreBlockDimension(block.id)]" size="small" class="explore-metric-select">
+                                    <el-tag v-if="block.enabled === false" type="info" effect="plain" size="small">已停用</el-tag>
+                                    <el-select v-else v-model="exploreMetricModes[exploreBlockDimension(block.id)]" size="small" class="explore-metric-select">
                                         <el-option label="按 Set" value="sets"></el-option>
                                         <el-option label="按图片" value="photos"></el-option>
                                     </el-select>
@@ -427,7 +376,11 @@
                                 </div>
                             </div>
                         </template>
-                        <template v-if="!block.error">
+                        <div v-if="block.enabled === false" class="explore-card-disabled">
+                            <div class="explore-card-disabled-title">已停用</div>
+                            <div class="explore-card-disabled-text">统计定义和 Python 代码已保留；启用后才会执行统计。</div>
+                        </div>
+                        <template v-else-if="!block.error">
                             <div class="explore-stat-list">
                                 <div v-for="item in visibleExploreRows(block.rows, exploreBlockDimension(block.id))"
                                      :key="`block-${block.id}-${item.bucket_id}`" class="explore-stat-row"
@@ -1942,7 +1895,14 @@
 
             <template #footer>
                 <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
-                    <el-button v-if="exploreBlockEditor.id" type="danger" plain @click="deleteExploreBlock({id: exploreBlockEditor.id, name: exploreBlockEditor.name})">删除</el-button>
+                    <div v-if="exploreBlockEditor.id" style="display:flex; align-items:center; gap:8px;">
+                        <el-button type="danger" plain @click="deleteExploreBlock({id: exploreBlockEditor.id, name: exploreBlockEditor.name})">删除</el-button>
+                        <el-button :type="exploreBlockEditor.enabled !== false ? 'warning' : 'success'" plain
+                                   :disabled="exploreBlockSaving || exploreBlockPreviewLoading"
+                                   @click="toggleExploreBlockEnabled">
+                            {{ exploreBlockEditor.enabled !== false ? '停用' : '启用' }}
+                        </el-button>
+                    </div>
                     <span v-else></span>
                     <div>
                         <el-button @click="showExploreBlockDialog = false">取消</el-button>
@@ -1969,6 +1929,8 @@
                         </div>
                         <div style="margin-top:8px; color:#909399; font-size:12px;">
                             <code>many=True</code> 允许同一个 Set / Photo 同时进入多个 bucket；同一对象在同一 bucket 只计一次。
+                            <code>include_missing=False</code> 会排除空值 / “未记录”，并把它们从该分组的百分比分母中移除；默认 <code>True</code>。
+                            图片版本范围由传给 <code>group_photos()</code> 的集合决定：当前版本可用 <code>preferred_versions(photos)</code>，切全 Final 时改为 <code>finals(photos)</code>。
                         </div>
                     </div>
                     <div style="margin-bottom:14px;">
@@ -4161,6 +4123,6 @@
 <script src="smart-albums.js?v=20261003-01"></script>
 <script src="smart-sets.js?v=20261003-01"></script>
 <script src="explore.js?v=20261004-03"></script>
-<script type="module" src="app.js?v=20261005-01"></script>
+<script type="module" src="app.js?v=20261005-02"></script>
 </body>
 </html>
