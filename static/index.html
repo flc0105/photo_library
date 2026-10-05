@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>我的相册</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-    <link rel="stylesheet" href="style.css?v=20261005-04">
+    <link rel="stylesheet" href="css/core.css?v=20261005-01">
+    <link rel="stylesheet" href="css/features/mapped_library.css?v=20261005-01">
+    <link rel="stylesheet" href="css/features/workflow.css?v=20261005-01">
+    <link rel="stylesheet" href="css/features/smart.css?v=20261005-01">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus"></script>
     <script src="//unpkg.com/@element-plus/icons-vue"></script>
@@ -21,6 +24,9 @@
 
     <div class="container">
 
+        <!-- =========================================================
+             FEATURE: UPLOADED ALBUMS — HOME / ALBUM LIST
+             ========================================================= -->
         <!-- 相册列表页面 -->
         <div v-if="currentView === 'albums'">
             <div class="header">
@@ -213,6 +219,9 @@
         </div>
 
 
+        <!-- =========================================================
+             FEATURE: SMART — EXPLORE
+             ========================================================= -->
         <!-- Explore：Photo 与 Set 共享同一智能索引 Source 范围，可反向进入临时 Smart Album / Smart Set。 -->
         <div v-if="currentView === 'explore'" class="explore-result-loading">
             <div class="back-button">
@@ -439,6 +448,9 @@
             </div>
         </div>
 
+        <!-- =========================================================
+             FEATURE: MAPPED LIBRARY / SMART SET RESULT
+             ========================================================= -->
         <!-- 本地目录 / Smart Set：Smart Set 只替换 Set 数据源，展示完全复用 Set parent。 -->
         <div v-if="currentView === 'library' || currentView === 'smart-set'"
              :class="{ 'smart-view-result-loading': currentView === 'smart-set' }"
@@ -728,6 +740,9 @@
             </div>
         </div>
 
+        <!-- =========================================================
+             FEATURE: MAPPED LIBRARY — SHARE
+             ========================================================= -->
         <!-- Set 分享页：复用本地目录的文件夹/图片交互，但不暴露编辑或 Workflow。 -->
         <div v-if="currentView === 'library-share'" v-loading="shareLoading">
             <div v-if="shareNeedsPassword" class="share-password-box">
@@ -895,6 +910,9 @@
             </template>
         </div>
 
+        <!-- =========================================================
+             FEATURE: SMART — SMART ALBUM RESULT
+             ========================================================= -->
         <!-- Smart Album 结果：复用 Library 图片语义，不拥有实际文件。 -->
         <div v-if="currentView === 'smart-album'" class="smart-view-result-loading" v-loading="smartAlbumLoading">
             <div class="back-button">
@@ -990,6 +1008,9 @@
             </div>
         </div>
 
+        <!-- =========================================================
+             FEATURE: UPLOADED ALBUMS — ALBUM DETAIL
+             ========================================================= -->
         <div v-if="currentView === 'album-detail'">
             <div class="back-button">
                 <el-button @click="backToAlbums">返回相册列表</el-button>
@@ -1252,6 +1273,9 @@
             </div>
         </div>
 
+        <!-- =========================================================
+             SHARED VIEW — IMAGE DETAIL / OVERLAY
+             ========================================================= -->
         <!-- 图片详情页面 -->
         <div v-if="currentView === 'image-detail'">
             <div class="back-button">
@@ -1426,6 +1450,9 @@
         </div>
 
 
+        <!-- =========================================================
+             CORE — ADMIN / SITE SETTINGS DIALOGS
+             ========================================================= -->
         <!-- 管理员登录对话框 -->
         <el-dialog v-model="showAdminLogin" title="管理员登录" width="400px">
             <el-form :model="{password: adminPassword}" @submit.prevent="verifyAdminPassword">
@@ -1615,6 +1642,9 @@
         </div>
 
 
+        <!-- =========================================================
+             FEATURE: UPLOADED ALBUMS — DIALOGS
+             ========================================================= -->
         <!-- 创建相册对话框 -->
         <el-dialog v-model="showCreateAlbumDialog" title="新建相册" width="720px">
             <el-form :model="newAlbum" label-width="90px">
@@ -1653,6 +1683,9 @@
             </template>
         </el-dialog>
 
+        <!-- =========================================================
+             FEATURE: SMART — DIALOGS
+             ========================================================= -->
         <!-- Smart View 索引：Source 选择共用，重建与同步保持各自已验证的执行流程。 -->
         <el-dialog v-model="showSmartAlbumIndexDialog" width="920px" class="smart-view-index-dialog"
                    :close-on-click-modal="!smartAlbumIndexDialogBusy" :close-on-press-escape="!smartAlbumIndexDialogBusy">
@@ -2237,6 +2270,9 @@
 
 
 
+        <!-- =========================================================
+             FEATURE: MAPPED LIBRARY — SOURCE / SET DIALOGS
+             ========================================================= -->
         <!-- Set 父目录专用：沿用 ShotFlowManager 的 Date / Model / Theme 创建逻辑。 -->
         <el-dialog v-model="showNewSetDialog" title="New Set" width="480px">
             <el-form :model="newSetForm" label-width="72px" @submit.prevent="createNewSet">
@@ -2301,6 +2337,9 @@
             <template #footer><el-button @click="showLibrarySourcesDialog = false">关闭</el-button></template>
         </el-dialog>
 
+        <!-- =========================================================
+             FEATURE: WORKFLOW — OPERATION DIALOGS
+             ========================================================= -->
         <!-- Advanced per-Set workflow preview -->
         <el-dialog v-model="workflowPreviewVisible"
                    :title="workflowPreviewTitle"
@@ -2911,6 +2950,9 @@
             </template>
         </el-dialog>
 
+        <!-- =========================================================
+             FEATURE: WORKFLOW / FINAL — DIALOGS
+             ========================================================= -->
         <!-- Canonical Final JPEG builder: source selection -> build plan -> execution. -->
         <el-dialog v-model="finalBuilderVisible"
                    width="1180px"
@@ -3414,6 +3456,9 @@
             </template>
         </el-dialog>
 
+        <!-- =========================================================
+             FEATURE: WORKFLOW — VALIDATION
+             ========================================================= -->
         <!-- Directory Validation for the current Source root. Runs only on demand. -->
         <el-dialog v-model="validationVisible" width="1040px" class="library-validation-dialog">
             <template #header>
@@ -3523,6 +3568,9 @@
             <template #footer><el-button @click="validationRulesVisible = false">关闭</el-button></template>
         </el-dialog>
 
+        <!-- =========================================================
+             FEATURE: MAPPED LIBRARY — MANIFEST DETAIL / EDITOR
+             ========================================================= -->
         <!-- Set metadata detail -->
         <el-dialog v-model="showManifestDetailDialog" title="Set Details" width="900px" class="manifest-detail-dialog" @opened="resetManifestDetailScroll">
             <div v-if="currentManifestData" class="manifest-detail-content">
@@ -4070,6 +4118,9 @@
             </template>
         </el-dialog>
 
+        <!-- =========================================================
+             FEATURE: UPLOADED ALBUMS — GROUP DIALOGS
+             ========================================================= -->
         <!-- 分组管理对话框 -->
         <el-dialog v-model="showManageGroupsDialog" title="管理分组" width="600px">
             <div style="margin-bottom: 20px;">
@@ -4124,15 +4175,7 @@
     </div>
 </div>
 
-<script src="gps-import.js?v=20260920-03"></script>
-<script src="manifest-autofill.js?v=20260924-01"></script>
-<script src="workflow-tools.js?v=20261002-05"></script>
-<script src="final-builder.js?v=20260928-01"></script>
-<script src="final-metadata.js?v=20260928-01"></script>
-<script src="set-insights.js?v=20260920-02"></script>
-<script src="smart-albums.js?v=20261003-01"></script>
-<script src="smart-sets.js?v=20261003-01"></script>
-<script src="explore.js?v=20261005-02"></script>
-<script type="module" src="app.js?v=20261005-06"></script>
+<!-- Frontend assembly: app.js imports feature modules directly via native ES modules. -->
+<script type="module" src="js/app.js?v=20261005-07"></script>
 </body>
 </html>
