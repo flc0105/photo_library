@@ -13,7 +13,7 @@ from core.external_tools import (
     IMAGEMAGICK_REQUIRED_QUANTUM,
     IMAGEMAGICK_REQUIRED_VERSION,
 )
-from core.final_delivery_contract import (
+from features.workflow.final.contract import (
     FINAL_JPEG_BASELINE,
     FINAL_JPEG_CHROMA_SAMPLING,
     FINAL_JPEG_HUFFMAN_OPTIMIZE,
@@ -21,7 +21,7 @@ from core.final_delivery_contract import (
     FINAL_SRGB_ICC_SHA256,
     FINAL_SRGB_PROFILE_DESCRIPTION,
 )
-from core.final_metadata_fields import load_metadata_field_keys
+from features.workflow.final.metadata_fields import load_metadata_field_keys
 
 
 _MANIFEST_FILENAME = 'build.json'
@@ -166,8 +166,7 @@ _SOURCE_RECORD_KEYS = {
     'height',
     'orientation',
 }
-_COMMANDS_BUILD_KEYS = {'steps', 'pipeline'}
-_COMMANDS_METADATA_KEYS = {'steps'}
+_COMMANDS_KEYS = {'steps', 'pipeline'}
 _COMMAND_STEP_KEYS = {'name', 'tool', 'argv', 'cwd', 'stdin', 'stdout'}
 _PIPELINE_KEYS = {'replay_shell', 'cwd'}
 _BUILD_RECORD_KEYS = {'time', 'status', 'exit_code', 'error', 'commands'}
@@ -182,7 +181,7 @@ def _validate_commands(section_name, commands):
     if not isinstance(commands, dict):
         raise RuntimeError(f'build.json {section_name}.commands 结构无效')
 
-    allowed = _COMMANDS_BUILD_KEYS if section_name == 'build' else _COMMANDS_METADATA_KEYS
+    allowed = _COMMANDS_KEYS
     extra = sorted(set(commands) - allowed)
     if extra:
         raise RuntimeError(
@@ -204,18 +203,17 @@ def _validate_commands(section_name, commands):
         if not isinstance(step.get('argv'), list):
             raise RuntimeError(f'build.json {section_name}.commands.steps[{index}].argv 结构无效')
 
-    if section_name == 'build':
-        pipeline = commands.get('pipeline')
-        if not isinstance(pipeline, dict):
-            raise RuntimeError('build.json build.commands.pipeline 结构无效')
-        extra_pipeline = sorted(set(pipeline) - _PIPELINE_KEYS)
-        if extra_pipeline:
-            raise RuntimeError(
-                'build.json build.commands.pipeline 包含当前 schema 未定义字段：'
-                + ', '.join(extra_pipeline)
-            )
-        if not isinstance(pipeline.get('replay_shell'), str) or not pipeline['replay_shell'].strip():
-            raise RuntimeError('build.json build.commands.pipeline.replay_shell 结构无效')
+    pipeline = commands.get('pipeline')
+    if not isinstance(pipeline, dict):
+        raise RuntimeError(f'build.json {section_name}.commands.pipeline 结构无效')
+    extra_pipeline = sorted(set(pipeline) - _PIPELINE_KEYS)
+    if extra_pipeline:
+        raise RuntimeError(
+            f'build.json {section_name}.commands.pipeline 包含当前 schema 未定义字段：'
+            + ', '.join(extra_pipeline)
+        )
+    if not isinstance(pipeline.get('replay_shell'), str) or not pipeline['replay_shell'].strip():
+        raise RuntimeError(f'build.json {section_name}.commands.pipeline.replay_shell 结构无效')
 
 
 def _validate_current_manifest(data):

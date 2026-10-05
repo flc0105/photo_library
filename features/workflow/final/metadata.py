@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -15,10 +16,10 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file
 from PIL import Image, ImageOps
 
-from core.build_manifest import record_metadata_failure, record_metadata_success
+from features.workflow.final.build_manifest import record_metadata_failure, record_metadata_success
 from core.external_tools import EXIFTOOL_REQUIRED_VERSION, probe_exiftool_version, resolve_exiftool
-from core.final_delivery_contract import FINAL_SRGB_ICC_SHA256, FINAL_SRGB_PROFILE_DESCRIPTION
-from core.final_metadata_fields import (
+from features.workflow.final.contract import FINAL_SRGB_ICC_SHA256, FINAL_SRGB_PROFILE_DESCRIPTION
+from features.workflow.final.metadata_fields import (
     FINAL_STRUCTURAL_FIELDS,
     field_fixed_display,
     field_output_key,
@@ -620,10 +621,22 @@ def _rebuild_staged_metadata(exiftool_path, staged_path: Path, donor_path: Path,
     )
 
 
-def _runtime_metadata_commands(staged_path: Path, donor_path: Path, fields, exiftool_path, runtime_cwd):
-    # steps[].argv is runtime provenance.  Keep the actual temporary staged path
-    # and donor path exactly as passed to ExifTool; unlike Build, Metadata has no
-    # separate replay command in build.json.
+def _runtime_metadata_commands(
+    staged_path: Path,
+    final_path: Path,
+    donor_path: Path,
+    fields,
+    exiftool_path,
+    runtime_cwd,
+    set_dir: Path,
+):
+    # steps[].argv is runtime provenance and therefore preserves the actual
+    # temporary staged path passed to ExifTool.  replay_shell is the separate
+    # stable Set-relative command intended for later reproduction.
+    replay_target = final_path.relative_to(set_dir)
+    replay_donor = donor_path.relative_to(set_dir)
+    replay_clear = _clear_metadata_args(exiftool_path, replay_target)
+    replay_write = _rebuild_metadata_args(exiftool_path, replay_target, replay_donor, fields)
     return {
         'steps': [
             {
@@ -639,6 +652,10 @@ def _runtime_metadata_commands(staged_path: Path, donor_path: Path, fields, exif
                 'cwd': str(runtime_cwd),
             },
         ],
+        'pipeline': {
+            'replay_shell': f'{shlex.join(replay_clear)} && {shlex.join(replay_write)}',
+            'cwd': '.',
+        },
     }
 
 
@@ -1023,10 +1040,12 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                             try:
                                 commands_by_row_id[row['id']] = _runtime_metadata_commands(
                                     staged_path,
+                                    final_path,
                                     donor_path,
                                     plan['fields'],
                                     dependency['exiftool_path'],
                                     Path.cwd(),
+                                    set_dir,
                                 )
                             except Exception:
                                 # build.json is optional provenance.  Failing to

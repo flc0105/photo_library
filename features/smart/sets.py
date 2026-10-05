@@ -1,23 +1,11 @@
-import json
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from core.smart_album_runtime import _validate_script, run_set_query
-from core.smart_albums import (
-    SMART_ALBUM_DB_FILENAME,
-    SMART_ALBUM_ENGINE_VERSION,
-    SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
-    SMART_ALBUM_INDEX_STAGE_DEFS,
-    _DISPLAY_IMAGE_EXTENSIONS,
-    _RAW_EXTENSIONS,
-    _asset_payloads,
-    _connect,
-    _discover_sets,
-    _enabled_sources,
-    _index_status,
-    _now_iso,
-    _walk_files,
+from features.smart.runtime import _validate_script, run_set_query
+from features.smart.index import (
+    SMART_ALBUM_DB_FILENAME, SMART_ALBUM_ENGINE_VERSION, SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
+    _connect, _index_status, _now_iso, set_candidates,
 )
 
 
@@ -68,151 +56,8 @@ def _set_dict(row):
     return data
 
 
-def _source_scope(main_db_path, smart_db_path):
-    status = _index_status(smart_db_path)
-    if not status['ready']:
-        raise RuntimeError('SMART_ALBUM_INDEX_REQUIRED')
-    indexed_ids = {int(value) for value in status.get('indexed_source_ids') or []}
-    sources = []
-    for source in _enabled_sources(main_db_path):
-        if int(source['id']) not in indexed_ids:
-            continue
-        if not Path(source['root_path']).expanduser().is_dir():
-            continue
-        sources.append(source)
-    return sources, status
-
-
-def _manifest_info(root, set_path):
-    manifest_path = Path(root) / set_path / 'manifest.json'
-    if not manifest_path.is_file():
-        return {}, False, True
-    try:
-        raw = json.loads(manifest_path.read_text(encoding='utf-8'))
-        if not isinstance(raw, dict):
-            return {}, True, False
-        return raw, True, True
-    except Exception:
-        return {}, True, False
-
-
-def _shoot_date(manifest, set_name):
-    shoot = manifest.get('shoot') if isinstance(manifest.get('shoot'), dict) else {}
-    date_text = str(shoot.get('date') or '').strip()
-    if date_text:
-        return date_text
-    prefix = str(set_name or '')[:8]
-    if len(prefix) == 8 and prefix.isdigit():
-        return f'{prefix[:4]}-{prefix[4:6]}-{prefix[6:8]}'
-    return ''
-
-
-def _favorite_paths(main_db_path, source_ids):
-    if not source_ids:
-        return []
-    placeholders = ','.join('?' for _ in source_ids)
-    conn = _connect(main_db_path)
-    rows = conn.execute(
-        f'''SELECT source_id, relative_path
-            FROM library_image_states
-            WHERE is_favorited=1 AND source_id IN ({placeholders})''',
-        tuple(source_ids),
-    ).fetchall()
-    conn.close()
-    return [(int(row['source_id']), str(row['relative_path'])) for row in rows]
-
-
-def _stage_counts(set_dir):
-    counts = {
-        'original_jpg': len(_walk_files(set_dir / '01_Original' / 'JPG', _DISPLAY_IMAGE_EXTENSIONS)),
-        'original_raw': len(_walk_files(set_dir / '01_Original' / 'RAW', _RAW_EXTENSIONS)),
-    }
-    for stage, relative_dir in SMART_ALBUM_INDEX_STAGE_DEFS:
-        counts[stage] = len(_walk_files(set_dir / relative_dir, _DISPLAY_IMAGE_EXTENSIONS))
-    return counts
-
-
-def _set_candidates(smart_db_path, main_db_path, photo_payloads=None):
-    sources, status = _source_scope(main_db_path, smart_db_path)
-    source_map = {int(source['id']): source for source in sources}
-
-    if photo_payloads is None:
-        photo_payloads, _ = _asset_payloads(smart_db_path, main_db_path)
-    photos_by_set = {}
-    for photo in photo_payloads:
-        source = photo.get('source') or {}
-        set_info = photo.get('set') or {}
-        key = (int(source.get('id')), str(set_info.get('path') or ''))
-        if key[0] in source_map:
-            photos_by_set.setdefault(key, []).append(photo)
-
-    discovered = []
-    set_paths_by_source = {}
-    for source in sources:
-        source_id = int(source['id'])
-        root = Path(source['root_path']).expanduser().resolve()
-        for set_dir in _discover_sets(root):
-            set_path = set_dir.relative_to(root).as_posix()
-            discovered.append((source, root, set_dir, set_path))
-            set_paths_by_source.setdefault(source_id, []).append(set_path)
-
-    favorite_counts = {(int(source['id']), path): 0 for source in sources for path in set_paths_by_source.get(int(source['id']), [])}
-    favorite_rows = _favorite_paths(main_db_path, list(source_map))
-    sorted_paths = {
-        source_id: sorted(paths, key=lambda value: len(value), reverse=True)
-        for source_id, paths in set_paths_by_source.items()
-    }
-    for source_id, relative_path in favorite_rows:
-        source = source_map.get(source_id)
-        if not source or not (Path(source['root_path']).expanduser() / relative_path).is_file():
-            continue
-        for set_path in sorted_paths.get(source_id, []):
-            if relative_path == set_path or relative_path.startswith(set_path + '/'):
-                favorite_counts[(source_id, set_path)] = favorite_counts.get((source_id, set_path), 0) + 1
-                break
-
-    payloads = []
-    rows = {}
-    for source, root, set_dir, set_path in discovered:
-        source_id = int(source['id'])
-        manifest, has_manifest, manifest_valid = _manifest_info(root, set_path)
-        counts = _stage_counts(set_dir)
-        key = (source_id, set_path)
-        set_id = f'library-set:{source_id}:{set_path}'
-        photo_items = photos_by_set.get(key, [])
-        shoot_date = _shoot_date(manifest, set_dir.name)
-        payload = {
-            'id': set_id,
-            'source': {'id': source_id, 'name': source['name']},
-            'name': set_dir.name,
-            'path': set_path,
-            'manifest': manifest,
-            'counts': counts,
-            'favorite_count': favorite_counts.get(key, 0),
-            'indexed_photo_count': len(photo_items),
-            'photos': photo_items,
-            'shoot_date': {'__smart_date__': shoot_date} if shoot_date else None,
-        }
-        payloads.append(payload)
-        rows[set_id] = {
-            'id': set_id,
-            'source_id': source_id,
-            'source_name': source['name'],
-            'name': set_dir.name,
-            'set_path': set_path,
-            'shoot_date': shoot_date,
-            'model': str(manifest.get('model') or '').strip(),
-            'has_manifest': has_manifest,
-            'manifest_valid': manifest_valid,
-            'counts': counts,
-            'favorite_count': favorite_counts.get(key, 0),
-            'indexed_photo_count': len(photo_items),
-        }
-    return payloads, rows, status
-
-
 def _run_smart_set(smart_db_path, main_db_path, row):
-    payloads, result_rows, status = _set_candidates(smart_db_path, main_db_path)
+    payloads, result_rows, status = set_candidates(smart_db_path, main_db_path)
     ordered_ids = run_set_query(
         row['python_code'],
         payloads,

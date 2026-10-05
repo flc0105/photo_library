@@ -15,8 +15,8 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file
 from PIL import Image, ImageCms, ImageOps, JpegImagePlugin
 
-from core.build_manifest import prepare_build_manifest, record_build_failure, record_build_success
-from core.final_delivery_contract import (
+from features.workflow.final.build_manifest import prepare_build_manifest, record_build_failure, record_build_success
+from features.workflow.final.contract import (
     FINAL_CROP_WARNING_PERCENT,
     FINAL_JPEG_CHROMA_SAMPLING,
     FINAL_JPEG_CJPEG_SAMPLE,
@@ -28,14 +28,15 @@ from core.final_delivery_contract import (
     FINAL_SRGB_ICC_SHA256,
     FINAL_SRGB_PROFILE_DESCRIPTION,
 )
+from core.filesystem import PROJECT_ROOT
 from core.external_tools import (
     IMAGEMAGICK_REQUIRED_QUANTUM,
     IMAGEMAGICK_REQUIRED_VERSION,
     probe_imagemagick,
     resolve_imagemagick,
 )
-from core.final_metadata_fields import load_metadata_field_keys
-from core.final_resolution import choose_target_for_crop, current_policy
+from features.workflow.final.metadata_fields import load_metadata_field_keys
+from features.workflow.final.resolution import choose_target_for_crop, current_policy
 
 
 _IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
@@ -440,7 +441,7 @@ def _source_color_info(image):
 
 
 def _fixed_srgb_icc_path():
-    path = Path(__file__).resolve().parents[1] / 'assets' / FINAL_SRGB_ICC_FILENAME
+    path = PROJECT_ROOT / 'assets' / FINAL_SRGB_ICC_FILENAME
     if not path.is_file():
         raise RuntimeError(f'缺少固定 sRGB ICC：{FINAL_SRGB_ICC_FILENAME}')
     digest = hashlib.sha256(path.read_bytes()).hexdigest()

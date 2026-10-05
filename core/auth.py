@@ -4,7 +4,7 @@ import secrets
 from functools import wraps
 from pathlib import Path
 
-from flask import jsonify, request
+from flask import jsonify, request, session
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 
@@ -49,11 +49,30 @@ def verify_admin_token(token):
         return False
 
 
+def is_admin_request():
+    """Return True for either the same-origin admin session or a valid admin token."""
+    if session.get('photo_library_admin') is True:
+        return True
+    token = request.headers.get('X-Admin-Token')
+    return bool(token and verify_admin_token(token))
+
+
 def admin_required(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        token = request.headers.get('X-Admin-Token')
-        if not token or not verify_admin_token(token):
+        if not is_admin_request():
             return jsonify({'error': '需要管理员权限'}), 401
         return func(*args, **kwargs)
     return wrapper
+
+
+def load_or_create_session_secret():
+    secret_file = Path('.photo_library_session_secret')
+    env_secret = os.environ.get('PHOTO_LIBRARY_SESSION_SECRET')
+    if env_secret:
+        return env_secret
+    if secret_file.exists():
+        return secret_file.read_text(encoding='utf-8').strip()
+    secret = secrets.token_urlsafe(48)
+    secret_file.write_text(secret, encoding='utf-8')
+    return secret

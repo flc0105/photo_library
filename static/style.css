@@ -303,7 +303,7 @@ body {
     font-size: 12px;
 }
 
-.exif-loading {
+.exif-dialog-loading {
     padding: 20px;
     text-align: center;
 }

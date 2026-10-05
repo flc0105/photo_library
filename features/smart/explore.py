@@ -4,9 +4,9 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from core.smart_album_runtime import _validate_script, run_explore_block, run_query, run_set_query
-from core.smart_albums import (
-    PHOTO_CONTRACT_GROUPS,
+from features.smart.runtime import _validate_script, run_explore_block, run_query, run_set_query
+from features.smart.albums import PHOTO_CONTRACT_GROUPS
+from features.smart.index import (
     SMART_ALBUM_DB_FILENAME,
     SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     _connect,
@@ -14,8 +14,12 @@ from core.smart_albums import (
     _discover_sets,
     _index_status,
     _now_iso,
+    manifest_info as _manifest_info,
+    set_candidates as _set_candidates,
+    shoot_date as _shoot_date,
+    source_scope as _source_scope,
 )
-from core.smart_sets import SMART_SET_CONTRACT_GROUPS, _manifest_info, _set_candidates, _shoot_date, _source_scope
+from features.smart.sets import SMART_SET_CONTRACT_GROUPS
 
 
 _MISSING_LABEL = '未记录'

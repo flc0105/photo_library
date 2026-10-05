@@ -1,4 +1,4 @@
-from core.final_resolution import current_policy
+from features.workflow.final.resolution import current_policy
 
 
 FINAL_CROP_WARNING_PERCENT = 3.0

@@ -6,6 +6,8 @@ import threading
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from core.filesystem import PROJECT_ROOT
+
 
 _CONFIG_FILENAME = 'final_metadata_settings.json'
 _TAG_REF_RE = re.compile(r'^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$')
@@ -27,7 +29,7 @@ _TAG_CATALOG_CACHE = {}
 
 
 def metadata_fields_path():
-    return Path(__file__).resolve().parents[1] / 'data' / _CONFIG_FILENAME
+    return PROJECT_ROOT / 'data' / _CONFIG_FILENAME
 
 
 def _tag_parts(value, label):
