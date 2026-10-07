@@ -4,7 +4,10 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from features.smart.runtime import _validate_script, run_explore_block, run_query, run_set_query
+from features.smart.runtime import (
+    _validate_script, custom_helper_docs, run_explore_block, run_query, run_set_query,
+)
+from features.smart.helpers import read_custom_helpers_source
 from features.smart.albums import PHOTO_CONTRACT_GROUPS
 from features.smart.index import (
     SMART_ALBUM_DB_FILENAME,
@@ -26,7 +29,7 @@ _MISSING_LABEL = '未记录'
 _SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
 _EXPLORE_BLOCK_ENGINE_VERSION = 4
 _EXPLORE_BLOCK_DISPLAY_MODES = {'sets', 'photos', 'both', 'sets_count_only'}
-DEFAULT_EXPLORE_BLOCK_CODE = '''selected = preferred_versions(photos)
+DEFAULT_EXPLORE_BLOCK_CODE = '''selected = helpers.preferred_versions(photos)
 
 result = group_sets(
     sets,
@@ -36,6 +39,98 @@ result = group_sets(
 )
 '''
 
+
+_DEFAULT_EXPLORE_PRESET_KEY = 'default_explore_presets_v1'
+_DEFAULT_EXPLORE_PRESETS = (
+    {
+        'name': 'Cosplay Variant',
+        'description': '只统计 Cosplay Set，并按 theme.variant 分组。',
+        'display_mode': 'both',
+        'python_code': '''selected = helpers.preferred_versions(photos)
+
+cosplay_sets = [
+    item
+    for item in sets
+    if (item.manifest.theme.genre or "").casefold() == "cosplay"
+]
+
+result = group_sets(
+    cosplay_sets,
+    key=lambda item: item.manifest.theme.variant,
+    include_missing=True,
+    photo_scope=selected,
+)
+''',
+    },
+    {
+        'name': '拍摄星期',
+        'description': '按 Set 拍摄日期的星期分组。',
+        'display_mode': 'both',
+        'python_code': '''selected = helpers.preferred_versions(photos)
+weekdays = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+result = group_sets(
+    sets,
+    key=lambda item: weekdays[item.shoot_date.weekday()] if item.shoot_date is not None else None,
+    include_missing=True,
+    photo_scope=selected,
+)
+''',
+    },
+    {
+        'name': '总拍摄时长',
+        'description': '主 Session + additional_sessions，总时长支持跨午夜。',
+        'display_mode': 'both',
+        'python_code': '''selected = helpers.preferred_versions(photos)
+
+def session_minutes(start_time, end_time):
+    start_text = str(start_time or "").strip()
+    end_text = str(end_time or "").strip()
+    if not start_text or not end_text:
+        return 0
+    try:
+        start_hour, start_minute = [int(value) for value in start_text.split(":", 1)]
+        end_hour, end_minute = [int(value) for value in end_text.split(":", 1)]
+    except (TypeError, ValueError):
+        return 0
+    if not (0 <= start_hour <= 23 and 0 <= end_hour <= 23 and 0 <= start_minute <= 59 and 0 <= end_minute <= 59):
+        return 0
+    start = start_hour * 60 + start_minute
+    end = end_hour * 60 + end_minute
+    minutes = end - start
+    if minutes < 0:
+        minutes += 24 * 60
+    return minutes
+
+def total_minutes(item):
+    shoot = item.manifest.shoot
+    if shoot is None:
+        return 0
+    total = session_minutes(shoot.start_time, shoot.end_time)
+    for session in (shoot.additional_sessions or []):
+        total += session_minutes(session.start_time, session.end_time)
+    return total
+
+def duration_label(item):
+    minutes = total_minutes(item)
+    if minutes <= 0:
+        return None
+    hours, remainder = divmod(minutes, 60)
+    if remainder == 0:
+        return f"{hours}小时"
+    if hours == 0:
+        return f"{remainder}分钟"
+    return f"{hours}小时{remainder}分钟"
+
+result = group_sets(
+    sets,
+    key=duration_label,
+    include_missing=True,
+    photo_scope=selected,
+)
+''',
+    },
+)
 
 
 def _create_explore_blocks_table(conn):
@@ -89,6 +184,42 @@ def _init_explore_db(db_path):
                 FROM {legacy_table}
             ''')
             conn.execute(f'DROP TABLE {legacy_table}')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS explore_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        ''')
+        marker = conn.execute(
+            'SELECT value FROM explore_meta WHERE key=?',
+            (_DEFAULT_EXPLORE_PRESET_KEY,),
+        ).fetchone()
+        if not marker:
+            now = _now_iso()
+            existing_names = {
+                str(row['name'])
+                for row in conn.execute('SELECT name FROM explore_blocks').fetchall()
+            }
+            next_order = _next_block_order(conn)
+            for preset in _DEFAULT_EXPLORE_PRESETS:
+                if preset['name'] in existing_names:
+                    continue
+                _validate_script(preset['python_code'])
+                conn.execute(
+                    '''INSERT INTO explore_blocks
+                       (name, description, python_code, display_mode, presentation,
+                        display_order, enabled, engine_version, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, 'list', ?, 1, ?, ?, ?)''',
+                    (preset['name'], preset['description'], preset['python_code'],
+                     preset['display_mode'], next_order, _EXPLORE_BLOCK_ENGINE_VERSION, now, now),
+                )
+                existing_names.add(preset['name'])
+                next_order += 10
+            conn.execute(
+                '''INSERT INTO explore_meta (key, value) VALUES (?, '1')
+                   ON CONFLICT(key) DO UPDATE SET value='1' ''',
+                (_DEFAULT_EXPLORE_PRESET_KEY,),
+            )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -179,11 +310,12 @@ def _block_card_payload(row, execution, total_sets):
     }
 
 
-def _run_block_card(row, set_payloads, photo_payloads, total_sets):
+def _run_block_card(row, set_payloads, photo_payloads, total_sets, helper_source):
     execution = run_explore_block(
         row['python_code'],
         set_payloads,
         photo_payloads,
+        helper_source,
         timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     )
     return _block_card_payload(row, execution, total_sets)
@@ -499,6 +631,7 @@ def _build_stats(smart_db_path, main_db_path):
     cosplay_images = sum(int(item.get('indexed_photo_count') or 0) for item in cosplay_sets)
 
     custom_blocks = []
+    helper_source = read_custom_helpers_source()
     block_rows = _list_block_rows(smart_db_path)
     enabled_block_rows = [row for row in block_rows if bool(row['enabled'])]
     block_set_payloads = None
@@ -516,7 +649,7 @@ def _build_stats(smart_db_path, main_db_path):
             custom_blocks.append(_block_disabled_payload(block_row))
             continue
         try:
-            custom_blocks.append(_run_block_card(block_row, block_set_payloads, photo_payloads, total_sets))
+            custom_blocks.append(_run_block_card(block_row, block_set_payloads, photo_payloads, total_sets, helper_source))
         except Exception as exc:
             custom_blocks.append(_block_error_payload(block_row, exc))
 
@@ -622,7 +755,11 @@ def _photo_query_code(dimension, value, matching_set_rows=None):
         }
         return (
             f'keys = {keys!r}\n'
-            'result = [photo for photo in photos if set_key(photo) in keys]\n'
+            'result = [\n'
+            '    photo\n'
+            '    for photo in photos\n'
+            '    if (photo.source.id, photo.set.path) in keys\n'
+            ']\n'
         )
 
     if dimension == 'focal_length':
@@ -820,6 +957,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 python_code,
                 set_payloads,
                 photo_payloads,
+                read_custom_helpers_source(),
                 timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
             )
             fake_row = {
@@ -866,7 +1004,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 main_db_path,
             )
             try:
-                card = _run_block_card(row, set_payloads, photo_payloads, len(set_payloads))
+                card = _run_block_card(row, set_payloads, photo_payloads, len(set_payloads), read_custom_helpers_source())
             except Exception as exc:
                 card = _block_error_payload(row, exc)
             return jsonify({'card': card, 'index': status})
@@ -884,14 +1022,18 @@ def create_explore_blueprint(admin_guard, main_db_path):
         denied = guard()
         if denied:
             return denied
+        helper_docs = custom_helper_docs(read_custom_helpers_source())
         return jsonify({
             'engine_version': _EXPLORE_BLOCK_ENGINE_VERSION,
             'default_code': DEFAULT_EXPLORE_BLOCK_CODE,
             'helpers': [
                 'group_sets(items, key, many=False, label=None, missing="未记录", include_missing=True, photo_scope=None)',
                 'group_photos(items, key, many=False, label=None, missing="未记录", include_missing=True)',
-                'preferred_versions(items)',
-                'finals(items)',
+            ],
+            'custom_helpers': [f"helpers.{item['signature']}" for item in helper_docs],
+            'helper_docs': [
+                {**item, 'signature': f"helpers.{item['signature']}"}
+                for item in helper_docs
             ],
             'set_contract_groups': SMART_SET_CONTRACT_GROUPS,
             'photo_contract_groups': PHOTO_CONTRACT_GROUPS,
@@ -939,9 +1081,11 @@ def create_explore_blueprint(admin_guard, main_db_path):
             )
 
             set_code = _set_query_code(dimension, value)
+            helper_source = read_custom_helpers_source()
             ordered_set_ids = run_set_query(
                 set_code,
                 set_payloads,
+                helper_source,
                 timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
             )
             matching_set_rows = [set_rows[item_id] for item_id in ordered_set_ids if item_id in set_rows]
@@ -962,6 +1106,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
             ordered_ids = run_query(
                 photo_code,
                 photo_payloads,
+                read_custom_helpers_source(),
                 timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
             )
             images = [dict(result_rows[photo_id]) for photo_id in ordered_ids if photo_id in result_rows]
@@ -1022,6 +1167,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 row['python_code'],
                 set_payloads,
                 photo_payloads,
+                read_custom_helpers_source(),
                 timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
             )
             bucket = next(

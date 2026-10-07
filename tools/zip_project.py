@@ -14,6 +14,7 @@ TARGET_DIRS = [
     "assets",
     "data",
     "tools",
+    "features"
 ]
 
 # 根目录中需要额外保留的文件

@@ -313,7 +313,6 @@ def _validate_script(code):
     return tree
 
 
-_DEFAULT_PREFERRED_STAGE_ORDER = ('revision', 'model_edit', 'base_edit')
 
 
 def _mapping_value(mapping, key, default=None):
@@ -397,141 +396,58 @@ def resolve_shoot_time(manifest, capture_time, set_name):
     return None
 
 
-def set_key(photo):
-    """Return the canonical Source + Set identity for a library Photo."""
-    if not isinstance(photo, PhotoRecord):
-        raise TypeError('set_key() 只接受 Photo 对象。')
-    source_id = photo.source.id if photo.source is not None else None
-    set_path = photo.set.path if photo.set is not None else None
-    return (source_id, set_path)
 
 
-def finals(items):
-    """Return only Final-stage Photo objects while preserving input order."""
-    result = []
-    for photo in items:
-        if not isinstance(photo, PhotoRecord):
-            raise TypeError('finals() 的输入只能包含 Photo 对象。')
-        if photo.stage == 'final':
-            result.append(photo)
-    return result
-
-
-def shoot_time(photo):
-    """Return the canonical shoot datetime used by Smart Album sorting."""
-    if not isinstance(photo, PhotoRecord):
-        raise TypeError('shoot_time() 只接受 Photo 对象。')
-    manifest = photo.set.manifest if photo.set is not None else None
-    capture_time = photo.capture.time if photo.capture is not None else None
-    set_name = photo.set.name if photo.set is not None else None
-    return resolve_shoot_time(manifest, capture_time, set_name)
-
-
-def sample_per_set(items, count=1, seed=None):
-    """Randomly select up to ``count`` Photos from every Source + Set group.
-
-    With ``seed=None`` a fresh random selection is made on each execution.
-    Supplying a seed makes the selection reproducible.  Selected Photos retain
-    their relative order from the input iterable.
-    """
-    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-        raise ValueError('sample_per_set() 的 count 必须是 >= 1 的整数。')
-
-    materialized = []
-    groups = {}
-    for index, photo in enumerate(items):
-        if not isinstance(photo, PhotoRecord):
-            raise TypeError('sample_per_set() 的输入只能包含 Photo 对象。')
-        materialized.append(photo)
-        groups.setdefault(set_key(photo), []).append(index)
-
-    rng = random.Random(seed)
-    selected_indexes = set()
-    for indexes in groups.values():
-        if len(indexes) <= count:
-            selected_indexes.update(indexes)
-        else:
-            selected_indexes.update(rng.sample(indexes, count))
-
-    return [
-        photo
-        for index, photo in enumerate(materialized)
-        if index in selected_indexes
-    ]
-
-
-def logical_photo_key(photo):
-    """Return the stable logical-image key used by Smart Album helpers.
-
-    Library photos are grouped only when they belong to the same Source, the
-    same Set, and the same logical stem.  If logical_id is unavailable, the
-    file path is used as a conservative fallback so unrelated files are not
-    merged accidentally.
-    """
-    if not isinstance(photo, PhotoRecord):
-        raise TypeError('logical_photo_key() 只接受 Photo 对象。')
-
-    source_id = photo.source.id if photo.source is not None else None
-    set_path = photo.set.path if photo.set is not None else None
-    logical_id = photo.logical_id
-    fallback_path = photo.file.path if photo.file is not None else photo.id
-    return (source_id, set_path, logical_id or fallback_path)
-
-
-def preferred_versions(items, stage_order=_DEFAULT_PREFERRED_STAGE_ORDER):
-    """Prefer the highest available stage for each logical photo.
-
-    Default order is Revision > Model Edit > Base Edit.  Matching is by
-    ``source + set.path + logical_id`` via :func:`logical_photo_key`.  Multiple
-    files at the same winning stage are intentionally retained; this helper
-    only resolves cross-stage duplicates and never guesses between same-stage
-    variants.
-
-    ``stage_order`` can be overridden from Smart Album Python, for example::
-
-        preferred_versions(
-            photos,
-            stage_order=('final', 'revision', 'model_edit', 'base_edit'),
-        )
-    """
-    if isinstance(stage_order, str):
-        raise TypeError('stage_order 必须是 stage 名称序列，不能是单个字符串。')
-
-    order = []
-    seen_stages = set()
-    for stage in stage_order:
-        stage_name = str(stage)
-        if stage_name in seen_stages:
+def _validate_custom_helpers_source(code):
+    """Validate the user-editable helper module without executing it."""
+    if not isinstance(code, str):
+        raise ValueError('Custom Helpers source 必须是字符串。')
+    if len(code) > 100_000:
+        raise ValueError('Custom Helpers source 过长。')
+    if not code.strip():
+        return ast.parse('', mode='exec')
+    tree = _validate_script(code)
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
             continue
-        seen_stages.add(stage_name)
-        order.append(stage_name)
-
-    if not order:
-        return []
-
-    rank = {stage: index for index, stage in enumerate(order)}
-    candidates = []
-    best_rank_by_key = {}
-
-    for photo in items:
-        if not isinstance(photo, PhotoRecord):
-            raise TypeError('preferred_versions() 的输入只能包含 Photo 对象。')
-        stage = photo.stage
-        if stage not in rank:
+        if isinstance(node, ast.FunctionDef):
+            if node.decorator_list:
+                raise ValueError('Custom Helper 顶层函数不支持 decorator。')
             continue
-        key = logical_photo_key(photo)
-        photo_rank = rank[stage]
-        candidates.append((photo, key, photo_rank))
-        current = best_rank_by_key.get(key)
-        if current is None or photo_rank < current:
-            best_rank_by_key[key] = photo_rank
+        if isinstance(node, ast.Assign):
+            if not all(isinstance(target, ast.Name) for target in node.targets):
+                raise ValueError('Custom Helper 顶层常量只能使用简单名称赋值。')
+            try:
+                ast.literal_eval(node.value)
+            except Exception as exc:
+                raise ValueError('Custom Helper 顶层常量只能使用字面量。') from exc
+            continue
+        if isinstance(node, ast.AnnAssign):
+            if not isinstance(node.target, ast.Name) or node.value is None:
+                raise ValueError('Custom Helper 顶层常量只能使用简单名称赋值。')
+            try:
+                ast.literal_eval(node.value)
+            except Exception as exc:
+                raise ValueError('Custom Helper 顶层常量只能使用字面量。') from exc
+            continue
+        raise ValueError('Custom Helper 顶层只允许函数定义、模块说明和字面量常量。')
+    return tree
 
-    return [
-        photo
-        for photo, key, photo_rank in candidates
-        if best_rank_by_key.get(key) == photo_rank
-    ]
 
+def custom_helper_docs(code):
+    tree = _validate_custom_helpers_source(code)
+    docs = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or node.name.startswith('_'):
+            continue
+        args_text = ast.unparse(node.args)
+        doc = (ast.get_docstring(node) or '').strip()
+        docs.append({
+            'name': node.name,
+            'signature': f'{node.name}({args_text})',
+            'description': doc.splitlines()[0] if doc else '',
+        })
+    return docs
 
 _SAFE_BUILTINS = {
     'abs': abs,
@@ -576,7 +492,59 @@ _SAFE_BUILTINS = {
 }
 
 
-def _query_globals(photos):
+class _HelperNamespace:
+    __slots__ = ('_functions',)
+
+    def __init__(self, functions):
+        object.__setattr__(self, '_functions', dict(functions))
+
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            raise AttributeError(name)
+        try:
+            return self._functions[name]
+        except KeyError as exc:
+            raise AttributeError(f'Custom Helper 不存在：{name}') from exc
+
+    def __setattr__(self, name, value):
+        raise AttributeError('Custom Helpers namespace is read-only')
+
+    def __dir__(self):
+        return sorted(self._functions)
+
+
+def _helper_globals():
+    return {
+        '__builtins__': _SAFE_BUILTINS,
+        'math': math,
+        're': re,
+        'statistics': statistics,
+        'itertools': itertools,
+        'functools': functools,
+        'collections': collections,
+        'random': random,
+        'datetime': datetime,
+        'date': date,
+        'timedelta': timedelta,
+    }
+
+
+def _load_custom_helpers(helper_source):
+    tree = _validate_custom_helpers_source(helper_source)
+    namespace = _helper_globals()
+    compiled = compile(tree, '<custom-helpers>', 'exec')
+    exec(compiled, namespace, namespace)
+    functions = {}
+    for item in tree.body:
+        if isinstance(item, ast.FunctionDef) and not item.name.startswith('_'):
+            value = namespace.get(item.name)
+            if not callable(value):
+                raise ValueError(f'Custom Helper {item.name} 不是可调用函数。')
+            functions[item.name] = value
+    return _HelperNamespace(functions)
+
+
+def _query_globals(photos, helper_source):
     return {
         '__builtins__': _SAFE_BUILTINS,
         'photos': photos,
@@ -589,16 +557,11 @@ def _query_globals(photos):
         'datetime': datetime,
         'date': date,
         'timedelta': timedelta,
-        'logical_photo_key': logical_photo_key,
-        'preferred_versions': preferred_versions,
-        'set_key': set_key,
-        'finals': finals,
-        'shoot_time': shoot_time,
-        'sample_per_set': sample_per_set,
+        'helpers': _load_custom_helpers(helper_source),
     }
 
 
-def _execute_query(code, payloads):
+def _execute_query(code, payloads, helper_source):
     tree = _validate_script(code)
     photos = []
     by_id = {}
@@ -611,7 +574,7 @@ def _execute_query(code, payloads):
     # functions share one namespace.  Using separate globals/locals breaks real
     # Python semantics because functions cannot see variables assigned at the
     # script top level (for example ``seed`` or ``threshold``).
-    namespace = _query_globals(photos)
+    namespace = _query_globals(photos, helper_source)
     compiled = compile(tree, '<smart-album>', 'exec')
     exec(compiled, namespace, namespace)
 
@@ -642,9 +605,9 @@ def _execute_query(code, payloads):
     return ordered_ids
 
 
-def _worker_main(conn, code, payloads):
+def _worker_main(conn, code, payloads, helper_source):
     try:
-        ordered_ids = _execute_query(code, payloads)
+        ordered_ids = _execute_query(code, payloads, helper_source)
         conn.send({'ok': True, 'ids': ordered_ids})
     except Exception as exc:
         trace = traceback.format_exc(limit=8)
@@ -658,13 +621,14 @@ def _worker_main(conn, code, payloads):
         conn.close()
 
 
-def run_query(code, payloads, timeout_seconds=10):
+def run_query(code, payloads, helper_source, timeout_seconds=10):
     """Execute one Smart Album script in an isolated Python process."""
     _validate_script(code)
+    _validate_custom_helpers_source(helper_source)
     parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
     process = multiprocessing.Process(
         target=_worker_main,
-        args=(child_conn, code, payloads),
+        args=(child_conn, code, payloads, helper_source),
         daemon=True,
     )
     process.start()
@@ -687,14 +651,14 @@ def run_query(code, payloads, timeout_seconds=10):
         raise error
     return message.get('ids') or []
 
-def _set_query_globals(sets):
-    namespace = _query_globals([])
+def _set_query_globals(sets, helper_source):
+    namespace = _query_globals([], helper_source)
     namespace.pop('photos', None)
     namespace['sets'] = sets
     return namespace
 
 
-def _execute_set_query(code, payloads):
+def _execute_set_query(code, payloads, helper_source):
     tree = _validate_script(code)
     sets = []
     by_id = {}
@@ -708,7 +672,7 @@ def _execute_set_query(code, payloads):
         sets.append(item)
         by_id[item.id] = item
 
-    namespace = _set_query_globals(sets)
+    namespace = _set_query_globals(sets, helper_source)
     compiled = compile(tree, '<smart-set>', 'exec')
     exec(compiled, namespace, namespace)
 
@@ -739,9 +703,9 @@ def _execute_set_query(code, payloads):
     return ordered_ids
 
 
-def _set_worker_main(conn, code, payloads):
+def _set_worker_main(conn, code, payloads, helper_source):
     try:
-        ordered_ids = _execute_set_query(code, payloads)
+        ordered_ids = _execute_set_query(code, payloads, helper_source)
         conn.send({'ok': True, 'ids': ordered_ids})
     except Exception as exc:
         trace = traceback.format_exc(limit=8)
@@ -755,13 +719,14 @@ def _set_worker_main(conn, code, payloads):
         conn.close()
 
 
-def run_set_query(code, payloads, timeout_seconds=10):
+def run_set_query(code, payloads, helper_source, timeout_seconds=10):
     """Execute one Smart Set script using the existing Smart Album sandbox rules."""
     _validate_script(code)
+    _validate_custom_helpers_source(helper_source)
     parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
     process = multiprocessing.Process(
         target=_set_worker_main,
-        args=(child_conn, code, payloads),
+        args=(child_conn, code, payloads, helper_source),
         daemon=True,
     )
     process.start()
@@ -784,7 +749,7 @@ def run_set_query(code, payloads, timeout_seconds=10):
         raise error
     return message.get('ids') or []
 
-def _execute_explore_block(code, set_payloads, photo_payloads):
+def _execute_explore_block(code, set_payloads, photo_payloads, helper_source):
     tree = _validate_script(code)
 
     photos = []
@@ -858,7 +823,7 @@ def _execute_explore_block(code, set_payloads, photo_payloads):
             record_type=PhotoRecord, allowed_ids=allowed_photo_ids, kind='photos',
         )
 
-    namespace = _query_globals(photos)
+    namespace = _query_globals(photos, helper_source)
     namespace.update({
         'sets': sets,
         'group_sets': group_sets,
@@ -933,9 +898,9 @@ def _execute_explore_block(code, set_payloads, photo_payloads):
     }
 
 
-def _explore_worker_main(conn, code, set_payloads, photo_payloads):
+def _explore_worker_main(conn, code, set_payloads, photo_payloads, helper_source):
     try:
-        result = _execute_explore_block(code, set_payloads, photo_payloads)
+        result = _execute_explore_block(code, set_payloads, photo_payloads, helper_source)
         conn.send({'ok': True, 'result': result})
     except Exception as exc:
         trace = traceback.format_exc(limit=8)
@@ -949,13 +914,14 @@ def _explore_worker_main(conn, code, set_payloads, photo_payloads):
         conn.close()
 
 
-def run_explore_block(code, set_payloads, photo_payloads, timeout_seconds=10):
+def run_explore_block(code, set_payloads, photo_payloads, helper_source, timeout_seconds=10):
     """Execute one Explore grouping script in the existing isolated Python sandbox."""
     _validate_script(code)
+    _validate_custom_helpers_source(helper_source)
     parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
     process = multiprocessing.Process(
         target=_explore_worker_main,
-        args=(child_conn, code, set_payloads, photo_payloads),
+        args=(child_conn, code, set_payloads, photo_payloads, helper_source),
         daemon=True,
     )
     process.start()

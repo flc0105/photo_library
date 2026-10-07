@@ -2,7 +2,8 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from features.smart.runtime import _validate_script, run_set_query
+from features.smart.runtime import _validate_script, custom_helper_docs, run_set_query
+from features.smart.helpers import read_custom_helpers_source
 from features.smart.index import (
     SMART_ALBUM_DB_FILENAME, SMART_ALBUM_ENGINE_VERSION, SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     _connect, _index_status, _now_iso, set_candidates,
@@ -61,6 +62,7 @@ def _run_smart_set(smart_db_path, main_db_path, row):
     ordered_ids = run_set_query(
         row['python_code'],
         payloads,
+        read_custom_helpers_source(),
         timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     )
     results = [dict(result_rows[item_id]) for item_id in ordered_ids if item_id in result_rows]
@@ -202,6 +204,7 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         denied = guard()
         if denied:
             return denied
+        helper_docs = custom_helper_docs(read_custom_helpers_source())
         return jsonify({
             'engine_version': SMART_ALBUM_ENGINE_VERSION,
             'default_code': DEFAULT_SMART_SET_CODE,
@@ -211,6 +214,11 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
                 'Manifest and stage counts are read live when the Smart Set runs.',
                 'set.photos reuses the existing Smart Album photo index; no second photo index is created.',
                 'result must be a Set object or an iterable of Set objects.',
+            ],
+            'helpers': [f"helpers.{item['signature']}" for item in helper_docs],
+            'helper_docs': [
+                {**item, 'signature': f"helpers.{item['signature']}"}
+                for item in helper_docs
             ],
             'contract_groups': SMART_SET_CONTRACT_GROUPS,
         })

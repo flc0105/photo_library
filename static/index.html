@@ -1912,7 +1912,8 @@
                     <el-input v-model="exploreBlockEditor.python_code" type="textarea" :rows="18" resize="vertical"
                               style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
                 </el-form-item>
-                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
+                    <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
                                aria-label="查看 Explore Python 帮助" @click="openExploreBlockHelp">?</el-button>
                 </div>
@@ -1965,7 +1966,7 @@
                         <code>group_sets()</code> 的 Set membership 始终按传入 Set 计算；图片指标默认统计这些 Set 中全部当前 indexed Photo，也可以用 <code>photo_scope=...</code> 限定图片版本范围。<code>group_photos()</code> 的 Set 指标则对匹配图片所属 Set 去重。显示模式只控制 Card 展示：both 固定初始按 Set；仅图片不提供 Set 切换；仅 Set 数量不显示百分比和进度条。
                     </div>
                     <div style="margin-bottom:14px;">
-                        <strong>Helpers</strong>
+                        <strong>系统固定 Helpers</strong>
                         <div style="display:flex; flex-direction:column; gap:6px; margin-top:7px;">
                             <code v-for="helper in (exploreBlockRuntime.helpers || [])" :key="helper"
                                   style="padding:5px 8px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ helper }}</code>
@@ -1973,7 +1974,14 @@
                         <div style="margin-top:8px; color:#909399; font-size:12px;">
                             <code>many=True</code> 允许同一个 Set / Photo 同时进入多个 bucket；同一对象在同一 bucket 只计一次。
                             <code>include_missing=False</code> 会排除空值 / “未记录”，并把它们从该分组的百分比分母中移除；默认 <code>True</code>。
-                            图片版本范围由 Python 显式决定：<code>group_photos()</code> 直接传筛选后的 Photo；<code>group_sets()</code> 则用 <code>photo_scope=preferred_versions(photos)</code>，切全 Final 时改为 <code>photo_scope=finals(photos)</code>。
+                            图片版本范围由 Python 显式决定：<code>group_photos()</code> 直接传筛选后的 Photo；<code>group_sets()</code> 则用 <code>photo_scope=helpers.preferred_versions(photos)</code>，切全 Final 时改为 <code>photo_scope=helpers.finals(photos)</code>。
+                        </div>
+                        <div v-if="(exploreBlockRuntime.custom_helpers || []).length" style="margin-top:12px;">
+                            <strong>可编辑 Python Helpers</strong>
+                            <div style="display:flex; flex-direction:column; gap:6px; margin-top:7px;">
+                                <code v-for="helper in exploreBlockRuntime.custom_helpers" :key="helper"
+                                      style="padding:5px 8px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ helper }}</code>
+                            </div>
                         </div>
                     </div>
                     <div style="margin-bottom:14px;">
@@ -2011,7 +2019,8 @@
                     <el-input v-model="smartViewCreateEditor.python_code" type="textarea" :rows="18" resize="vertical"
                               style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
                 </el-form-item>
-                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
+                    <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
                                aria-label="查看智能视图 Python 帮助" @click="openSmartViewCreateHelp">?</el-button>
                 </div>
@@ -2030,7 +2039,8 @@
                     <el-input v-model="smartSetEditor.python_code" type="textarea" :rows="18" resize="vertical"
                               style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
                 </el-form-item>
-                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
+                    <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
                                aria-label="查看 Smart Set Python 帮助" @click="openSmartSetHelp">?</el-button>
                 </div>
@@ -2055,9 +2065,41 @@
                                   style="padding:3px 7px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ field }}</code>
                         </div>
                     </div>
+                    <div v-if="(smartSetRuntime.helper_docs || []).length" style="margin:18px 0 12px;">
+                        <strong>Python Helpers</strong>
+                        <div v-for="helper in smartSetRuntime.helper_docs" :key="helper.name"
+                             style="margin-top:10px; padding:10px 12px; border:1px solid #ebeef5; border-radius:6px;">
+                            <code>{{ helper.signature }}</code>
+                            <div style="margin-top:5px; color:#606266; font-size:12px;">{{ helper.description }}</div>
+                        </div>
+                    </div>
                 </template>
             </div>
             <template #footer><el-button @click="showSmartSetHelpDialog = false">关闭</el-button></template>
+        </el-dialog>
+
+        <el-dialog v-model="showSmartHelpersDialog" title="Python Helpers" width="860px" append-to-body>
+            <div v-loading="smartHelpersLoading">
+                <div style="margin-bottom:10px; color:#606266; font-size:13px; line-height:1.6;">
+                    <code>{{ smartHelpersPath }}</code> 是 Smart Album、Smart Set 与 Explore 共用的业务 Helper。
+                    公开顶层函数通过 <code>helpers.&lt;name&gt;(...)</code> 调用；删除函数后不会回退到系统内置版本。
+                </div>
+                <el-input v-model="smartHelpersSource" type="textarea" :rows="24" resize="vertical"
+                          style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
+                <el-alert v-if="smartHelpersError" :title="smartHelpersError" type="error" :closable="false" show-icon style="margin-top:12px;"></el-alert>
+                <div v-if="smartHelpersFunctions.length" style="margin-top:14px;">
+                    <strong>公开 Helpers</strong>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-top:8px;">
+                        <code v-for="helper in smartHelpersFunctions" :key="helper.name"
+                              style="padding:4px 7px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">helpers.{{ helper.signature }}</code>
+                    </div>
+                </div>
+            </div>
+            <template #footer>
+                <el-button :loading="smartHelpersValidating" :disabled="smartHelpersSaving" @click="validateSmartHelpers">Validate</el-button>
+                <el-button @click="showSmartHelpersDialog = false">取消</el-button>
+                <el-button type="primary" :loading="smartHelpersSaving" :disabled="smartHelpersLoading || smartHelpersValidating" @click="saveSmartHelpers">保存</el-button>
+            </template>
         </el-dialog>
 
         <!-- Smart Album 编辑：底层始终保存真实 Python code。 -->
@@ -2075,7 +2117,8 @@
                               style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
                     </el-input>
                 </el-form-item>
-                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end;">
+                <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
+                    <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
                                aria-label="查看 Smart Album Python 帮助" @click="openSmartAlbumHelp">?</el-button>
                 </div>
@@ -4176,6 +4219,6 @@
 </div>
 
 <!-- Frontend assembly: app.js imports feature modules directly via native ES modules. -->
-<script type="module" src="js/app.js?v=20261005-07"></script>
+<script type="module" src="js/app.js?v=20261005-08"></script>
 </body>
 </html>

@@ -123,7 +123,7 @@ def _build_select_raw_plan(source_id, set_dir: Path, set_rel: str, get_db_connec
     }
 
 
-def create_blueprint(admin_guard, get_source, resolve_path):
+def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
     bp = Blueprint('workflow_select_raw', __name__)
 
     def resolve_set(source_id, path_value):

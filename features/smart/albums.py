@@ -6,7 +6,8 @@ from flask import Blueprint, jsonify, request
 
 from core.external_tools import probe_exiftool_version, resolve_exiftool
 
-from features.smart.runtime import run_query
+from features.smart.runtime import custom_helper_docs, run_query
+from features.smart.helpers import read_custom_helpers_source
 from features.smart.index import (
     SMART_ALBUM_CAPTURE_METADATA_SOURCE, SMART_ALBUM_DB_FILENAME,
     SMART_ALBUM_ENGINE_VERSION, SMART_ALBUM_QUERY_TIMEOUT_SECONDS, _STAGE_DEFS,
@@ -67,6 +68,7 @@ def _run_album_query(smart_db_path, main_db_path, album_row):
     ordered_ids = run_query(
         album_row['python_code'],
         payloads,
+        read_custom_helpers_source(),
         timeout_seconds=SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     )
     results = []
@@ -696,6 +698,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         denied = guard()
         if denied:
             return denied
+        helper_docs = custom_helper_docs(read_custom_helpers_source())
         return jsonify({
             'engine_version': SMART_ALBUM_ENGINE_VERSION,
             'default_code': DEFAULT_QUERY_CODE,
@@ -708,45 +711,10 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 f"photo.capture.* metadata source: {SMART_ALBUM_CAPTURE_METADATA_SOURCE}.",
                 'Edit the Smart indexing-policy constants near the top of features/smart/index.py to enable Original indexing/donors later.',
             ],
-            'helpers': [
-                'finals(items)',
-                'shoot_time(photo)',
-                'set_key(photo)',
-                'sample_per_set(items, count=1, seed=None)',
-                "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",
-                'logical_photo_key(photo)',
-            ],
+            'helpers': [f"helpers.{item['signature']}" for item in helper_docs],
             'helper_docs': [
-                {
-                    'name': 'finals',
-                    'signature': 'finals(items)',
-                    'description': '只保留 stage == "final" 的 Photo，并保持输入顺序。',
-                },
-                {
-                    'name': 'shoot_time',
-                    'signature': 'shoot_time(photo)',
-                    'description': '返回统一拍摄时间 datetime：Manifest shoot.date 优先作为日期；有 EXIF capture time 时保留其时分秒；Manifest 无日期时用 EXIF；最后从 Set 名 YYYYMMDD 前缀兜底。',
-                },
-                {
-                    'name': 'set_key',
-                    'signature': 'set_key(photo)',
-                    'description': '返回 (source.id, set.path)，作为同一 Library Set 的稳定分组键。',
-                },
-                {
-                    'name': 'sample_per_set',
-                    'signature': 'sample_per_set(items, count=1, seed=None)',
-                    'description': '每个 Source + Set 随机保留最多 count 张。seed=None 时每次运行重新随机；传入 seed 时结果可复现；返回结果保持输入相对顺序。',
-                },
-                {
-                    'name': 'preferred_versions',
-                    'signature': "preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'))",
-                    'description': '按 Source + Set + logical stem 去重。默认 Revision 优先，其次 Model Edit，最后 Base Edit；同一优先 stage 内的多个文件会全部保留。stage_order 可自定义。',
-                },
-                {
-                    'name': 'logical_photo_key',
-                    'signature': 'logical_photo_key(photo)',
-                    'description': '返回 Smart Album 用于逻辑图片匹配的键；可在自定义分组/去重代码里复用。',
-                },
+                {**item, 'signature': f"helpers.{item['signature']}"}
+                for item in helper_docs
             ],
             'photo_contract_groups': PHOTO_CONTRACT_GROUPS,
             'photo_contract': [field for group in PHOTO_CONTRACT_GROUPS for field in group['fields']],

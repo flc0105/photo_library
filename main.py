@@ -11,6 +11,7 @@ from features.mapped_library.set_info import create_set_info_blueprint
 from features.mapped_library.share import bp as share_blueprint
 from features.smart.albums import create_smart_album_blueprint
 from features.smart.explore import create_explore_blueprint
+from features.smart.helpers import create_smart_helpers_blueprint
 from features.smart.sets import create_smart_set_blueprint
 from features.uploaded_albums.albums import bp as uploaded_albums_blueprint
 from features.uploaded_albums.upload import (
@@ -79,7 +80,7 @@ app.register_blueprint(create_visual_rename_blueprint(*_workflow_dependencies, g
 app.register_blueprint(create_discard_unreturned_blueprint(*_workflow_dependencies, get_db_connection))
 app.register_blueprint(create_protect_originals_blueprint(*_workflow_dependencies))
 app.register_blueprint(create_sync_blueprint(*_workflow_dependencies))
-app.register_blueprint(create_select_raw_blueprint(*_workflow_dependencies))
+app.register_blueprint(create_select_raw_blueprint(*_workflow_dependencies, get_db_connection))
 app.register_blueprint(create_photo_import_blueprint(*_workflow_dependencies))
 app.register_blueprint(create_validate_blueprint(*_workflow_dependencies))
 app.register_blueprint(create_final_builder_blueprint(*_workflow_dependencies))
@@ -90,6 +91,7 @@ app.register_blueprint(create_folder_compare_blueprint(mapped_browser.library_ad
 app.register_blueprint(create_smart_album_blueprint(mapped_browser.library_admin_guard, DATABASE))
 app.register_blueprint(create_smart_set_blueprint(mapped_browser.library_admin_guard, DATABASE))
 app.register_blueprint(create_explore_blueprint(mapped_browser.library_admin_guard, DATABASE))
+app.register_blueprint(create_smart_helpers_blueprint(mapped_browser.library_admin_guard, DATABASE))
 
 
 if __name__ == '__main__':
