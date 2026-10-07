@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>我的相册</title>
+    <title>Photo Library</title>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
     <link rel="stylesheet" href="css/core.css?v=20261005-01">
     <link rel="stylesheet" href="css/features/mapped_library.css?v=20261005-01">
@@ -34,14 +34,26 @@
                     {{ siteTitle }}
                 </h1>
                 <div class="home-header-actions">
-                    <el-button v-if="isAdmin" type="primary" @click="resetAlbumDialog">新建相册</el-button>
-<!--                    <el-button v-if="isAdmin" type="primary" @click="showCreateAlbumDialog = true">新建相册</el-button>-->
-                    <el-button v-if="isAdmin" @click="showManageGroupsDialog = true">管理分组</el-button>
-                    <el-button v-if="!isAdmin" @click="showAdminLogin = true">管理员登录</el-button>
-                    <el-button v-if="isAdmin" @click="adminLogout">退出管理</el-button>
+                    <el-button v-if="isAdmin" type="primary" @click="resetAlbumDialog">New Album</el-button>
+                    <el-button v-if="isAdmin" @click="showManageGroupsDialog = true">Groups</el-button>
                     <el-button v-if="isAdmin" @click="openExplore">Explore</el-button>
-                    <el-button v-if="isAdmin" @click="showConfigDialog = true">设置</el-button>
-
+                    <el-button v-if="isAdmin" @click="showConfigDialog = true">Settings</el-button>
+                    <el-dropdown class="admin-status-dropdown" trigger="click" placement="bottom-end" @command="handleAdminMenuCommand">
+                        <div class="admin-status-trigger" :title="isAdmin ? 'Signed in' : 'Signed out'">
+                            <span class="admin-status-dot" :class="{ 'is-authenticated': isAdmin }"></span>
+                            <span>Admin</span>
+                            <el-icon class="admin-status-chevron"><ArrowDown /></el-icon>
+                        </div>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item v-if="!isAdmin" command="login">Sign In</el-dropdown-item>
+                                <template v-else>
+                                    <el-dropdown-item command="password">Change Password</el-dropdown-item>
+                                    <el-dropdown-item command="logout" divided>Sign Out</el-dropdown-item>
+                                </template>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
                 </div>
             </div>
 
@@ -51,7 +63,7 @@
                     <div class="group-header">
 
                         <div class="group-title" @click="toggleGroupCollapse(group.id)">
-                        <h2>{{ group.name }} <span class="album-count">({{ group.album_count }}个相册)</span></h2>
+                        <h2>{{ group.is_ungrouped ? 'Ungrouped' : group.name }} <span class="album-count">{{ group.album_count }} Album{{ group.album_count === 1 ? '' : 's' }}</span></h2>
                         </div>
 
                          <div class="group-actions">
@@ -59,7 +71,7 @@
                 <span class="el-dropdown-link"
                     v-if="isAdmin"
                     @click="showCreateAlbumInGroup(group)"
-                    title="在此分组添加相册"
+                    title="Add Album"
                 >
                     <el-icon><Plus /></el-icon>
                 </span>
@@ -69,13 +81,11 @@
                     </span>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item :command="{action: 'edit', group: group}">编辑分组
-                                    </el-dropdown-item>
+                                    <el-dropdown-item :command="{action: 'edit', group: group}">Edit Group</el-dropdown-item>
                                     <el-dropdown-item :command="{action: 'collapse', group: group}">
-                            {{ isGroupCollapsed(group.id) ? '展开分组' : '折叠分组' }}
+                            {{ isGroupCollapsed(group.id) ? 'Expand Group' : 'Collapse Group' }}
                         </el-dropdown-item>
-                                    <el-dropdown-item :command="{action: 'delete', group: group}" divided>删除分组
-                                    </el-dropdown-item>
+                                    <el-dropdown-item :command="{action: 'delete', group: group}" divided>Delete Group</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -92,7 +102,7 @@
                                 <el-icon class="lock-icon">
                                     <Lock/>
                                 </el-icon>
-                                <div class="lock-text">已锁定</div>
+                                <div class="lock-text">Locked</div>
                             </div>
                             <div v-else>
                                 <img v-if="album.cover_filename"
@@ -103,21 +113,21 @@
                                     <el-icon class="lock-icon">
                                         <Folder/>
                                     </el-icon>
-                                    <span class="lock-text">暂无封面</span>
+                                    <span class="lock-text">No Cover</span>
                                 </div>
                             </div>
                             <div class="album-info">
-                                <div class="album-name">{{ album.name }}<span v-if="album.has_password"> (加密)</span>
+                                <div class="album-name">{{ album.name }}<span v-if="album.has_password"> (Private)</span>
                                 </div>
                                 <div class="album-meta">
-                                    <div>图片: {{ album.image_count || 0 }}</div>
-                                    <div>创建: {{ formatDate(album.created_at) }}</div>
+                                    <div>Photos: {{ album.image_count || 0 }}</div>
+                                    <div>Created: {{ formatDate(album.created_at) }}</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div v-else class="empty-state">
-                        <p>此分组还没有相册</p>
+                        <p>No albums.</p>
                     </div>
                 </div>
             </div>
@@ -127,21 +137,21 @@
             <div v-if="isAdmin" class="album-group smart-view-group">
                 <div class="group-header">
                     <div class="group-title" @click="toggleGroupCollapse('smart-views')">
-                        <h2>智能视图 <span class="album-count">({{ smartViews.length }}个)</span></h2>
+                        <h2>Smart View <span class="album-count">{{ smartViews.length }}</span></h2>
                     </div>
                     <div class="group-actions">
                         <span class="el-dropdown-link"
                               @click="openCreateSmartView"
-                              title="创建智能视图">
+                              title="New Smart View">
                             <el-icon><Plus /></el-icon>
                         </span>
                         <el-dropdown @command="handleSmartViewCommand" size="small">
-                            <span class="el-dropdown-link" title="更多">
+                            <span class="el-dropdown-link" title="More">
                                 <el-icon><More /></el-icon>
                             </span>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item command="index">{{ smartAlbumIndexDialogBusy ? '查看索引进度' : '索引管理' }}</el-dropdown-item>
+                                    <el-dropdown-item command="index">{{ smartAlbumIndexDialogBusy ? 'Index Progress' : 'Index Management' }}</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -160,23 +170,20 @@
                                         <div class="album-name">{{ item.name }}</div>
                                         <el-tag class="smart-view-type-tag" size="small" effect="plain" type="info">{{ item.smart_view_type === 'set' ? 'Set' : 'Album' }}</el-tag>
                                     </div>
-                                    <el-button class="smart-view-edit-btn" text circle size="small" title="编辑" aria-label="编辑智能视图"
+                                    <el-button class="smart-view-edit-btn" text circle size="small" title="Edit" aria-label="Edit Smart View"
                                                @click.stop="editSmartView(item)">
                                         <el-icon><Edit /></el-icon>
                                     </el-button>
                                 </div>
                                 <div class="album-meta">
                                     <div>{{ smartViewResultText(item) }}</div>
-                                    <div>更新: {{ formatDate(item.updated_at) }}</div>
+                                    <div>Updated: {{ formatDate(item.updated_at) }}</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div v-else class="empty-state">
-                        <p>还没有智能视图。点击右上角“+”创建。</p>
-                    </div>
-                    <div v-if="smartAlbumIndex.last_refresh_at" style="margin-top:8px; color:#909399; font-size:12px;">
-                        索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set · {{ formatDate(smartAlbumIndex.last_refresh_at) }}
+                        <p>No Smart Views.</p>
                     </div>
                 </div>
             </div>
@@ -184,9 +191,9 @@
             <!-- 本地文件系统 Source：仅管理员看到完整目录。分享访客只走随机 token 页面。 -->
             <div v-if="isAdmin" class="album-group library-source-group">
                 <div class="group-header">
-                    <div class="group-title" @click="toggleGroupCollapse('library-sources')"><h2>本地目录 <span class="album-count">({{ librarySources.length }}个 Source)</span></h2></div>
+                    <div class="group-title" @click="toggleGroupCollapse('library-sources')"><h2>Library Sources <span class="album-count">{{ librarySources.length }} Source{{ librarySources.length === 1 ? '' : 's' }}</span></h2></div>
                     <div class="group-actions">
-                        <el-button size="small" @click="showLibrarySourcesDialog = true">管理 Source</el-button>
+                        <el-button size="small" @click="showLibrarySourcesDialog = true">Manage Sources</el-button>
                     </div>
                 </div>
                 <div class="group-content" :class="{ 'collapsed': isGroupCollapsed('library-sources') }">
@@ -196,8 +203,8 @@
                             <div class="album-cover locked-cover library-source-cover"
                                  style="display:flex; align-items:center; justify-content:center;">
                                 <el-icon class="lock-icon"><Folder /></el-icon>
-                                <span v-if="!source.enabled" class="lock-text">已停用</span>
-                                <span v-else-if="!source.available" class="lock-text">目录不可用</span>
+                                <span v-if="!source.enabled" class="lock-text">Disabled</span>
+                                <span v-else-if="!source.available" class="lock-text">Unavailable</span>
                             </div>
                             <div class="album-info">
                                 <div class="album-name">{{ source.name }}</div>
@@ -206,14 +213,14 @@
                         </div>
                     </div>
                     <div v-else class="empty-state">
-                        <p>还没有本地目录 Source。点击“管理 Source”添加 Completed。</p>
+                        <p>No Library Sources.</p>
                     </div>
                 </div>
             </div>
 
             <div v-if="albumGroups.length === 0 && (!ungroupedAlbums || ungroupedAlbums.length === 0) && (!isAdmin || (smartViews.length === 0 && librarySources.length === 0))"
                  class="empty-state">
-                <p>还没有相册，创建一个吧！</p>
+                <p>No albums.</p>
             </div>
         </div>
         </div>
@@ -1453,82 +1460,79 @@
         <!-- =========================================================
              CORE — ADMIN / SITE SETTINGS DIALOGS
              ========================================================= -->
-        <!-- 管理员登录对话框 -->
-        <el-dialog v-model="showAdminLogin" title="管理员登录" width="400px">
+        <!-- Admin sign-in -->
+        <el-dialog v-model="showAdminLogin" title="Admin Sign In" width="400px">
             <el-form :model="{password: adminPassword}" @submit.prevent="verifyAdminPassword">
-                <el-form-item label="管理员密码">
+                <el-form-item label="Password">
                     <el-input
                             v-model="adminPassword"
                             type="password"
-                            placeholder="请输入管理员密码"
+                            placeholder="Admin password"
                             @keydown.enter.prevent="verifyAdminPassword"
                             show-password
                     ></el-input>
                 </el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showAdminLogin = false">取消</el-button>
-                <el-button
-                        type="primary"
-                        @click="verifyAdminPassword"
-                        :loading="adminLoginLoading"
-                >
-                    登录
-                </el-button>
+                <el-button @click="showAdminLogin = false">Cancel</el-button>
+                <el-button type="primary" @click="verifyAdminPassword" :loading="adminLoginLoading">Sign In</el-button>
             </template>
         </el-dialog>
 
-        <!-- 配置管理对话框 -->
-        <el-dialog v-model="showConfigDialog" title="站点配置" width="600px">
+        <!-- Change password -->
+        <el-dialog v-model="showChangePasswordDialog" title="Change Password" width="400px">
+            <el-form @submit.prevent="changeAdminPassword">
+                <el-form-item label="New Password">
+                    <el-input
+                            v-model="newAdminPassword"
+                            type="password"
+                            placeholder="New password"
+                            @keydown.enter.prevent="changeAdminPassword"
+                            show-password
+                    ></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showChangePasswordDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="changeAdminPassword" :loading="passwordLoading">Update</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Site settings -->
+        <el-dialog v-model="showConfigDialog" title="Site Settings" width="600px">
             <div v-loading="configLoading">
-                <el-form :model="siteConfig">
-                    <!-- 站点标题 -->
-                    <el-form-item label="站点标题">
-                        <el-input v-model="siteConfig.site_title" placeholder="请输入站点标题"></el-input>
+                <el-form :model="siteConfig" label-width="180px">
+                    <el-form-item label="Site Title">
+                        <el-input v-model="siteConfig.site_title" placeholder="Photo Library"></el-input>
                     </el-form-item>
-
-                    <!-- 上传权限控制 -->
-                    <el-form-item label="上传权限">
-                        <el-radio-group v-model="siteConfig.allow_guest_upload">
-                            <el-radio :label="'1'">允许游客上传</el-radio>
-                            <el-radio :label="'0'">仅管理员可上传</el-radio>
-                        </el-radio-group>
+                    <el-form-item label="Allow Guest Uploads">
+                        <el-switch
+                                v-model="siteConfig.allow_guest_upload"
+                                active-value="1"
+                                inactive-value="0">
+                        </el-switch>
                     </el-form-item>
-
-                    <!-- EXIF显示控制 -->
-            <el-form-item label="EXIF信息显示">
-                <el-radio-group v-model="siteConfig.show_exif_on_hover">
-                    <el-radio :label="'1'">悬停时显示</el-radio>
-                    <el-radio :label="'0'">不显示</el-radio>
-                </el-radio-group>
-            </el-form-item>
-
-                    <el-form-item label="映射目录封面">
+                    <el-form-item label="Show EXIF on Hover">
+                        <el-switch
+                                v-model="siteConfig.show_exif_on_hover"
+                                active-value="1"
+                                inactive-value="0">
+                        </el-switch>
+                    </el-form-item>
+                    <el-form-item label="Library Folder Covers">
                         <el-switch
                                 v-model="siteConfig.show_library_folder_covers"
                                 active-value="1"
                                 inactive-value="0">
                         </el-switch>
                     </el-form-item>
-
-                    <!-- 管理员密码修改 -->
-                    <el-form-item label="管理员密码">
-                        <el-input
-                                type="password"
-                                v-model="siteConfig.new_password"
-                                placeholder="请输入新密码（留空不修改）"
-                                show-password
-                        ></el-input>
-                    </el-form-item>
                 </el-form>
             </div>
-
             <template #footer>
-                <el-button @click="showConfigDialog = false">取消</el-button>
-                <el-button type="primary" @click="saveSiteConfig" :loading="configLoading">保存</el-button>
+                <el-button @click="showConfigDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="saveSiteConfig" :loading="configLoading">Save</el-button>
             </template>
         </el-dialog>
-
 
         <!-- 相册详情页面悬浮工具窗 -->
         <div class="album-detail-floating-toolbar"
@@ -1645,41 +1649,38 @@
         <!-- =========================================================
              FEATURE: UPLOADED ALBUMS — DIALOGS
              ========================================================= -->
-        <!-- 创建相册对话框 -->
-        <el-dialog v-model="showCreateAlbumDialog" title="新建相册" width="720px">
+        <!-- New Album -->
+        <el-dialog v-model="showCreateAlbumDialog" title="New Album" width="720px">
             <el-form :model="newAlbum" label-width="90px">
-                <el-form-item label="相册名称">
-                    <el-input v-model="newAlbum.name" placeholder="请输入相册名称"></el-input>
+                <el-form-item label="Name">
+                    <el-input v-model="newAlbum.name" placeholder="Album name"></el-input>
                 </el-form-item>
-                <el-form-item label="所属分组">
-                        <el-select v-model="newAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
-                            <el-option
-                                    v-for="group in allGroups"
-                                    :key="group.id"
-                                    :label="group.name"
-                                    :value="group.id"
-                            >
-                            </el-option>
-                        </el-select>
-                    </el-form-item>
-                    <el-form-item label="拍摄日期">
-                        <el-date-picker v-model="newAlbum.shoot_date" type="date"
-                                        placeholder="选择拍摄日期"></el-date-picker>
-                    </el-form-item>
-
-                    <el-form-item label="模特">
-                        <el-input v-model="newAlbum.model_name" placeholder="请输入模特名字"></el-input>
-                    </el-form-item>
-                <el-form-item label="地点">
-                    <el-input v-model="newAlbum.location" placeholder="请输入拍摄地点"></el-input>
+                <el-form-item label="Groups">
+                    <el-select v-model="newAlbum.group_ids" multiple placeholder="Select groups" style="width: 100%;">
+                        <el-option
+                                v-for="group in allGroups"
+                                :key="group.id"
+                                :label="group.name"
+                                :value="group.id">
+                        </el-option>
+                    </el-select>
                 </el-form-item>
-                <el-form-item label="描述">
-                    <el-input v-model="newAlbum.description" type="textarea" placeholder="请输入相册描述"></el-input>
+                <el-form-item label="Shoot Date">
+                    <el-date-picker v-model="newAlbum.shoot_date" type="date" placeholder="Select date"></el-date-picker>
+                </el-form-item>
+                <el-form-item label="Model">
+                    <el-input v-model="newAlbum.model_name" placeholder="Model"></el-input>
+                </el-form-item>
+                <el-form-item label="Location">
+                    <el-input v-model="newAlbum.location" placeholder="Location"></el-input>
+                </el-form-item>
+                <el-form-item label="Description">
+                    <el-input v-model="newAlbum.description" type="textarea" placeholder="Description"></el-input>
                 </el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showCreateAlbumDialog = false">取消</el-button>
-                <el-button type="primary" @click="createAlbum">创建</el-button>
+                <el-button @click="showCreateAlbumDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="createAlbum">Create</el-button>
             </template>
         </el-dialog>
 
@@ -1691,8 +1692,8 @@
                    :close-on-click-modal="!smartAlbumIndexDialogBusy" :close-on-press-escape="!smartAlbumIndexDialogBusy">
             <template #header>
                 <div class="validation-dialog-title">
-                    <span>Smart View 索引</span>
-                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看索引说明"
+                    <span>Smart View Index</span>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="Index Help"
                                @click="showSmartAlbumIndexHelpDialog = true">?</el-button>
                 </div>
             </template>
@@ -1700,33 +1701,34 @@
             <div class="smart-view-index-layout" style="line-height:1.6;">
                 <div class="smart-view-index-scope" style="padding:12px 14px; border:1px solid #dcdfe6; border-radius:8px; margin-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
-                        <strong>索引范围</strong>
-                        <span v-if="smartAlbumIndexedSourceText" style="font-size:12px; color:#909399;">当前索引：{{ smartAlbumIndexedSourceText }}</span>
+                        <strong>Index Scope</strong>
+                        <span v-if="smartAlbumIndexedSourceText" style="font-size:12px; color:#909399;">Sources: {{ smartAlbumIndexedSourceText }}</span>
                     </div>
+                    <div v-if="smartAlbumIndex.last_refresh_at" class="smart-index-summary">Indexed {{ smartAlbumIndex.asset_count || 0 }} Photos · {{ smartAlbumIndex.set_count || 0 }} Sets · {{ formatDate(smartAlbumIndex.last_refresh_at) }}</div>
                     <el-checkbox-group v-model="smartAlbumIndexSelectedSourceIds" :disabled="smartAlbumIndexDialogBusy"
                                        @change="handleSmartAlbumIndexSourceSelectionChange"
                                        style="display:flex; flex-wrap:wrap; gap:8px 18px;">
                         <el-checkbox v-for="source in enabledSmartAlbumIndexSources" :key="source.id" :label="source.id">
-                            {{ source.name }}<span v-if="!source.available" style="color:#e6a23c; margin-left:4px;">（当前不可用）</span>
+                            {{ source.name }}<span v-if="!source.available" style="color:#e6a23c; margin-left:4px;"> (Unavailable)</span>
                         </el-checkbox>
                     </el-checkbox-group>
-                    <div v-if="!enabledSmartAlbumIndexSources.length" style="font-size:12px; color:#f56c6c;">没有已启用的 Library Source。</div>
+                    <div v-if="!enabledSmartAlbumIndexSources.length" style="font-size:12px; color:#f56c6c;">No enabled Library Sources.</div>
                 </div>
 
                 <el-tabs v-model="smartAlbumIndexTab" class="smart-view-index-tabs" @tab-change="handleSmartAlbumIndexTabChange">
-                    <el-tab-pane label="重建" name="rebuild" :disabled="smartAlbumSyncActive || smartAlbumSyncScanning">
+                    <el-tab-pane label="Rebuild" name="rebuild" :disabled="smartAlbumSyncActive || smartAlbumSyncScanning">
                         <div style="padding:14px; border:1px solid #ebeef5; border-radius:8px; margin-bottom:16px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
-                                <strong>总进度 · 按图片</strong>
+                                <strong>Overall · Photos</strong>
                                 <span v-if="smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.ready" style="font-size:12px; color:#606266;">
-                                    {{ smartAlbumIndexProgress.overall.current || 0 }} / {{ smartAlbumIndexProgress.overall.total || 0 }} 张
+                                    {{ smartAlbumIndexProgress.overall.current || 0 }} / {{ smartAlbumIndexProgress.overall.total || 0 }} Photos
                                 </span>
-                                <span v-else-if="smartAlbumIndexProgress.active" style="font-size:12px; color:#909399;">正在扫描所选 Source…</span>
+                                <span v-else-if="smartAlbumIndexProgress.active" style="font-size:12px; color:#909399;">Scanning Sources…</span>
                             </div>
                             <el-progress :percentage="(smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.percent) || 0"
                                          :status="smartAlbumIndexProgress.error ? 'exception' : (smartAlbumIndexProgress.phase === 'done' ? 'success' : '')"></el-progress>
                             <div style="margin-top:8px; font-size:12px; color:#606266; display:flex; justify-content:space-between; gap:12px;">
-                                <span>{{ smartAlbumIndexProgress.message || '等待开始' }}</span>
+                                <span>{{ smartAlbumIndexProgress.message || 'Ready' }}</span>
                                 <span v-if="smartAlbumIndexProgress.steps && smartAlbumIndexProgress.steps.length">{{ smartAlbumStepSummary(smartAlbumIndexProgress.steps) }}</span>
                             </div>
                         </div>
@@ -1754,68 +1756,67 @@
                                   :title="smartAlbumIndexProgress.error"></el-alert>
                     </el-tab-pane>
 
-                    <el-tab-pane label="同步" name="sync" :disabled="smartAlbumIndexRefreshing">
+                    <el-tab-pane label="Sync" name="sync" :disabled="smartAlbumIndexRefreshing">
                         <div v-if="!smartAlbumSyncPlan && !smartAlbumSyncActive" class="smart-view-index-placeholder">
-                            {{ smartAlbumSyncScanning ? '正在扫描变化…' : '请先扫描变化' }}
+                            {{ smartAlbumSyncScanning ? 'Scanning…' : 'Scan for changes.' }}
                         </div>
 
                         <template v-if="smartAlbumSyncPlan">
                             <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin-bottom:16px;">
                                 <div style="padding:12px; border:1px solid #d9ecff; border-radius:8px; background:#f5faff;">
-                                    <div style="font-size:12px; color:#909399;">新增</div>
+                                    <div style="font-size:12px; color:#909399;">Added</div>
                                     <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.added_count || 0 }}</div>
                                 </div>
                                 <div style="padding:12px; border:1px solid #faecd8; border-radius:8px; background:#fdf6ec;">
-                                    <div style="font-size:12px; color:#909399;">修改</div>
+                                    <div style="font-size:12px; color:#909399;">Changed</div>
                                     <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.changed_count || 0 }}</div>
                                 </div>
                                 <div style="padding:12px; border:1px solid #fde2e2; border-radius:8px; background:#fef0f0;">
-                                    <div style="font-size:12px; color:#909399;">删除</div>
+                                    <div style="font-size:12px; color:#909399;">Deleted</div>
                                     <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.deleted_count || 0 }}</div>
                                 </div>
                                 <div style="padding:12px; border:1px solid #e4e7ed; border-radius:8px; background:#f5f7fa;">
-                                    <div style="font-size:12px; color:#909399;">未变化</div>
+                                    <div style="font-size:12px; color:#909399;">Unchanged</div>
                                     <div style="font-size:22px; font-weight:700; margin-top:2px;">{{ smartAlbumSyncPlan.summary?.unchanged_count || 0 }}</div>
                                 </div>
                             </div>
 
                             <div style="font-size:12px; color:#606266; margin-bottom:10px;">
-                                {{ smartAlbumSyncPlan.summary?.set_total || 0 }} 个 Set · 当前文件 {{ smartAlbumSyncPlan.summary?.asset_total || 0 }} 张 ·
-                                需读取图片信息 {{ smartAlbumSyncPlan.summary?.process_total || 0 }} 张
+                                {{ smartAlbumSyncPlan.summary?.set_total || 0 }} Sets · {{ smartAlbumSyncPlan.summary?.asset_total || 0 }} Files · {{ smartAlbumSyncPlan.summary?.process_total || 0 }} to Process
                             </div>
 
                             <el-tabs>
-                                <el-tab-pane :label="`新增 (${smartAlbumSyncPlan.summary?.added_count || 0})`">
-                                    <el-table :data="smartAlbumSyncPlan.changes?.added || []" height="300" size="small" empty-text="没有新增文件">
+                                <el-tab-pane :label="`Added (${smartAlbumSyncPlan.summary?.added_count || 0})`">
+                                    <el-table :data="smartAlbumSyncPlan.changes?.added || []" height="300" size="small" empty-text="No added files">
                                         <el-table-column prop="source_name" label="Source" width="110"></el-table-column>
-                                        <el-table-column prop="relative_path" label="文件路径" min-width="430" show-overflow-tooltip></el-table-column>
+                                        <el-table-column prop="relative_path" label="Path" min-width="430" show-overflow-tooltip></el-table-column>
                                         <el-table-column prop="stage" label="Stage" width="110"></el-table-column>
-                                        <el-table-column label="大小" width="100">
+                                        <el-table-column label="Size" width="100">
                                             <template #default="scope">{{ formatFileSize(scope.row.file_size) }}</template>
                                         </el-table-column>
                                     </el-table>
                                 </el-tab-pane>
-                                <el-tab-pane :label="`修改 (${smartAlbumSyncPlan.summary?.changed_count || 0})`">
-                                    <el-table :data="smartAlbumSyncPlan.changes?.changed || []" height="300" size="small" empty-text="没有修改文件">
+                                <el-tab-pane :label="`Changed (${smartAlbumSyncPlan.summary?.changed_count || 0})`">
+                                    <el-table :data="smartAlbumSyncPlan.changes?.changed || []" height="300" size="small" empty-text="No changed files">
                                         <el-table-column prop="source_name" label="Source" width="110"></el-table-column>
-                                        <el-table-column prop="relative_path" label="文件路径" min-width="360" show-overflow-tooltip></el-table-column>
-                                        <el-table-column label="变化" min-width="150">
-                                            <template #default="scope">{{ (scope.row.reasons || []).join('、') || '—' }}</template>
+                                        <el-table-column prop="relative_path" label="Path" min-width="360" show-overflow-tooltip></el-table-column>
+                                        <el-table-column label="Changes" min-width="150">
+                                            <template #default="scope">{{ (scope.row.reasons || []).join(', ') || '—' }}</template>
                                         </el-table-column>
-                                        <el-table-column label="大小" width="170">
+                                        <el-table-column label="Size" width="170">
                                             <template #default="scope">{{ formatFileSize(scope.row.old_file_size) }} → {{ formatFileSize(scope.row.file_size) }}</template>
                                         </el-table-column>
-                                        <el-table-column label="修改时间" min-width="260">
+                                        <el-table-column label="Modified" min-width="260">
                                             <template #default="scope">{{ scope.row.old_file_mtime || '—' }} → {{ scope.row.file_mtime || '—' }}</template>
                                         </el-table-column>
                                     </el-table>
                                 </el-tab-pane>
-                                <el-tab-pane :label="`删除 (${smartAlbumSyncPlan.summary?.deleted_count || 0})`">
-                                    <el-table :data="smartAlbumSyncPlan.changes?.deleted || []" height="300" size="small" empty-text="没有删除文件">
+                                <el-tab-pane :label="`Deleted (${smartAlbumSyncPlan.summary?.deleted_count || 0})`">
+                                    <el-table :data="smartAlbumSyncPlan.changes?.deleted || []" height="300" size="small" empty-text="No deleted files">
                                         <el-table-column prop="source_name" label="Source" width="110"></el-table-column>
-                                        <el-table-column prop="relative_path" label="旧索引路径" min-width="430" show-overflow-tooltip></el-table-column>
+                                        <el-table-column prop="relative_path" label="Indexed Path" min-width="430" show-overflow-tooltip></el-table-column>
                                         <el-table-column prop="stage" label="Stage" width="110"></el-table-column>
-                                        <el-table-column label="旧大小" width="100">
+                                        <el-table-column label="Old Size" width="100">
                                             <template #default="scope">{{ formatFileSize(scope.row.file_size) }}</template>
                                         </el-table-column>
                                     </el-table>
@@ -1826,12 +1827,12 @@
                         <div v-if="smartAlbumSyncActive || (smartAlbumSyncProgress.phase && smartAlbumSyncProgress.phase !== 'idle')"
                              style="margin-top:16px; padding-top:16px; border-top:1px solid #ebeef5;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
-                                <strong>同步进度</strong>
-                                <span style="font-size:12px; color:#606266;">{{ smartAlbumSyncProgress.current || 0 }} / {{ smartAlbumSyncProgress.total || 0 }} 项变化</span>
+                                <strong>Sync Progress</strong>
+                                <span style="font-size:12px; color:#606266;">{{ smartAlbumSyncProgress.current || 0 }} / {{ smartAlbumSyncProgress.total || 0 }} Changes</span>
                             </div>
                             <el-progress :percentage="smartAlbumSyncProgress.percent || 0"
                                          :status="smartAlbumSyncProgress.error ? 'exception' : (smartAlbumSyncProgress.phase === 'done' ? 'success' : '')"></el-progress>
-                            <div style="margin:8px 0 12px; font-size:12px; color:#606266;">{{ smartAlbumSyncProgress.message || '等待开始' }}</div>
+                            <div style="margin:8px 0 12px; font-size:12px; color:#606266;">{{ smartAlbumSyncProgress.message || 'Ready' }}</div>
                             <div style="display:flex; flex-direction:column; gap:8px;">
                                 <div v-for="(step, index) in (smartAlbumSyncProgress.steps || [])" :key="step.id"
                                      style="padding:10px 12px; border:1px solid #ebeef5; border-radius:8px;">
@@ -1853,47 +1854,46 @@
             </div>
 
             <template #footer>
-                <el-button @click="showSmartAlbumIndexDialog = false">{{ smartAlbumIndexDialogBusy ? '隐藏' : '关闭' }}</el-button>
+                <el-button @click="showSmartAlbumIndexDialog = false">{{ smartAlbumIndexDialogBusy ? 'Hide' : 'Close' }}</el-button>
                 <template v-if="smartAlbumIndexTab === 'rebuild'">
                     <el-button v-if="smartAlbumIndexRefreshing" type="danger" plain
                                :loading="smartAlbumIndexProgress.phase === 'cancelling'"
-                               @click="cancelSmartAlbumIndexRefresh">取消重建</el-button>
+                               @click="cancelSmartAlbumIndexRefresh">Cancel</el-button>
                     <el-button v-else type="primary" :disabled="!smartAlbumIndexSelectedSourceIds.length"
-                               @click="startSmartAlbumIndexRefresh">开始重建</el-button>
+                               @click="startSmartAlbumIndexRefresh">Rebuild</el-button>
                 </template>
                 <template v-else>
                     <el-button v-if="smartAlbumSyncActive" type="danger" plain
                                :loading="smartAlbumSyncProgress.phase === 'cancelling'"
-                               @click="cancelSmartAlbumIndexSync">取消同步</el-button>
+                               @click="cancelSmartAlbumIndexSync">Cancel</el-button>
                     <template v-else>
                         <el-button :loading="smartAlbumSyncScanning" :disabled="!smartAlbumIndexSelectedSourceIds.length"
-                                   @click="scanSmartAlbumIndexChanges">扫描变化</el-button>
+                                   @click="scanSmartAlbumIndexChanges">Scan</el-button>
                         <el-button type="primary"
                                    :disabled="!smartAlbumSyncPlan || !((smartAlbumSyncPlan.summary?.added_count || 0) + (smartAlbumSyncPlan.summary?.changed_count || 0) + (smartAlbumSyncPlan.summary?.deleted_count || 0))"
-                                   @click="startSmartAlbumIndexSync">开始同步</el-button>
+                                   @click="startSmartAlbumIndexSync">Sync</el-button>
                     </template>
                 </template>
             </template>
         </el-dialog>
 
-        <el-dialog v-model="showSmartAlbumIndexHelpDialog" title="索引说明" width="660px" append-to-body>
+        <el-dialog v-model="showSmartAlbumIndexHelpDialog" title="Index Help" width="660px" append-to-body>
             <div style="line-height:1.75; color:#606266; font-size:13px;">
-                <div style="margin-bottom:12px;"><strong>索引范围</strong></div>
-                <div>这里选择 Smart View 使用的 Source，不会改变 Source 的启用状态。</div>
-                <div>重建时，勾选 Source 构成本次完整索引范围；未勾选 Source 不进入重建后的索引。</div>
-                <div>同步时，只检查勾选 Source 的变化；未勾选 Source 保持现有索引。</div>
+                <div style="margin-bottom:8px;"><strong>Scope</strong></div>
+                <div>Rebuild replaces the index with the selected Sources.</div>
+                <div>Sync checks only the selected Sources and keeps the rest unchanged.</div>
 
-                <div style="margin:16px 0 8px;"><strong>数据来源</strong></div>
-                <div><strong>当前索引：</strong>{{ formatSmartAlbumStageCounts(smartAlbumIndexProgress.summary) || '等待统计' }}</div>
-                <div>Manifest、Favorite、Description 在查询时实时读取，不写入图片索引。</div>
-                <div>Original JPG / RAW：{{ smartAlbumIndexProgress.summary && smartAlbumIndexProgress.summary.originals_indexed ? '当前配置会索引' : '当前配置不扫描' }}。</div>
+                <div style="margin:16px 0 8px;"><strong>Data</strong></div>
+                <div><strong>Current:</strong> {{ formatSmartAlbumStageCounts(smartAlbumIndexProgress.summary) || 'Pending' }}</div>
+                <div>Manifest, Favorite, and Description are read live at query time.</div>
+                <div>Original JPG / RAW: {{ smartAlbumIndexProgress.summary && smartAlbumIndexProgress.summary.originals_indexed ? 'Indexed' : 'Not indexed' }}.</div>
 
-                <div style="margin:16px 0 8px;"><strong>执行方式</strong></div>
-                <div>重建先扫描所选 Source，再统计候选图片；候选总数确定后，进度按图片计算。</div>
-                <div>同步的“扫描变化”只读取目录和文件状态，不运行 ExifTool；真正同步时只为新增或修改图片读取图片信息，删除只移除索引记录。</div>
-                <div>取消不会提交未完成的重建或同步。</div>
+                <div style="margin:16px 0 8px;"><strong>Execution</strong></div>
+                <div>Rebuild scans Sources, plans candidates, reads metadata, then commits the new index.</div>
+                <div>Sync scans file state first, then processes only added or changed files.</div>
+                <div>Cancel does not commit an incomplete rebuild or sync.</div>
             </div>
-            <template #footer><el-button @click="showSmartAlbumIndexHelpDialog = false">关闭</el-button></template>
+            <template #footer><el-button @click="showSmartAlbumIndexHelpDialog = false">Close</el-button></template>
         </el-dialog>
 
         <el-dialog v-model="showExploreBlockDialog" :title="exploreBlockEditor.id ? '编辑 Explore 统计' : '新建 Explore 统计'" width="780px" append-to-body>
@@ -2005,16 +2005,16 @@
             <template #footer><el-button @click="showExploreBlockHelpDialog = false">关闭</el-button></template>
         </el-dialog>
 
-        <el-dialog v-model="showCreateSmartViewDialog" title="创建智能视图" width="760px">
+        <el-dialog v-model="showCreateSmartViewDialog" title="New Smart View" width="760px">
             <el-form :model="smartViewCreateEditor" label-width="90px">
-                <el-form-item label="类型">
+                <el-form-item label="Type">
                     <el-select v-model="smartViewCreateEditor.type" style="width:100%;" @change="changeSmartViewCreateType">
                         <el-option label="Album" value="album"></el-option>
                         <el-option label="Set" value="set"></el-option>
                     </el-select>
                 </el-form-item>
-                <el-form-item label="名称"><el-input v-model="smartViewCreateEditor.name"></el-input></el-form-item>
-                <el-form-item label="描述"><el-input v-model="smartViewCreateEditor.description" type="textarea" :rows="2"></el-input></el-form-item>
+                <el-form-item label="Name"><el-input v-model="smartViewCreateEditor.name"></el-input></el-form-item>
+                <el-form-item label="Description"><el-input v-model="smartViewCreateEditor.description" type="textarea" :rows="2"></el-input></el-form-item>
                 <el-form-item label="Python">
                     <el-input v-model="smartViewCreateEditor.python_code" type="textarea" :rows="18" resize="vertical"
                               style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
@@ -2022,19 +2022,19 @@
                 <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
                     <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
-                               aria-label="查看智能视图 Python 帮助" @click="openSmartViewCreateHelp">?</el-button>
+                               aria-label="Smart View Python Help" @click="openSmartViewCreateHelp">?</el-button>
                 </div>
             </el-form>
             <template #footer>
-                <el-button @click="showCreateSmartViewDialog = false">取消</el-button>
-                <el-button type="primary" @click="createSmartView">创建</el-button>
+                <el-button @click="showCreateSmartViewDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="createSmartView">Create</el-button>
             </template>
         </el-dialog>
 
-        <el-dialog v-model="showEditSmartSetDialog" title="编辑 Smart Set" width="760px">
+        <el-dialog v-model="showEditSmartSetDialog" title="Edit Smart Set" width="760px">
             <el-form :model="smartSetEditor" label-width="90px">
-                <el-form-item label="名称"><el-input v-model="smartSetEditor.name"></el-input></el-form-item>
-                <el-form-item label="描述"><el-input v-model="smartSetEditor.description" type="textarea" :rows="2"></el-input></el-form-item>
+                <el-form-item label="Name"><el-input v-model="smartSetEditor.name"></el-input></el-form-item>
+                <el-form-item label="Description"><el-input v-model="smartSetEditor.description" type="textarea" :rows="2"></el-input></el-form-item>
                 <el-form-item label="Python">
                     <el-input v-model="smartSetEditor.python_code" type="textarea" :rows="18" resize="vertical"
                               style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
@@ -2042,12 +2042,12 @@
                 <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
                     <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
-                               aria-label="查看 Smart Set Python 帮助" @click="openSmartSetHelp">?</el-button>
+                               aria-label="Smart Set Python Help" @click="openSmartSetHelp">?</el-button>
                 </div>
             </el-form>
             <template #footer>
-                <el-button @click="showEditSmartSetDialog = false">取消</el-button>
-                <el-button type="primary" @click="saveSmartSet">保存</el-button>
+                <el-button @click="showEditSmartSetDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="saveSmartSet">Save</el-button>
             </template>
         </el-dialog>
 
@@ -2103,12 +2103,12 @@
         </el-dialog>
 
         <!-- Smart Album 编辑：底层始终保存真实 Python code。 -->
-        <el-dialog v-model="showEditSmartAlbumDialog" title="编辑 Smart Album" width="760px">
+        <el-dialog v-model="showEditSmartAlbumDialog" title="Edit Smart Album" width="760px">
             <el-form :model="smartAlbumEditor" label-width="90px">
-                <el-form-item label="相册名称">
+                <el-form-item label="Name">
                     <el-input v-model="smartAlbumEditor.name"></el-input>
                 </el-form-item>
-                <el-form-item label="描述">
+                <el-form-item label="Description">
                     <el-input v-model="smartAlbumEditor.description" type="textarea" :rows="2"></el-input>
                 </el-form-item>
                 <el-form-item label="Python">
@@ -2120,12 +2120,12 @@
                 <div style="margin:-8px 0 0 90px; display:flex; justify-content:flex-end; gap:8px;">
                     <el-button size="small" plain @click="openSmartHelpers">Python Helpers</el-button>
                     <el-button size="small" circle plain style="width:24px; height:24px; padding:0; font-size:12px;"
-                               aria-label="查看 Smart Album Python 帮助" @click="openSmartAlbumHelp">?</el-button>
+                               aria-label="Smart Album Python Help" @click="openSmartAlbumHelp">?</el-button>
                 </div>
             </el-form>
             <template #footer>
-                <el-button @click="showEditSmartAlbumDialog = false">取消</el-button>
-                <el-button type="primary" @click="saveSmartAlbum">保存</el-button>
+                <el-button @click="showEditSmartAlbumDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="saveSmartAlbum">Save</el-button>
             </template>
         </el-dialog>
 
@@ -2350,34 +2350,34 @@
             </template>
         </el-dialog>
 
-        <!-- 本地目录 Source 管理 -->
-        <el-dialog v-model="showLibrarySourcesDialog" title="本地目录 Source" width="720px">
+        <!-- Library Sources -->
+        <el-dialog v-model="showLibrarySourcesDialog" title="Library Sources" width="720px">
             <div class="source-add-form">
-                <el-input v-model="newLibrarySource.name" placeholder="名称，例如 Completed" style="width: 180px;"></el-input>
-                <el-input v-model="newLibrarySource.root_path" placeholder="绝对路径，例如 /mnt/photos/Completed" style="flex:1;"></el-input>
-                <el-button type="primary" @click="addLibrarySource">添加</el-button>
+                <el-input v-model="newLibrarySource.name" placeholder="Name" style="width: 180px;"></el-input>
+                <el-input v-model="newLibrarySource.root_path" placeholder="Absolute path" style="flex:1;"></el-input>
+                <el-button type="primary" @click="addLibrarySource">Add</el-button>
             </div>
             <div class="source-list">
                 <div v-for="source in librarySources" :key="source.id" class="source-row">
                     <div>
                         <div class="source-title-row">
                             <strong>{{ source.name }}</strong>
-                            <el-tag size="small" :type="source.enabled ? 'success' : 'info'">{{ source.enabled ? '已启用' : '已停用' }}</el-tag>
-                            <el-tag size="small" :type="source.available ? 'success' : 'danger'">{{ source.available ? '目录可用' : '目录不可用' }}</el-tag>
+                            <el-tag size="small" :type="source.enabled ? 'success' : 'info'">{{ source.enabled ? 'Enabled' : 'Disabled' }}</el-tag>
+                            <el-tag size="small" :type="source.available ? 'success' : 'danger'">{{ source.available ? 'Available' : 'Unavailable' }}</el-tag>
                         </div>
                         <div class="source-path">{{ source.root_path }}</div>
                     </div>
                     <div class="source-actions">
-                        <el-button plain size="small" @click="renameLibrarySource(source)">重命名</el-button>
+                        <el-button plain size="small" @click="renameLibrarySource(source)">Rename</el-button>
                         <el-button :type="source.enabled ? 'warning' : 'success'" plain size="small"
                                    @click="setLibrarySourceEnabled(source, !source.enabled)">
-                            {{ source.enabled ? '停用' : '启用' }}
+                            {{ source.enabled ? 'Disable' : 'Enable' }}
                         </el-button>
-                        <el-button type="danger" plain size="small" @click="deleteLibrarySource(source)">移除映射</el-button>
+                        <el-button type="danger" plain size="small" @click="deleteLibrarySource(source)">Remove</el-button>
                     </div>
                 </div>
             </div>
-            <template #footer><el-button @click="showLibrarySourcesDialog = false">关闭</el-button></template>
+            <template #footer><el-button @click="showLibrarySourcesDialog = false">Close</el-button></template>
         </el-dialog>
 
         <!-- =========================================================
@@ -4164,54 +4164,47 @@
         <!-- =========================================================
              FEATURE: UPLOADED ALBUMS — GROUP DIALOGS
              ========================================================= -->
-        <!-- 分组管理对话框 -->
-        <el-dialog v-model="showManageGroupsDialog" title="管理分组" width="600px">
+        <!-- Group management -->
+        <el-dialog v-model="showManageGroupsDialog" title="Groups" width="600px">
             <div style="margin-bottom: 20px;">
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <el-input v-model="newGroupName" placeholder="输入新分组名称" style="flex: 1;"></el-input>
-                    <el-button type="primary" @click="createGroup" :disabled="!newGroupName.trim()">添加分组</el-button>
+                    <el-input v-model="newGroupName" placeholder="Group name" style="flex: 1;"></el-input>
+                    <el-button type="primary" @click="createGroup" :disabled="!newGroupName.trim()">Add</el-button>
                 </div>
-
                 <div v-if="allGroups.length > 0" class="groups-list">
                     <div v-for="group in allGroups" :key="group.id" class="group-item">
                         <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border: 1px solid #ebeef5; border-radius: 4px; margin-bottom: 10px;">
                             <div>
                                 <span style="margin-right: 10px;">{{ group.name }}</span>
-                                <span style="color: #909399; font-size: 12px;">({{ getGroupAlbumCount(group.id)
-                                    }}个相册)</span>
+                                <span style="color: #909399; font-size: 12px;">{{ getGroupAlbumCount(group.id) }} Album{{ getGroupAlbumCount(group.id) === 1 ? '' : 's' }}</span>
                             </div>
                             <div>
-                                <el-button type="primary" size="small" @click="editGroup(group)">编辑</el-button>
+                                <el-button type="primary" size="small" @click="editGroup(group)">Edit</el-button>
                                 <el-button type="danger" size="small" @click="deleteGroup(group)"
-                                           :disabled="getGroupAlbumCount(group.id) > 0">删除
-                                </el-button>
+                                           :disabled="getGroupAlbumCount(group.id) > 0">Delete</el-button>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div v-else style="text-align: center; color: #909399; padding: 20px;">
-                    暂无分组
-                </div>
+                <div v-else style="text-align: center; color: #909399; padding: 20px;">No groups.</div>
             </div>
-            <template #footer>
-                <el-button @click="showManageGroupsDialog = false">关闭</el-button>
-            </template>
+            <template #footer><el-button @click="showManageGroupsDialog = false">Close</el-button></template>
         </el-dialog>
 
-        <!-- 添加/编辑分组对话框 -->
-        <el-dialog v-model="showEditGroupDialog" :title="editingGroup ? '编辑分组' : '新建分组'" width="400px">
+        <!-- Add / Edit Group -->
+        <el-dialog v-model="showEditGroupDialog" :title="editingGroup ? 'Edit Group' : 'New Group'" width="400px">
             <el-form :model="groupForm">
-                <el-form-item label="分组名称">
-                    <el-input v-model="groupForm.name" placeholder="请输入分组名称"></el-input>
+                <el-form-item label="Name">
+                    <el-input v-model="groupForm.name" placeholder="Group name"></el-input>
                 </el-form-item>
-                <el-form-item label="排序序号">
+                <el-form-item label="Sort Order">
                     <el-input-number v-model="groupForm.sort_order" :min="0" :step="1"></el-input-number>
-                    <span style="margin-left: 10px; color: #909399; font-size: 12px;">数字越小越靠前</span>
+                    <span style="margin-left: 10px; color: #909399; font-size: 12px;">Lower first.</span>
                 </el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showEditGroupDialog = false">取消</el-button>
-                <el-button type="primary" @click="saveGroup">保存</el-button>
+                <el-button @click="showEditGroupDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="saveGroup">Save</el-button>
             </template>
         </el-dialog>
 

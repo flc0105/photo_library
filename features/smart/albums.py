@@ -109,7 +109,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         'active': False,
         'phase': 'idle',
         'message': '',
-        'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
+        'overall': {'dimension': 'image', 'label': 'Overall', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
         'steps': _new_index_steps(),
         'summary': {
             'overall_dimension': 'image',
@@ -147,7 +147,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             if index_job.get('cancel_requested'):
                 progress = dict(progress)
                 progress['phase'] = 'cancelling'
-                progress['message'] = '正在取消重建…'
+                progress['message'] = 'Cancelling rebuild…'
             index_job.update(progress)
 
     def run_index_refresh_job(selected_source_ids):
@@ -165,7 +165,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_index_job(
                 active=False,
                 phase='done',
-                message=f"索引重建完成：{status['asset_count']} 张图片",
+                message=f"Indexed {status['asset_count']} Photos.",
                 overall=overall,
                 error='',
                 cancel_requested=False,
@@ -177,11 +177,11 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             for step in cancelled_steps:
                 if step.get('status') == 'active':
                     step['status'] = 'cancelled'
-                    step['detail'] = (step.get('detail') or '') + '（已取消）'
+                    step['detail'] = (step.get('detail') or '') + ' (Cancelled)'
             update_index_job(
                 active=False,
                 phase='cancelled',
-                message='已取消重建',
+                message='Rebuild cancelled.',
                 steps=cancelled_steps,
                 error='',
                 cancel_requested=False,
@@ -196,7 +196,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_index_job(
                 active=False,
                 phase='error',
-                message='Smart View 索引重建失败',
+                message='Smart View index rebuild failed.',
                 steps=failed_steps,
                 error=str(exc),
                 cancel_requested=False,
@@ -241,8 +241,8 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_sync_job(
                 active=False,
                 phase='error',
-                message='同步计划不存在，请重新扫描变化',
-                error='同步计划不存在，请重新扫描变化',
+                message='Sync plan unavailable. Scan again.',
+                error='Sync plan unavailable. Scan again.',
                 cancel_requested=False,
             )
             return
@@ -277,12 +277,12 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
 
         try:
             verify_step = step_map['verify_plan']
-            verify_step.update(status='active', detail='重新扫描所选 Source，确认文件列表与预览一致')
-            publish('verify_plan', '核对扫描计划', current=0, total=change_total)
+            verify_step.update(status='active', detail='Rescanning selected Sources')
+            publish('verify_plan', 'Verify Plan', current=0, total=change_total)
             if index_job_snapshot().get('active'):
-                raise RuntimeError('完整重建正在运行，请等待完成后再同步索引。')
+                raise RuntimeError('Index rebuild is running.')
             verified = _verify_sync_plan(plan, smart_db_path, main_db_path)
-            verify_step.update(status='done', current=1, detail='扫描计划未变化')
+            verify_step.update(status='done', current=1, detail='Plan verified')
 
             exiftool = resolve_exiftool()
             exiftool_version = probe_exiftool_version(exiftool) if exiftool else ''
@@ -290,15 +290,15 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             process_total = verified['summary']['process_total']
             process_step.update(status='active', current=0, total=process_total)
             if process_total:
-                process_step['detail'] = f'待处理 {process_total} 张新增 / 修改图片'
+                process_step['detail'] = f'{process_total} Photos to process'
             else:
-                process_step['detail'] = '没有新增 / 修改图片；无需读取图片信息'
+                process_step['detail'] = 'No added or changed Photos'
             publish('process_assets', process_step['detail'], current=0, total=change_total)
 
             def on_processed(done, total):
                 process_step['current'] = done
                 process_step['total'] = total
-                process_step['detail'] = f'已读取 {done} / {total} 张新增 / 修改图片'
+                process_step['detail'] = f'Processed {done} / {total} Photos'
                 publish('process_assets', process_step['detail'], current=done, total=change_total)
 
             prepared_rows = _prepare_sync_rows(
@@ -307,13 +307,13 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 progress_callback=on_processed,
                 cancel_callback=sync_cancel_requested,
             )
-            process_step.update(status='done', current=process_total, total=process_total, detail=f'新增 / 修改图片信息读取完成：{process_total} 张')
+            process_step.update(status='done', current=process_total, total=process_total, detail=f'Processed {process_total} Photos')
 
             # Metadata extraction can take time. Re-scan before touching SQLite so
             # execution always commits the exact previewed plan.
             verified_again = _verify_sync_plan(plan, smart_db_path, main_db_path)
             if index_job_snapshot().get('active'):
-                raise RuntimeError('完整重建已开始，本次同步已停止；请待完整重建结束后重新扫描变化。')
+                raise RuntimeError('Index rebuild started. Sync stopped.')
 
             apply_step = step_map['apply_changes']
             apply_step.update(
@@ -321,12 +321,12 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 current=0,
                 total=1,
                 detail=(
-                    f"新增 {verified_again['summary']['added_count']} · "
-                    f"修改 {verified_again['summary']['changed_count']} · "
-                    f"删除 {verified_again['summary']['deleted_count']}"
+                    f"Added {verified_again['summary']['added_count']} · "
+                    f"Changed {verified_again['summary']['changed_count']} · "
+                    f"Deleted {verified_again['summary']['deleted_count']}"
                 ),
             )
-            publish('apply_changes', '更新 Smart View 索引', current=process_total, total=change_total)
+            publish('apply_changes', 'Update Index', current=process_total, total=change_total)
             status = _apply_sync_changes(
                 verified_again,
                 prepared_rows,
@@ -335,17 +335,17 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 exiftool_version,
                 cancel_callback=sync_cancel_requested,
             )
-            apply_step.update(status='done', current=1, total=1, detail='索引变化已写入事务')
+            apply_step.update(status='done', current=1, total=1, detail='Changes staged')
 
             commit_step = step_map['verify_commit']
-            commit_step.update(status='done', current=1, total=1, detail=f"提交完成：当前索引 {status['asset_count']} 张")
+            commit_step.update(status='done', current=1, total=1, detail=f"Committed · {status['asset_count']} Photos")
             update_sync_job(
                 active=False,
                 phase='done',
                 message=(
-                    f"同步完成：新增 {plan['summary']['added_count']} · "
-                    f"修改 {plan['summary']['changed_count']} · "
-                    f"删除 {plan['summary']['deleted_count']}"
+                    f"Sync complete · Added {plan['summary']['added_count']} · "
+                    f"Changed {plan['summary']['changed_count']} · "
+                    f"Deleted {plan['summary']['deleted_count']}"
                 ),
                 percent=100,
                 current=change_total,
@@ -361,11 +361,11 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             for step in steps:
                 if step.get('status') == 'active':
                     step['status'] = 'cancelled'
-                    step['detail'] = (step.get('detail') or '') + '（已取消）'
+                    step['detail'] = (step.get('detail') or '') + ' (Cancelled)'
             update_sync_job(
                 active=False,
                 phase='cancelled',
-                message='已取消同步',
+                message='Sync cancelled.',
                 steps=copy.deepcopy(steps),
                 error='',
                 cancel_requested=False,
@@ -379,7 +379,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             update_sync_job(
                 active=False,
                 phase='error',
-                message='Smart View 索引同步失败',
+                message='Smart View index sync failed.',
                 steps=copy.deepcopy(steps),
                 error=str(exc),
                 cancel_requested=False,
@@ -516,7 +516,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Smart View 索引尚未建立，请先重建索引。',
+                    'error': 'Smart View index required. Rebuild the index.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                     'traceback': '',
@@ -545,9 +545,9 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
         if not selected_sources:
-            return jsonify({'error': '没有可用于 Smart View 索引的已启用 Source'}), 400
+            return jsonify({'error': 'No enabled Sources available for Smart View indexing'}), 400
         if not any(Path(source['root_path']).expanduser().is_dir() for source in selected_sources):
-            return jsonify({'error': '所选 Source 当前均不可用，无法建立索引'}), 400
+            return jsonify({'error': 'Selected Sources are unavailable'}), 400
         selected_source_ids = [int(source['id']) for source in selected_sources]
         selected_source_names = [source['name'] for source in selected_sources]
 
@@ -557,8 +557,8 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             index_job.update({
                 'active': True,
                 'phase': 'starting',
-                'message': '准备重建 Smart View 索引',
-                'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
+                'message': 'Preparing index rebuild',
+                'overall': {'dimension': 'image', 'label': 'Overall', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
                 'steps': _new_index_steps(),
                 'summary': {
                     'overall_dimension': 'image',
@@ -591,7 +591,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 return jsonify(copy.deepcopy(index_job))
             index_job['cancel_requested'] = True
             index_job['phase'] = 'cancelling'
-            index_job['message'] = '正在取消重建…'
+            index_job['message'] = 'Cancelling rebuild…'
             snapshot = copy.deepcopy(index_job)
         return jsonify(snapshot), 202
 
@@ -608,9 +608,9 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         if denied:
             return denied
         if index_job_snapshot().get('active'):
-            return jsonify({'error': '完整重建正在运行，请等待完成后再扫描同步变化。'}), 409
+            return jsonify({'error': 'Index rebuild is running.'}), 409
         if sync_job_snapshot().get('active'):
-            return jsonify({'error': '索引同步正在运行。'}), 409
+            return jsonify({'error': 'Index sync is running.'}), 409
         data = request.get_json(silent=True) or {}
         requested_source_ids = data.get('source_ids')
         try:
@@ -630,13 +630,13 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         data = request.get_json(silent=True) or {}
         plan_id = str(data.get('plan_id') or '').strip()
         if not plan_id:
-            return jsonify({'error': '缺少同步 plan_id，请重新扫描变化。'}), 400
+            return jsonify({'error': 'Missing sync plan. Scan again.'}), 400
         if index_job_snapshot().get('active'):
-            return jsonify({'error': '完整重建正在运行，请等待完成后再同步索引。'}), 409
+            return jsonify({'error': 'Index rebuild is running.'}), 409
         with sync_job_lock:
             plan = sync_plans.get(plan_id)
             if not plan:
-                return jsonify({'error': '同步计划不存在或已失效，请重新扫描变化。'}), 409
+                return jsonify({'error': 'Sync plan expired. Scan again.'}), 409
             if sync_job['active']:
                 return jsonify(copy.deepcopy(sync_job)), 202
             change_total = (
@@ -645,11 +645,11 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 plan['summary']['deleted_count']
             )
             if change_total <= 0:
-                return jsonify({'error': '当前所选 Source 没有需要同步的变化。'}), 400
+                return jsonify({'error': 'No changes for the selected Sources.'}), 400
             sync_job.update({
                 'active': True,
                 'phase': 'starting',
-                'message': '准备同步 Smart View 索引',
+                'message': 'Preparing index sync',
                 'percent': 0,
                 'current': 0,
                 'total': change_total,
@@ -673,7 +673,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 return jsonify(copy.deepcopy(sync_job))
             sync_job['cancel_requested'] = True
             sync_job['phase'] = 'cancelling'
-            sync_job['message'] = '正在取消同步…'
+            sync_job['message'] = 'Cancelling sync…'
             snapshot = copy.deepcopy(sync_job)
         return jsonify(snapshot), 202
 

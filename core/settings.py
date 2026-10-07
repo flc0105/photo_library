@@ -48,13 +48,13 @@ def get_site_title():
 
         conn.close()
 
-        default_title = '我的相册'
+        default_title = 'Photo Library'
         if title_record and title_record['value']:
             return jsonify({'title': title_record['value']})
         else:
             return jsonify({'title': default_title})
     except Exception as e:
-        return jsonify({'title': '我的相册'})
+        return jsonify({'title': 'Photo Library'})
 
 
 @bp.route('/api/admin/verify-password', methods=['POST'])
