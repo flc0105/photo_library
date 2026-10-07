@@ -1,0 +1,430 @@
+/* Explore / Statistics */
+/* Every Explore loading state uses the same viewport-level mask so no spinner can
+   be positioned from a long page, dialog body, preview panel, or button. */
+.explore-fullscreen-loading-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(245, 247, 250, 0.68);
+}
+
+.explore-fullscreen-loading-spinner {
+    width: 42px;
+    height: 42px;
+    border: 3px solid rgba(64, 158, 255, 0.22);
+    border-top-color: #409eff;
+    border-radius: 50%;
+    animation: explore-fullscreen-loading-spin 0.8s linear infinite;
+}
+
+@keyframes explore-fullscreen-loading-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.explore-result-loading {
+    position: relative;
+    min-height: calc(100vh - 72px);
+}
+
+
+.explore-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: stretch;
+}
+
+.explore-stat-card {
+    width: 100%;
+    height: 450px;
+    display: flex;
+    flex-direction: column;
+}
+
+.explore-stat-card > .el-card__header {
+    flex: 0 0 auto;
+}
+
+.explore-stat-card > .el-card__body {
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.explore-card-header,
+.explore-stat-line,
+.explore-stat-metrics {
+    display: flex;
+    align-items: center;
+}
+
+.explore-card-header,
+.explore-stat-line {
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.explore-card-header {
+    min-height: 32px;
+}
+
+.explore-card-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.explore-year-select {
+    width: 104px;
+}
+
+.explore-metric-select {
+    width: 88px;
+}
+
+.explore-stat-list {
+    flex: 0 0 auto;
+    min-height: 0;
+}
+
+.explore-stat-row {
+    cursor: pointer;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f2f5;
+}
+
+.explore-stat-line {
+    margin-bottom: 5px;
+    min-width: 0;
+}
+
+.explore-stat-line > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.explore-stat-metrics {
+    flex: 0 0 auto;
+    gap: 5px;
+    color: #606266;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.explore-metric-link {
+    appearance: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: #409eff;
+    font: inherit;
+    cursor: pointer;
+}
+
+.explore-metric-link:hover {
+    text-decoration: underline;
+}
+
+.explore-card-footer {
+    flex: 0 0 54px;
+    min-height: 54px;
+    margin-top: auto;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 14px;
+}
+
+.explore-card-empty {
+    grid-column: 1 / -1;
+    color: #909399;
+    font-size: 13px;
+    padding: 18px 0;
+}
+
+.explore-block-drag-handle {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border-radius: 4px;
+    color: #a8abb2;
+    cursor: grab;
+    user-select: none;
+}
+
+.explore-block-drag-handle:hover {
+    color: #606266;
+    background: #f2f3f5;
+}
+
+.explore-block-drag-handle:active {
+    cursor: grabbing;
+}
+
+.explore-custom-block-card.is-dragging {
+    opacity: 0.58;
+}
+
+.explore-custom-block-card.is-drag-over {
+    outline: 2px solid var(--el-color-primary-light-5);
+    outline-offset: 2px;
+}
+
+.explore-card-disabled {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 8px 0 54px;
+    border: 1px dashed #dcdfe6;
+    border-radius: 8px;
+    background: #fafafa;
+    text-align: center;
+    padding: 24px;
+}
+
+.explore-card-disabled-title {
+    color: #606266;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.explore-card-disabled-text {
+    max-width: 320px;
+    color: #909399;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+
+.explore-more-dialog .el-dialog__body {
+    padding: 8px 20px 18px;
+}
+
+.explore-more-dialog .explore-more-list {
+    max-height: min(68vh, 720px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    padding: 0 12px 0 2px;
+}
+
+/* Open-all dialog uses its own row geometry so removing progress bars does not
+   leave the compact count-only layout looking loose or pressed against the scrollbar. */
+.explore-more-dialog .explore-stat-row {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.explore-more-dialog .explore-stat-line {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: center;
+    column-gap: 24px;
+}
+
+.explore-more-dialog .explore-stat-metrics {
+    justify-self: end;
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.explore-more-dialog .explore-stat-row.is-count-only {
+    box-sizing: border-box;
+    min-height: 48px;
+    padding-top: 0;
+    padding-bottom: 0;
+    display: flex;
+    align-items: center;
+}
+
+.explore-more-dialog .explore-stat-row.is-count-only .explore-stat-line {
+    margin-bottom: 0;
+}
+
+@media (max-width: 1100px) {
+    .explore-card-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Smart View: keep type/edit affordances lightweight inside the existing album card. */
+.smart-view-card-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+.smart-view-card-title-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.smart-view-card-title-main .album-name {
+    margin-bottom: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.smart-view-type-tag {
+    --el-tag-font-size: 10px;
+    --el-tag-bg-color: transparent;
+    --el-tag-border-color: #e4e7ed;
+    --el-tag-text-color: #909399;
+    height: 18px;
+    padding: 0 5px;
+    line-height: 16px;
+    flex: 0 0 auto;
+}
+
+.smart-view-edit-btn {
+    width: 20px !important;
+    height: 20px !important;
+    min-height: 20px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    color: #a8abb2 !important;
+    opacity: 0.78;
+    flex: 0 0 auto;
+}
+
+.smart-view-edit-btn .el-icon {
+    font-size: 13px;
+}
+
+.smart-view-edit-btn:hover {
+    color: #606266 !important;
+    background: transparent !important;
+    opacity: 1;
+}
+
+/* Keep the Smart View section's trailing gap aligned with the surrounding home groups. */
+.smart-view-group {
+    margin-bottom: 30px;
+}
+
+.smart-view-group + .library-source-group {
+    margin-top: 0;
+}
+
+.smart-view-index-placeholder {
+    min-height: 360px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #909399;
+    font-size: 14px;
+}
+
+/* Keep Smart View loading centered in the result area without restoring an opaque mask. */
+.smart-view-result-loading {
+    position: relative;
+    min-height: calc(100vh - 72px);
+}
+
+.smart-view-result-loading > .el-loading-mask {
+    background-color: transparent !important;
+}
+
+/* The index scope stays fixed; only the active rebuild/sync tab scrolls. */
+.smart-view-index-dialog {
+    height: min(760px, calc(100vh - 64px));
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-view-index-dialog .el-dialog__header,
+.smart-view-index-dialog .el-dialog__footer {
+    flex: 0 0 auto;
+}
+
+.smart-view-index-dialog .el-dialog__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.smart-view-index-layout {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-view-index-scope {
+    flex: 0 0 auto;
+}
+
+.smart-view-index-tabs {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-view-index-tabs > .el-tabs__header {
+    flex: 0 0 auto;
+}
+
+.smart-view-index-tabs > .el-tabs__content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+}
+
+@media (max-width: 768px) {
+    .smart-view-index-dialog {
+        height: calc(100vh - 40px);
+    }
+}
+
+.explore-card-error {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: flex-start;
+}
+
+.explore-card-error .el-alert {
+    width: 100%;
+}
+
+.explore-block-preview {
+    margin: 18px 0 0 90px;
+    padding: 12px 14px;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    background: #fafafa;
+}
+
+@media (max-width: 760px) {
+    .explore-block-preview {
+        margin-left: 0;
+    }
+}

@@ -1,0 +1,224 @@
+const {ref, computed} = window.Vue;
+const {ElMessage, ElMessageBox} = window.ElementPlus;
+
+function createController(options) {
+    const visible = ref(false);
+    const loading = ref(false);
+    const step = ref(0);
+    const plan = ref(null);
+    const task = ref({
+        id: '', status: '', total: 0, completed: 0, current: 0,
+        percent: 0, message: '', logs: [], result: null, error: null
+    });
+    const selectedRowIds = ref([]);
+    let pollTimer = null;
+    let refreshedTaskId = '';
+
+    const context = () => {
+        const source = options.getSource && options.getSource();
+        const path = options.getSetPath && options.getSetPath();
+        if (!source || !source.id || path === null || path === undefined) {
+            throw new Error('No active Set.');
+        }
+        return {sourceId: source.id, path};
+    };
+
+    const fetchJson = async (url, init) => {
+        const response = await fetch(url, init);
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (error) {
+            throw new Error(`Invalid server response (${response.status}).`);
+        }
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+        return data;
+    };
+
+    const postJson = (url, payload) => fetchJson(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload || {})
+    });
+
+    const resetTask = () => {
+        task.value = {
+            id: '', status: '', total: 0, completed: 0, current: 0,
+            percent: 0, message: '', logs: [], result: null, error: null
+        };
+    };
+
+    const stopPolling = () => {
+        if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+    };
+
+    const loadPlan = async () => {
+        const ctx = context();
+        loading.value = true;
+        try {
+            plan.value = await postJson(
+                `/api/library/final-metadata/sources/${ctx.sourceId}/plan`,
+                {path: ctx.path}
+            );
+            selectedRowIds.value = (plan.value.rows || [])
+                .filter(row => row.default_selected)
+                .map(row => row.id);
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    const open = async () => {
+        stopPolling();
+        try {
+            context();
+        } catch (error) {
+            ElMessage.error(error.message);
+            return;
+        }
+        visible.value = true;
+        step.value = 0;
+        plan.value = null;
+        refreshedTaskId = '';
+        resetTask();
+        try {
+            await loadPlan();
+        } catch (error) {
+            ElMessage.error(error.message || 'Failed to load metadata plan.');
+            visible.value = false;
+        }
+    };
+
+    const refreshPlan = async () => {
+        try {
+            await loadPlan();
+        } catch (error) {
+            ElMessage.error(error.message || 'Refresh failed.');
+        }
+    };
+
+    const thumbnailUrl = (row, side) => {
+        let ctx;
+        try {
+            ctx = context();
+        } catch (error) {
+            return '';
+        }
+        if (!plan.value || !plan.value.plan_id || !row || !row.id) return '';
+        return `/api/library/final-metadata/sources/${ctx.sourceId}/thumbnail/${encodeURIComponent(plan.value.plan_id)}/${encodeURIComponent(row.id)}/${encodeURIComponent(side)}`;
+    };
+
+    const isRowSelected = (row) => selectedRowIds.value.includes(row.id);
+
+    const setRowSelected = (row, checked) => {
+        if (!row || row.status === 'blocked') return;
+        const next = new Set(selectedRowIds.value);
+        if (checked) next.add(row.id);
+        else next.delete(row.id);
+        selectedRowIds.value = [...next];
+    };
+
+    const selectableRows = computed(() => (plan.value && plan.value.rows ? plan.value.rows : [])
+        .filter(row => row.status !== 'blocked'));
+    const selectedCount = computed(() => selectedRowIds.value.length);
+    const allRowsSelected = computed(() => selectableRows.value.length > 0
+        && selectableRows.value.every(row => selectedRowIds.value.includes(row.id)));
+    const someRowsSelected = computed(() => selectedRowIds.value.length > 0 && !allRowsSelected.value);
+
+    const setAllRowsSelected = (checked) => {
+        selectedRowIds.value = checked ? selectableRows.value.map(row => row.id) : [];
+    };
+
+    const pollTask = async () => {
+        if (!task.value.id) return;
+        try {
+            const data = await fetchJson(`/api/library/final-metadata/tasks/${encodeURIComponent(task.value.id)}`);
+            task.value = data;
+            if (data.status === 'running' || data.status === 'queued') {
+                pollTimer = setTimeout(pollTask, 650);
+                return;
+            }
+            if (data.status === 'done') {
+                ElMessage.success(data.message || 'Metadata written.');
+                if (refreshedTaskId !== data.id && options.refreshCurrent) {
+                    refreshedTaskId = data.id;
+                    await options.refreshCurrent();
+                }
+            } else if (data.status === 'error') {
+                ElMessage.error(data.error || 'Metadata failed.');
+            }
+        } catch (error) {
+            task.value = {...task.value, status: 'error', error: error.message};
+            ElMessage.error(error.message || 'Status check failed.');
+        }
+    };
+
+    const execute = async () => {
+        if (!plan.value || !plan.value.plan_id || !plan.value.can_execute) return;
+        let ctx;
+        try {
+            ctx = context();
+        } catch (error) {
+            ElMessage.error(error.message);
+            return;
+        }
+        try {
+            await ElMessageBox.confirm(
+                `Write metadata to ${selectedRowIds.value.length} Final files?`,
+                'Write Metadata',
+                {confirmButtonText: 'Write', cancelButtonText: 'Cancel', type: 'warning'}
+            );
+        } catch (error) {
+            return;
+        }
+
+        loading.value = true;
+        try {
+            const data = await postJson(
+                `/api/library/final-metadata/sources/${ctx.sourceId}/start`,
+                {path: ctx.path, plan_id: plan.value.plan_id, row_ids: selectedRowIds.value}
+            );
+            resetTask();
+            task.value.id = data.task_id;
+            task.value.status = 'queued';
+            task.value.message = 'Queued…';
+            task.value.total = selectedRowIds.value.length;
+            step.value = 1;
+            stopPolling();
+            pollTimer = setTimeout(pollTask, 150);
+        } catch (error) {
+            ElMessage.error(error.message || 'Start failed.');
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    const close = () => {
+        if (task.value.status === 'running' || task.value.status === 'queued') return;
+        stopPolling();
+        visible.value = false;
+    };
+
+    const canExecute = computed(() => !!(
+        plan.value
+        && plan.value.can_execute
+        && selectedRowIds.value.length > 0
+        && selectedRowIds.value.every(rowId => {
+            const row = (plan.value.rows || []).find(item => item.id === rowId);
+            return row && row.status !== 'blocked';
+        })
+        && !loading.value
+    ));
+
+    return {
+        visible, loading, step, plan, task, canExecute,
+        selectedRowIds, selectedCount, allRowsSelected, someRowsSelected,
+        isRowSelected, setRowSelected, setAllRowsSelected,
+        open, close, refreshPlan, thumbnailUrl, execute
+    };
+}
+
+export {createController};

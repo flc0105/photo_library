@@ -1,0 +1,1300 @@
+.album-actions .el-button,
+.action-buttons .el-button {
+    margin: 0 !important;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+
+.home-header-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.home-header-actions .el-button {
+    margin: 0 !important;
+}
+
+.album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.album-card {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s, box-shadow 0.3s;
+    cursor: pointer;
+}
+
+.album-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+}
+
+.album-cover {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    background: #f0f0f0;
+}
+
+.album-info {
+    padding: 15px;
+}
+
+.album-name {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.album-meta {
+    font-size: 14px;
+    color: #666;
+}
+
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.image-item {
+    position: relative;
+    width: 100%;
+    padding-bottom: 100%;
+    overflow: hidden;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.image-item.selected {
+    border: 3px solid #409eff;
+    transform: scale(0.95);
+}
+
+.selection-checkbox {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    width: 24px;
+    height: 24px;
+    background: #409eff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    z-index: 5;
+}
+
+.selection-checkbox span {
+    font-size: 16px;
+}
+
+.image-thumb {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.back-button {
+    margin-bottom: 20px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #999;
+}
+
+.album-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.image-actions {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: flex;
+    gap: 5px;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.image-item:hover .image-actions,
+.image-actions.always-visible {
+    opacity: 1;
+}
+
+.action-button {
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.image-detail-layout {
+    display: flex;
+    height: calc(100vh - 100px);
+    gap: 0;
+    box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.1);
+}
+
+.image-section {
+    flex: 7;
+    background: #f8f9fa;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px;
+    overflow: hidden;
+    position: relative;
+}
+
+.nav-button {
+    width: 50px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: 2px solid #409eff;
+    color: #409eff;
+    font-size: 18px;
+    z-index: 10;
+}
+
+.nav-button.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    border-color: #ccc;
+    color: #ccc;
+}
+
+.image-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    max-width: calc(100% - 120px);
+    height: 100%;
+}
+
+.detail-image {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.info-section {
+    flex: 3;
+    min-width: 300px;
+    background: white;
+    border-left: 1px solid #e0e0e0;
+    overflow-y: auto;
+}
+
+.info-panel {
+    padding: 20px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.info-content {
+    flex: 1;
+}
+
+.info-item {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #f0f0f0;
+    line-height: 1.5;
+    font-size: 14px;
+    word-break: break-all;
+}
+
+.action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* 锁定的封面样式 */
+.locked-cover,
+.empty-cover {
+    background: #f5f7fa;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #909399;
+}
+
+.lock-icon {
+    font-size: 48px;
+    margin-bottom: 8px;
+    color: #c0c4cc;
+}
+
+.lock-text {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* EXIF信息样式 */
+.exif-container {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.exif-value {
+    word-break: break-all;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+.exif-dialog-loading {
+    padding: 20px;
+    text-align: center;
+}
+
+/* 活跃状态的排序选项 */
+.el-dropdown-menu__item.is-active {
+    color: #409eff;
+    font-weight: bold;
+    background-color: #f0f7ff;
+}
+
+/* 收藏列表样式 */
+.favorite-list-box .el-message-box {
+    max-width: 500px;
+}
+
+.favorite-list-box .el-message-box__content {
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 15px 20px;
+}
+
+/* 分组样式 */
+.album-group {
+    margin-bottom: 30px;
+}
+
+.group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #409eff;
+}
+
+.group-header h2 {
+    font-size: 20px;
+    color: #333;
+    margin: 0;
+}
+
+.album-count {
+    font-size: 14px;
+    color: #666;
+    font-weight: normal;
+    margin-left: 8px;
+}
+
+.el-dropdown-link {
+    cursor: pointer;
+    color: #409eff;
+    font-size: 16px;
+    padding: 5px;
+}
+
+.groups-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.group-item {
+    transition: all 0.3s;
+}
+
+.group-item:hover {
+    background-color: #f5f7fa;
+}
+
+/* 浮动工具栏样式 */
+.floating-toolbar,
+.album-detail-floating-toolbar {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 15px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 12px 20px;
+    border-radius: 30px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    border: 1px solid #e0e0e0;
+    z-index: 100;
+}
+
+.floating-toolbar {
+    bottom: 30px;
+}
+
+.album-detail-floating-toolbar {
+    position: fixed;
+    bottom: 30px;
+    background: rgba(255, 255, 255, 0.98);
+    padding: 8px 15px;
+    border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    max-width: 95%;
+
+    box-sizing: border-box;
+}
+
+.floating-toolbar .el-button {
+    width: 45px; /* 添加宽度 */
+    height: 45px;
+    font-size: 18px;
+}
+
+.album-detail-floating-toolbar .el-button {
+    height: 45px;
+    font-size: 18px;
+}
+
+
+.floating-toolbar .el-button .el-icon,
+.album-detail-floating-toolbar .el-button .el-icon {
+    font-size: 20px;
+}
+
+.album-detail-floating-toolbar .toolbar-content {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+.album-detail-floating-toolbar .toolbar-btn {
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 5px 10px !important;
+    height: 30px;
+    min-width: auto !important;
+    white-space: nowrap;
+    line-height: 1.2;
+    margin: 0 !important;
+}
+
+.album-detail-floating-toolbar .toolbar-btn .el-icon {
+    font-size: 12px;
+}
+
+/* 按钮悬停效果 */
+.toolbar-btn:hover {
+    transform: translateY(-1px);
+    transition: transform 0.2s;
+}
+
+.toolbar-btn:active {
+    transform: translateY(0);
+}
+
+/* Dialogs should open closer to the top edge instead of Element Plus's default 15vh. */
+.el-dialog {
+    margin-top: 5vh !important;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+
+    .header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+
+    .header h1 {
+        font-size: 1.5rem;
+        text-align: center;
+    }
+
+    .home-header-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+        gap: 8px;
+    }
+
+    .home-header-actions .el-button {
+        width: 100%;
+        margin: 0 !important;
+    }
+
+    .album-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .album-cover {
+        height: 150px;
+    }
+
+    .album-info {
+        padding: 10px;
+    }
+
+    .album-name {
+        font-size: 16px;
+    }
+
+    .album-meta {
+        font-size: 12px;
+    }
+
+    .image-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 5px;
+    }
+
+    .album-actions {
+        flex-direction: column;
+    }
+
+    .image-detail-layout {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .image-section {
+        flex: none;
+        height: 60vh;
+        padding: 10px;
+    }
+
+    .nav-button {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+    }
+
+    .image-container {
+        max-width: calc(100% - 100px);
+    }
+
+    .info-section {
+        flex: none;
+        min-width: auto;
+        border-left: none;
+        border-top: 1px solid #e0e0e0;
+    }
+
+    .info-panel {
+        padding: 15px;
+    }
+
+    .el-dialog {
+        width: 95% !important;
+        max-width: 95% !important;
+    }
+
+    .lock-icon {
+        font-size: 36px;
+    }
+
+    .lock-text {
+        font-size: 12px;
+    }
+
+    .selection-checkbox {
+        width: 20px;
+        height: 20px;
+    }
+
+    .selection-checkbox span {
+        font-size: 14px;
+    }
+
+    .floating-toolbar {
+        bottom: 20px;
+        padding: 10px 16px;
+        gap: 12px;
+    }
+
+    .floating-toolbar .el-button {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+    }
+
+    .floating-toolbar .el-button .el-icon {
+        font-size: 18px;
+    }
+
+    .album-detail-floating-toolbar {
+        bottom: 15px;
+        padding: 6px 10px;
+        max-width: 98%;
+        left: 50%;
+    }
+
+    .album-detail-floating-toolbar .toolbar-content {
+        gap: 4px;
+    }
+
+    .album-detail-floating-toolbar .toolbar-btn {
+        font-size: 11px;
+        padding: 4px 8px !important;
+        height: 28px;
+    }
+}
+
+@media (max-width: 480px) {
+    .album-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .image-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/*overlay*/
+
+/*overlay*/
+
+/* 全屏图片悬浮层样式 */
+.image-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+}
+
+.overlay-mask {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.9);
+    cursor: pointer;
+}
+
+.overlay-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 100%;
+    max-height: 100%;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.overlay-close {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+    font-size: 32px;
+    cursor: pointer;
+    z-index: 10;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.3s;
+    line-height: 1;
+}
+
+.overlay-close:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.overlay-image {
+    width: auto; /* 改为auto */
+    height: auto; /* 改为auto */
+    max-width: 80vw; /* 使用vw单位，几乎占满视口宽度 */
+    max-height: 80vh; /* 使用vh单位，几乎占满视口高度 */
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.nav-btn {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    width: 60px;
+    height: 100px;
+    color: white;
+    font-size: 40px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    z-index: 100;
+    border-radius: 0 8px 8px 0;
+    line-height: 1;
+}
+
+.nav-btn.prev-btn {
+    left: 0;
+    border-radius: 0 8px 8px 0;
+}
+
+.nav-btn.next-btn {
+    right: 0;
+    border-radius: 8px 0 0 8px;
+}
+
+.nav-btn:hover:not(.disabled) {
+    background: rgba(255, 255, 255, 0.3);
+    width: 70px;
+}
+
+.nav-btn.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .overlay-content {
+        max-width: 100%; /* 移动端可以占满宽度 */
+        max-height: 100%; /* 移动端可以占满高度 */
+    }
+
+    .overlay-image {
+        /*max-width: 100%;*/
+        /*max-height: 96vh;*/
+    }
+
+    .nav-btn {
+        width: 40px;
+        height: 80px;
+        font-size: 30px;
+    }
+
+    .nav-btn:hover:not(.disabled) {
+        width: 50px;
+    }
+
+    .overlay-close {
+        top: 10px;
+        right: 10px;
+        width: 40px;
+        height: 40px;
+        font-size: 28px;
+    }
+}
+
+/* 瀑布流样式 */
+.pl-waterfall {
+    column-count: 3;
+    column-gap: 0.75rem;
+    margin-top: 20px;
+    /* 防止容器高度跳动 */
+    opacity: 0;
+    animation: containerFadeIn 0.8s ease forwards;
+    animation-delay: 0.1s;
+
+}
+
+@keyframes containerFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.pl-item {
+    width: 100%;
+    break-inside: avoid;
+    margin-bottom: 0.75rem;
+    position: relative;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    /* 移除初始transform，防止抽搐 */
+    opacity: 0;
+    /* 使用更平滑的入场动画 */
+    animation: itemFadeIn 0.6s ease forwards;
+}
+
+@keyframes itemFadeIn {
+    0% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 悬停效果 - 只在入场动画完成后才生效 */
+.pl-item:hover {
+    transform: translateY(-4px) scale(1.01);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    transition: all 0.3s ease;
+}
+
+/* 默认状态下的平滑过渡 */
+.pl-item {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.pl-item.selected {
+    border: 3px solid #409eff;
+    transform: scale(0.98);
+    transition: all 0.3s ease;
+}
+
+.pl-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 8px;
+    /* 图片加载效果 */
+    opacity: 0;
+    animation: imageFadeIn 0.8s ease forwards;
+    animation-delay: 0.2s;
+}
+
+@keyframes imageFadeIn {
+    0% {
+        opacity: 0;
+        filter: blur(5px);
+    }
+    100% {
+        opacity: 1;
+        filter: blur(0);
+    }
+}
+
+.overlay {
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: rgba(0, 0, 0, 0.5); /* 改回纯色背景 */
+    transition: all 0.4s ease-in-out;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center; /* 改回居中 */
+    padding: 15px;
+    box-sizing: border-box;
+}
+
+.pl-item:hover .overlay {
+    opacity: 1;
+}
+
+.caption {
+    width: 100%;
+    color: white;
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-all;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.4s ease 0.1s; /* 延迟出现 */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pl-item:hover .caption {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+
+/* 瀑布流中的选择复选框 */
+.pl-item .selection-checkbox {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    width: 24px;
+    height: 24px;
+    background: #409eff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    z-index: 5;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.3s ease;
+}
+
+.pl-item:hover .selection-checkbox {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.pl-item.selected .selection-checkbox {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* 响应式设计 */
+@media screen and (max-width: 1200px) {
+    .pl-waterfall {
+        column-count: 3;
+    }
+}
+
+@media screen and (max-width: 768px) {
+    .pl-waterfall {
+        column-count: 2;
+        column-gap: 0.5rem;
+    }
+
+    .pl-item {
+        margin-bottom: 0.5rem;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .pl-waterfall {
+        column-count: 1;
+    }
+}
+
+
+/**exif**/
+/* EXIF信息样式（无黑框） */
+.exif-content {
+    width: 100%;
+    color: white;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* 曝光三要素行 */
+.exposure-line {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.exposure-item {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+
+}
+
+.exposure-value {
+    color: white;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+}
+
+.exposure-sep {
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0 2px;
+}
+
+/* 相机信息行 */
+.camera-line {
+    text-align: center;
+    margin-bottom: 5px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.9);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+
+
+/* 文件名（无EXIF时显示） */
+.file-info {
+    width: 100%;
+    text-align: center;
+    color: white;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/*!* 加载状态 *!*/
+/*.exif-loading {*/
+/*    width: 100%;*/
+/*    text-align: center;*/
+/*    color: rgba(255, 255, 255, 0.6);*/
+/*    font-size: 12px;*/
+/*}*/
+
+/*.loading-dots {*/
+/*    animation: loadingPulse 1.5s infinite;*/
+/*}*/
+
+/*@keyframes loadingPulse {*/
+/*    0%, 100% { opacity: 0.3; }*/
+/*    50% { opacity: 1; }*/
+/*}*/
+
+
+/* 加载状态 - 转圈圈 */
+.exif-loading {
+    width: 100%;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 删除原来的loading-dots相关样式 */
+.loading-dots {
+    /* 删除这行 */
+}
+
+@keyframes loadingPulse {
+    /* 删除这个keyframes */
+}
+
+/* 保持原来的覆盖层样式 */
+.overlay {
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    transition: all 0.4s ease-in-out;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 15px;
+    box-sizing: border-box;
+}
+
+.pl-item:hover .overlay {
+    opacity: 1;
+}
+
+.caption {
+    width: 100%;
+    color: white;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-all;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.5s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.pl-item:hover .caption {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 收藏按钮 */
+.favorite-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.3s;
+    z-index: 5;
+}
+
+.favorite-button:hover {
+    opacity: 1;
+}
+
+
+
+/*name first*/
+/* 加载状态覆盖层（在文件名上层显示） */
+.exif-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 8px;
+}
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 确保文件名容器有相对定位 */
+.file-info {
+    position: relative;
+    /* 其他样式保持不变 */
+}
+
+/* 配置对话框EXIF选项样式 */
+.el-form-item .el-radio-group {
+    display: flex;
+    gap: 20px;
+}
+
+.el-form-item .el-radio {
+    margin-right: 0;
+}
+
+/*name first end*/
+
+/*collapse*/
+/* 分组折叠相关样式 */
+.group-header {
+    /*display: flex;*/
+    /*justify-content: space-between;*/
+    /*align-items: center;*/
+    /*margin-bottom: 15px;*/
+    /*padding-bottom: 10px;*/
+    /*border-bottom: 2px solid #409eff;*/
+    cursor: pointer;
+}
+
+.group-title {
+    /*display: flex;*/
+    /*align-items: center;*/
+    /*gap: 8px;*/
+    /*flex: 1;*/
+        min-width: 0; /* 防止标题过长时挤压按钮 */
+
+}
+
+.collapse-icon {
+    font-size: 14px;
+    color: #909399;
+    transition: transform 0.3s ease;
+    margin-right: 4px;
+}
+
+.collapse-icon.collapsed {
+    transform: rotate(0deg);
+}
+
+.collapse-icon:not(.collapsed) {
+    transform: rotate(90deg);
+}
+
+.group-content {
+    transition: all 0.3s ease;
+    /*overflow: hidden;*/
+}
+
+.group-content.collapsed {
+    max-height: 0;
+    margin-bottom: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* 确保分组之间有合适的间距 */
+.album-group {
+    margin-bottom: 30px;
+    transition: margin-bottom 0.3s ease;
+}
+
+.album-group:has(.group-content.collapsed) {
+    margin-bottom: 15px;
+}
+
+/* 分组标题悬停效果 */
+.group-title:hover .collapse-icon {
+    color: #409eff;
+}
+
+.group-title:hover h2 {
+    color: #409eff;
+}
+
+
+/*groud addalbum*/
+
+.group-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0; /* 防止按钮被挤压 */
+}
+
+
+.el-dropdown-link:hover {
+    background: #ecf5ff;
+}
+
+
+
+/* Home admin status */
+.admin-status-dropdown {
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.admin-status-trigger {
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 8px;
+    border-radius: 6px;
+    color: #606266;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.admin-status-trigger:hover {
+    background: #f5f7fa;
+    color: #303133;
+}
+
+.admin-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #c0c4cc;
+    flex: 0 0 auto;
+}
+
+.admin-status-dot.is-authenticated {
+    background: #67c23a;
+}
+
+.admin-status-chevron {
+    font-size: 12px;
+    color: #909399;
+}
+
+.smart-index-summary {
+    margin: -2px 0 10px;
+    color: #606266;
+    font-size: 12px;
+}
+
+@media (max-width: 768px) {
+    .admin-status-dropdown {
+        justify-self: end;
+    }
+}
