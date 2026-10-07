@@ -25,7 +25,7 @@ from features.smart.index import (
 from features.smart.sets import SMART_SET_CONTRACT_GROUPS
 
 
-_MISSING_LABEL = '未记录'
+_MISSING_LABEL = 'Not Set'
 _SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
 _EXPLORE_BLOCK_DISPLAY_MODES = {'sets', 'photos', 'both', 'sets_count_only'}
 DEFAULT_EXPLORE_BLOCK_CODE = '''selected = helpers.preferred_versions(photos)
@@ -37,99 +37,6 @@ result = group_sets(
     photo_scope=selected,
 )
 '''
-
-
-_DEFAULT_EXPLORE_PRESET_KEY = 'default_explore_presets_seeded'
-_DEFAULT_EXPLORE_PRESETS = (
-    {
-        'name': 'Cosplay Variant',
-        'description': '只统计 Cosplay Set，并按 theme.variant 分组。',
-        'display_mode': 'both',
-        'python_code': '''selected = helpers.preferred_versions(photos)
-
-cosplay_sets = [
-    item
-    for item in sets
-    if (item.manifest.theme.genre or "").casefold() == "cosplay"
-]
-
-result = group_sets(
-    cosplay_sets,
-    key=lambda item: item.manifest.theme.variant,
-    include_missing=True,
-    photo_scope=selected,
-)
-''',
-    },
-    {
-        'name': '拍摄星期',
-        'description': '按 Set 拍摄日期的星期分组。',
-        'display_mode': 'both',
-        'python_code': '''selected = helpers.preferred_versions(photos)
-weekdays = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-
-result = group_sets(
-    sets,
-    key=lambda item: weekdays[item.shoot_date.weekday()] if item.shoot_date is not None else None,
-    include_missing=True,
-    photo_scope=selected,
-)
-''',
-    },
-    {
-        'name': '总拍摄时长',
-        'description': '主 Session + additional_sessions，总时长支持跨午夜。',
-        'display_mode': 'both',
-        'python_code': '''selected = helpers.preferred_versions(photos)
-
-def session_minutes(start_time, end_time):
-    start_text = str(start_time or "").strip()
-    end_text = str(end_time or "").strip()
-    if not start_text or not end_text:
-        return 0
-    try:
-        start_hour, start_minute = [int(value) for value in start_text.split(":", 1)]
-        end_hour, end_minute = [int(value) for value in end_text.split(":", 1)]
-    except (TypeError, ValueError):
-        return 0
-    if not (0 <= start_hour <= 23 and 0 <= end_hour <= 23 and 0 <= start_minute <= 59 and 0 <= end_minute <= 59):
-        return 0
-    start = start_hour * 60 + start_minute
-    end = end_hour * 60 + end_minute
-    minutes = end - start
-    if minutes < 0:
-        minutes += 24 * 60
-    return minutes
-
-def total_minutes(item):
-    shoot = item.manifest.shoot
-    if shoot is None:
-        return 0
-    total = session_minutes(shoot.start_time, shoot.end_time)
-    for session in (shoot.additional_sessions or []):
-        total += session_minutes(session.start_time, session.end_time)
-    return total
-
-def duration_label(item):
-    minutes = total_minutes(item)
-    if minutes <= 0:
-        return None
-    hours, remainder = divmod(minutes, 60)
-    if remainder == 0:
-        return f"{hours}小时"
-    if hours == 0:
-        return f"{remainder}分钟"
-    return f"{hours}小时{remainder}分钟"
-
-result = group_sets(
-    sets,
-    key=duration_label,
-    include_missing=True,
-    photo_scope=selected,
-)
-''',
-    },
-)
 
 
 def _create_explore_blocks_table(conn):
@@ -153,42 +60,6 @@ def _init_explore_db(db_path):
     conn = _connect(db_path)
     try:
         _create_explore_blocks_table(conn)
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS explore_meta (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-        ''')
-        marker = conn.execute(
-            'SELECT value FROM explore_meta WHERE key=?',
-            (_DEFAULT_EXPLORE_PRESET_KEY,),
-        ).fetchone()
-        if not marker:
-            now = _now_iso()
-            existing_names = {
-                str(row['name'])
-                for row in conn.execute('SELECT name FROM explore_blocks').fetchall()
-            }
-            next_order = _next_block_order(conn)
-            for preset in _DEFAULT_EXPLORE_PRESETS:
-                if preset['name'] in existing_names:
-                    continue
-                _validate_script(preset['python_code'])
-                conn.execute(
-                    '''INSERT INTO explore_blocks
-                       (name, description, python_code, display_mode, presentation,
-                        display_order, enabled, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, 'list', ?, 1, ?, ?)''',
-                    (preset['name'], preset['description'], preset['python_code'],
-                     preset['display_mode'], next_order, now, now),
-                )
-                existing_names.add(preset['name'])
-                next_order += 10
-            conn.execute(
-                '''INSERT INTO explore_meta (key, value) VALUES (?, '1')
-                   ON CONFLICT(key) DO UPDATE SET value='1' ''',
-                (_DEFAULT_EXPLORE_PRESET_KEY,),
-            )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -230,7 +101,7 @@ def _next_block_order(conn):
 def _normalize_block_display_mode(value):
     mode = str(value or 'both').strip().lower()
     if mode not in _EXPLORE_BLOCK_DISPLAY_MODES:
-        raise ValueError('显示模式只能是 sets、photos、both 或 sets_count_only。')
+        raise ValueError('Invalid display mode.')
     return mode
 
 
@@ -318,7 +189,7 @@ def _block_error_payload(row, exc):
         'presentation': block['presentation'],
         'source_kind': None,
         'rows': [],
-        'error': str(exc) or 'Explore Block 执行失败',
+        'error': str(exc) or 'Statistic failed.',
     }
 
 
@@ -454,7 +325,7 @@ def _set_value(payload, dimension):
         return _clean_text(theme.get('source_title'))
     if dimension == 'location':
         return _clean_text(location.get('name'))
-    raise ValueError('不支持的 Set 统计维度。')
+    raise ValueError('Unsupported Set dimension.')
 
 
 def _is_cosplay_set(payload):
@@ -521,7 +392,7 @@ def _year_rows(set_payloads, total_sets, total_images):
             image_count = counts['image_count']
             months.append({
                 'value': {'year': year, 'month': month},
-                'label': f'{month}月',
+                'label': ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')[month - 1],
                 'set_count': set_count,
                 'image_count': image_count,
                 # Month percentages describe the selected year, so the visible months
@@ -653,11 +524,11 @@ def _set_query_code(dimension, value):
 
     if dimension == 'year_month':
         if not isinstance(value, dict):
-            raise ValueError('月份筛选参数无效。')
+            raise ValueError('Invalid month filter.')
         year = int(value.get('year'))
         month = int(value.get('month'))
         if month < 1 or month > 12:
-            raise ValueError('月份筛选参数无效。')
+            raise ValueError('Invalid month filter.')
         return (
             'result = [\n'
             '    set\n'
@@ -709,7 +580,7 @@ def _set_query_code(dimension, value):
             ']\n'
         )
 
-    raise ValueError('不支持的 Explore 统计维度。')
+    raise ValueError('Unsupported Explore dimension.')
 
 
 def _photo_query_code(dimension, value, matching_set_rows=None):
@@ -744,18 +615,18 @@ def _photo_query_code(dimension, value, matching_set_rows=None):
             ']\n'
         )
 
-    raise ValueError('不支持的 Explore 统计维度。')
+    raise ValueError('Unsupported Explore dimension.')
 
 
 def _query_title(dimension, label):
     section_names = {
-        'year': '年度',
-        'year_month': '月份',
-        'model': '模特',
-        'environment': '环境',
-        'theme': '题材',
-        'location': '地点',
-        'focal_length': '焦段',
+        'year': 'Year',
+        'year_month': 'Month',
+        'model': 'Model',
+        'environment': 'Environment',
+        'theme': 'Theme',
+        'location': 'Location',
+        'focal_length': 'Focal Length',
     }
     section = section_names.get(dimension, 'Explore')
     display = str(label or _MISSING_LABEL)
@@ -793,20 +664,20 @@ def create_explore_blueprint(admin_guard, main_db_path):
         data = request.get_json(silent=True) or {}
         raw_ids = data.get('block_ids')
         if not isinstance(raw_ids, list):
-            return jsonify({'error': 'block_ids 必须是完整的统计 ID 列表。'}), 400
+            return jsonify({'error': 'Full statistic ID list required.'}), 400
         try:
             block_ids = [int(value) for value in raw_ids]
         except (TypeError, ValueError):
-            return jsonify({'error': 'block_ids 只能包含统计 ID。'}), 400
+            return jsonify({'error': 'Invalid statistic IDs.'}), 400
         if any(block_id <= 0 for block_id in block_ids) or len(set(block_ids)) != len(block_ids):
-            return jsonify({'error': 'block_ids 包含无效或重复的统计 ID。'}), 400
+            return jsonify({'error': 'Invalid or duplicate statistic IDs.'}), 400
 
         conn = _connect(smart_db_path)
         rows = conn.execute('SELECT id FROM explore_blocks').fetchall()
         current_ids = {int(row['id']) for row in rows}
         if set(block_ids) != current_ids or len(block_ids) != len(current_ids):
             conn.close()
-            return jsonify({'error': '统计列表已变化，请刷新 Explore 后再排序。'}), 409
+            return jsonify({'error': 'Statistics changed. Refresh Explore.'}), 409
 
         try:
             for index, block_id in enumerate(block_ids, start=1):
@@ -837,7 +708,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         python_code = str(data.get('python_code') or DEFAULT_EXPLORE_BLOCK_CODE)
         enabled = 1 if data.get('enabled', True) else 0
         if not name:
-            return jsonify({'error': '统计名称不能为空。'}), 400
+            return jsonify({'error': 'Name required.'}), 400
         try:
             display_mode = _normalize_block_display_mode(data.get('display_mode'))
             _validate_script(python_code)
@@ -869,7 +740,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         existing = _block_row(conn, block_id)
         if not existing:
             conn.close()
-            return jsonify({'error': 'Explore Block 不存在。'}), 404
+            return jsonify({'error': 'Statistic not found.'}), 404
         name = str(data.get('name', existing['name']) or '').strip()
         description = str(data.get('description', existing['description']) or '')
         python_code = str(data.get('python_code', existing['python_code']) or '')
@@ -877,7 +748,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         try:
             display_mode = _normalize_block_display_mode(data.get('display_mode', existing['display_mode']))
             if not name:
-                raise ValueError('统计名称不能为空。')
+                raise ValueError('Name required.')
             _validate_script(python_code)
         except Exception as exc:
             conn.close()
@@ -902,7 +773,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         row = _block_row(conn, block_id)
         if not row:
             conn.close()
-            return jsonify({'error': 'Explore Block 不存在。'}), 404
+            return jsonify({'error': 'Statistic not found.'}), 404
         conn.execute('DELETE FROM explore_blocks WHERE id=?', (block_id,))
         conn.commit()
         conn.close()
@@ -928,7 +799,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
             )
             fake_row = {
                 'id': 0,
-                'name': str(data.get('name') or '预览').strip() or '预览',
+                'name': str(data.get('name') or 'Preview').strip() or 'Preview',
                 'description': str(data.get('description') or ''),
                 'python_code': python_code,
                 'display_mode': display_mode,
@@ -943,7 +814,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Explore 使用 Smart Album 索引；请先建立索引。',
+                    'error': 'Explore index required.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                 }), 409
@@ -959,7 +830,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         row = _block_row(conn, block_id)
         conn.close()
         if not row:
-            return jsonify({'error': 'Explore Block 不存在。'}), 404
+            return jsonify({'error': 'Statistic not found.'}), 404
         if not bool(row['enabled']):
             return jsonify({'card': _block_disabled_payload(row), 'index': _index_status(smart_db_path)})
 
@@ -976,7 +847,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Explore 使用 Smart Album 索引；请先建立索引。',
+                    'error': 'Explore index required.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                 }), 409
@@ -991,8 +862,8 @@ def create_explore_blueprint(admin_guard, main_db_path):
         return jsonify({
             'default_code': DEFAULT_EXPLORE_BLOCK_CODE,
             'helpers': [
-                'group_sets(items, key, many=False, label=None, missing="未记录", include_missing=True, photo_scope=None)',
-                'group_photos(items, key, many=False, label=None, missing="未记录", include_missing=True)',
+                'group_sets(items, key, many=False, label=None, missing="Not Set", include_missing=True, photo_scope=None)',
+                'group_photos(items, key, many=False, label=None, missing="Not Set", include_missing=True)',
             ],
             'custom_helpers': [f"helpers.{item['signature']}" for item in helper_docs],
             'helper_docs': [
@@ -1013,7 +884,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Explore 使用 Smart Album 索引；请先建立索引。',
+                    'error': 'Explore index required.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                 }), 409
@@ -1030,7 +901,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         label = data.get('label')
         target = str(data.get('target') or 'photos').strip().lower()
         if target not in {'photos', 'sets'}:
-            return jsonify({'error': 'Explore 查询目标无效。'}), 400
+            return jsonify({'error': 'Invalid Explore target.'}), 400
 
         try:
             status = _index_status(smart_db_path)
@@ -1086,7 +957,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Explore 使用 Smart Album 索引；请先建立索引。',
+                    'error': 'Explore index required.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                     'traceback': '',
@@ -1105,22 +976,22 @@ def create_explore_blueprint(admin_guard, main_db_path):
         bucket_id = str(data.get('bucket_id') or '')
         target = str(data.get('target') or 'sets').strip().lower()
         if not bucket_id:
-            return jsonify({'error': 'Explore bucket 无效。'}), 400
+            return jsonify({'error': 'Invalid Explore bucket.'}), 400
         if target not in {'sets', 'photos'}:
-            return jsonify({'error': 'Explore 查询目标无效。'}), 400
+            return jsonify({'error': 'Invalid Explore target.'}), 400
 
         conn = _connect(smart_db_path)
         row = _block_row(conn, block_id)
         conn.close()
         if not row:
-            return jsonify({'error': 'Explore Block 不存在。'}), 404
+            return jsonify({'error': 'Statistic not found.'}), 404
         if not bool(row['enabled']):
-            return jsonify({'error': '该统计已停用，请先启用后再查询。'}), 409
+            return jsonify({'error': 'Statistic disabled.'}), 409
         display_mode = _normalize_block_display_mode(row['display_mode'])
         if display_mode == 'photos' and target != 'photos':
-            return jsonify({'error': '该统计仅允许按图片查看。'}), 400
+            return jsonify({'error': 'Photos only.'}), 400
         if display_mode in {'sets', 'sets_count_only'} and target != 'sets':
-            return jsonify({'error': '该统计仅允许按 Set 查看。'}), 400
+            return jsonify({'error': 'Sets only.'}), 400
 
         try:
             photo_payloads, photo_rows, set_payloads, set_rows, status = _block_execution_context(
@@ -1139,7 +1010,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 None,
             )
             if bucket is None:
-                return jsonify({'error': '该统计项已不存在，请刷新 Explore 后重试。'}), 409
+                return jsonify({'error': 'Statistic item changed. Refresh Explore.'}), 409
 
             label = str(bucket.get('label') or _MISSING_LABEL)
             title = f"{row['name']} · {label}"
@@ -1170,7 +1041,7 @@ def create_explore_blueprint(admin_guard, main_db_path):
         except Exception as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Explore 使用 Smart Album 索引；请先建立索引。',
+                    'error': 'Explore index required.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                     'traceback': '',

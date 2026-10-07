@@ -115,13 +115,13 @@ def _normalize_explore_bucket_value(value):
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
-            raise ValueError('Explore bucket key 不能是 NaN 或 Infinity。')
+            raise ValueError('Explore bucket key cannot be NaN or Infinity.')
         return value
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    raise ValueError('Explore bucket key 只支持字符串、数字、布尔值、日期或 None。')
+    raise ValueError('Explore bucket key must be text, number, boolean, date, or None.')
 
 
 def _explore_bucket_token(value):
@@ -140,13 +140,13 @@ def _explore_bucket_token(value):
 
 def _explore_bucket_label(value, label_func, missing_label):
     if value is None:
-        return str(missing_label or '未记录')
+        return str(missing_label or 'Not Set')
     if label_func is None:
         return str(value)
     if not callable(label_func):
-        raise TypeError('label 必须是 callable 或 None。')
+        raise TypeError('label must be callable or None.')
     label = str(label_func(value) or '').strip()
-    return label or str(missing_label or '未记录')
+    return label or str(missing_label or 'Not Set')
 
 
 def _group_explore_records(
@@ -162,21 +162,21 @@ def _group_explore_records(
     kind,
 ):
     if not callable(key):
-        raise TypeError('key 必须是 callable。')
+        raise TypeError('key must be callable.')
     materialized = list(items)
     population_ids = []
     seen_population = set()
     buckets = {}
     bucket_order = []
-    missing_label = str(missing or '未记录').strip() or '未记录'
+    missing_label = str(missing or 'Not Set').strip() or 'Not Set'
 
     for item in materialized:
         if not isinstance(item, record_type):
             expected = 'Set' if record_type is SetRecord else 'Photo'
-            raise TypeError(f'group_{kind}() 的输入只能包含 {expected} 对象。')
+            raise TypeError(f'group_{kind}() accepts {expected} objects only.')
         item_id = item.id
         if item_id not in allowed_ids:
-            raise ValueError(f'group_{kind}() 包含不属于当前候选池的对象。')
+            raise ValueError(f'group_{kind}() contains objects outside the current pool.')
 
         raw_value = key(item)
         if many:
@@ -777,11 +777,11 @@ def _execute_explore_block(code, set_payloads, photo_payloads, helper_source):
     allowed_photo_ids = set(photos_by_id)
 
     def group_sets(
-        items, key, many=False, label=None, missing='未记录', include_missing=True,
+        items, key, many=False, label=None, missing='Not Set', include_missing=True,
         photo_scope=None,
     ):
         if not isinstance(include_missing, bool):
-            raise TypeError('include_missing 必须是 bool。')
+            raise TypeError('include_missing must be bool.')
         grouping = _group_explore_records(
             items, key, many=bool(many), label=label, missing=missing,
             include_missing=include_missing,
@@ -795,13 +795,13 @@ def _execute_explore_block(code, set_payloads, photo_payloads, helper_source):
         try:
             scope_items = list(photo_scope)
         except TypeError as exc:
-            raise TypeError('photo_scope 必须是 Photo iterable 或 None。') from exc
+            raise TypeError('photo_scope must be a Photo iterable or None.') from exc
         for photo in scope_items:
             if not isinstance(photo, PhotoRecord):
-                raise TypeError('photo_scope 只能包含 Photo 对象。')
+                raise TypeError('photo_scope accepts Photo objects only.')
             photo_id = photo.id
             if photo_id not in allowed_photo_ids:
-                raise ValueError('photo_scope 包含不属于当前候选池的 Photo 对象。')
+                raise ValueError('photo_scope contains photos outside the current pool.')
             if photo_id in seen_scope_ids:
                 continue
             seen_scope_ids.add(photo_id)
@@ -809,9 +809,9 @@ def _execute_explore_block(code, set_payloads, photo_payloads, helper_source):
         grouping.photo_scope_ids = scope_ids
         return grouping
 
-    def group_photos(items, key, many=False, label=None, missing='未记录', include_missing=True):
+    def group_photos(items, key, many=False, label=None, missing='Not Set', include_missing=True):
         if not isinstance(include_missing, bool):
-            raise TypeError('include_missing 必须是 bool。')
+            raise TypeError('include_missing must be bool.')
         return _group_explore_records(
             items, key, many=bool(many), label=label, missing=missing,
             include_missing=include_missing,
@@ -831,7 +831,7 @@ def _execute_explore_block(code, set_payloads, photo_payloads, helper_source):
         raise ValueError('Assign the query output to result.')
     grouping = namespace.get('result')
     if not isinstance(grouping, _ExploreGrouping):
-        raise ValueError('Explore Block 的 result 必须是 group_sets() 或 group_photos() 的返回值。')
+        raise ValueError('Explore result must come from group_sets() or group_photos().')
 
     if grouping.kind == 'sets':
         population_set_ids = list(grouping.population_ids)
@@ -935,7 +935,7 @@ def run_explore_block(code, set_payloads, photo_payloads, helper_source, timeout
             process.join(2)
             parent_conn.close()
             raise RuntimeError(
-                f'Explore Block Python worker 异常退出 (exit={process.exitcode})。'
+                f'Explore Python worker exited unexpectedly (exit={process.exitcode}).'
             ) from exc
     elif process.sentinel in ready:
         process.join(2)
@@ -944,12 +944,12 @@ def run_explore_block(code, set_payloads, photo_payloads, helper_source, timeout
         else:
             exit_code = process.exitcode
             parent_conn.close()
-            raise RuntimeError(f'Explore Block Python worker 异常退出 (exit={exit_code})。')
+            raise RuntimeError(f'Explore Python worker exited unexpectedly (exit={exit_code}).')
     else:
         process.terminate()
         process.join(2)
         parent_conn.close()
-        raise TimeoutError(f'Explore Block Python 执行超过 {timeout_seconds} 秒，已停止。')
+        raise TimeoutError(f'Explore Python timed out after {timeout_seconds}s.')
 
     process.join(2)
     if process.is_alive():
@@ -957,7 +957,7 @@ def run_explore_block(code, set_payloads, photo_payloads, helper_source, timeout
         process.join(2)
     parent_conn.close()
     if not message.get('ok'):
-        error = RuntimeError(message.get('error') or 'Explore Block Python 执行失败')
+        error = RuntimeError(message.get('error') or 'Explore Python failed.')
         error.smart_traceback = message.get('traceback') or ''
         raise error
     return message.get('result') or {'kind': 'sets', 'population_set_ids': [], 'population_photo_ids': [], 'buckets': []}
