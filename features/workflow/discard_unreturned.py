@@ -24,8 +24,8 @@ def _format_duplicate_stem_error(label: str, duplicates):
         examples.append(' / '.join(path.name for path in paths))
     detail = '；'.join(examples)
     if len(duplicates) > 4:
-        detail += f'；另有 {len(duplicates) - 4} 组'
-    return f'{label} 中存在重复 stem，无法安全判断一一对应关系：{detail}'
+        detail += f'; plus {len(duplicates) - 4} groups'
+    return f'{label} has duplicate stems; one-to-one matching is ambiguous: {detail}'
 
 
 def _build_discard_unreturned_base_plan(source_id, set_dir: Path, set_rel: str):
@@ -43,23 +43,23 @@ def _build_discard_unreturned_base_plan(source_id, set_dir: Path, set_rel: str):
     model_dir = set_dir / '03_Model_Edit'
     discards_dir = base_dir / 'discards'
     if not base_dir.is_dir():
-        raise ValueError('02_Base_Edit 不存在')
+        raise ValueError('Base Edit missing')
     if not model_dir.is_dir():
-        raise ValueError('03_Model_Edit 不存在')
+        raise ValueError('Model Edit missing')
 
     base_files = list_top_level_images(base_dir)
     model_files = list_top_level_images(model_dir)
     if not base_files:
-        raise ValueError('02_Base_Edit 顶层没有 JPG/JPEG/PNG')
+        raise ValueError('No images in Base Edit')
     if not model_files:
-        raise ValueError('03_Model_Edit 顶层没有 JPG/JPEG/PNG；为避免把整组 Base_Edit 误判成未返图，不执行')
+        raise ValueError('No images in Model Edit')
 
     base_duplicates = _duplicate_stems(base_files)
     if base_duplicates:
-        raise ValueError(_format_duplicate_stem_error('02_Base_Edit', base_duplicates))
+        raise ValueError(_format_duplicate_stem_error('Base Edit', base_duplicates))
     model_duplicates = _duplicate_stems(model_files)
     if model_duplicates:
-        raise ValueError(_format_duplicate_stem_error('03_Model_Edit', model_duplicates))
+        raise ValueError(_format_duplicate_stem_error('Model Edit', model_duplicates))
 
     model_stems = {path.stem.casefold() for path in model_files}
     files_to_move = [path for path in base_files if path.stem.casefold() not in model_stems]
@@ -119,10 +119,10 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -162,9 +162,9 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
             current_base_names = [path.name for path in list_top_level_images(base_dir)]
             current_model_names = [path.name for path in list_top_level_images(model_dir)]
             if current_base_names != plan['base_names_snapshot'] or current_model_names != plan['model_names_snapshot']:
-                raise RuntimeError('Base_Edit 或 Model_Edit 在预览后发生变化，请重新预览')
+                raise RuntimeError('Preview is stale. Run Preview again.')
             if plan['summary'].get('conflict_count', 0):
-                raise RuntimeError('discards 中存在同名文件冲突，请先处理冲突后重新预览')
+                raise RuntimeError('Name conflicts in discards. Resolve them and preview again.')
 
             operations = list(plan['operations'])
             task_id = new_task('discard_unreturned_base', len(operations))
@@ -172,15 +172,15 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
             def worker():
                 moved = 0
                 try:
-                    update_task(task_id, status='running', message='开始移动未返图 Base…')
+                    update_task(task_id, status='running', message='Moving unmatched Base files…')
                     discards_dir = Path(plan['discards_dir'])
                     for item in operations:
                         src = Path(item['src'])
                         dst = Path(item['dst'])
                         if not src.exists():
-                            raise FileNotFoundError(f'Base 文件不存在: {src.name}')
+                            raise FileNotFoundError(f'Base file not found: {src.name}')
                         if dst.exists():
-                            raise FileExistsError(f'discards 中已存在同名文件: {dst.name}')
+                            raise FileExistsError(f'File already exists in discards: {dst.name}')
                     if operations:
                         discards_dir.mkdir(parents=True, exist_ok=True)
 
@@ -207,17 +207,17 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
                             conn.close()
 
                         moved += 1
-                        message = f'{src.name} → 02_Base_Edit/discards/'
+                        message = f'{src.name} → discards'
                         update_task(task_id, completed=index, current=index, message=message, log=message)
 
                     update_task(
                         task_id,
                         status='done',
-                        message=f'完成：移动 {moved} 个 Base 文件到 discards',
+                        message=f'Moved {moved} Base files to discards',
                         result={'moved_count': moved, 'destination': '02_Base_Edit/discards'},
                     )
                 except Exception as exc:
-                    update_task(task_id, status='error', message='移动未返图 Base 失败', error=str(exc), log=f'ERROR: {exc}')
+                    update_task(task_id, status='error', message='Move failed', error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})

@@ -2391,24 +2391,23 @@
                    :close-on-click-modal="!workflowPreviewLoading">
             <div v-loading="workflowPreviewLoading" class="workflow-preview-body">
                 <template v-if="workflowPreviewKind === 'visual_rename'">
-                    <div class="workflow-toolbar-row">
-                        <div class="workflow-toolbar-copy">
-                            <strong>02_Base_Edit → 03_Model_Edit</strong>
-                            <span>按图像相似度将 Model Edit 匹配到 Base Edit，并按匹配结果统一文件名</span>
+                    <div class="workflow-intro-box">
+                        <strong>Match Rename</strong>
+                        <span>Match by visual similarity, then rename.</span>
+                    </div>
+                    <div class="workflow-control-row">
+                        <div v-if="workflowPreviewData" class="workflow-summary-strip">
+                            <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
+                            <span>Model <strong>{{ workflowPreviewData.summary.model_count }}</strong></span>
+                            <span>Rename <strong>{{ workflowPreviewData.summary.rename_count }}</strong></span>
+                            <span>Already named <strong>{{ workflowPreviewData.summary.already_named_count }}</strong></span>
+                            <span>Below threshold <strong>{{ workflowPreviewData.summary.skipped_count }}</strong></span>
                         </div>
                         <div class="workflow-threshold-control">
                             <span>Threshold</span>
                             <el-input-number v-model="workflowThreshold" :min="0" :max="1" :step="0.01" :precision="2" size="small"></el-input-number>
-                            <el-button size="small" @click="rerunVisualRenamePreview" :loading="workflowPreviewLoading">重新分析</el-button>
+                            <el-button size="small" @click="rerunVisualRenamePreview" :loading="workflowPreviewLoading">Reanalyze</el-button>
                         </div>
-                    </div>
-
-                    <div v-if="workflowPreviewData" class="workflow-summary-strip">
-                        <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
-                        <span>Model <strong>{{ workflowPreviewData.summary.model_count }}</strong></span>
-                        <span>Rename <strong>{{ workflowPreviewData.summary.rename_count }}</strong></span>
-                        <span>Already named <strong>{{ workflowPreviewData.summary.already_named_count }}</strong></span>
-                        <span>Below threshold <strong>{{ workflowPreviewData.summary.skipped_count }}</strong></span>
                     </div>
 
                     <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
@@ -2433,9 +2432,9 @@
                 </template>
 
                 <template v-else-if="workflowPreviewKind === 'discard_unreturned_base'">
-                    <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
-                        <strong>02_Base_Edit → 02_Base_Edit/discards</strong>
-                        <span>按文件 stem 对照 Model Edit，未返图的 Base Edit 顶层图片会移入 discards。需要先完成 Match Rename。</span>
+                    <div class="workflow-intro-box">
+                        <strong>Discard Unreturned</strong>
+                        <span>Move unmatched Base Edit files to discards.</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Base <strong>{{ workflowPreviewData.summary.base_count }}</strong></span>
@@ -2445,14 +2444,14 @@
                         <span v-if="workflowPreviewData.summary.conflict_count" class="is-danger">Conflict <strong>{{ workflowPreviewData.summary.conflict_count }}</strong></span>
                     </div>
                     <div v-if="workflowPreviewData && workflowPreviewData.summary.conflict_count" class="workflow-inline-warnings">
-                        discards 中存在同名目标文件。为避免自动改名或覆盖，当前预览禁止执行；请先手动处理冲突后重新预览。
+                        Destination conflicts found in discards. Resolve them, then preview again.
                     </div>
                     <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
                         <el-table-column label="Base file" min-width="260">
                             <template #default="scope"><code>{{ scope.row.name }}</code></template>
                         </el-table-column>
                         <el-table-column label="→ Destination" min-width="360">
-                            <template #default="scope"><code>{{ scope.row.destination }}</code></template>
+                            <template #default="scope"><code>Discards / {{ scope.row.name }}</code></template>
                         </el-table-column>
                         <el-table-column label="Status" width="135">
                             <template #default="scope">
@@ -2463,13 +2462,13 @@
                             <template #default="scope">{{ workflowFormatSize(scope.row.size) }}</template>
                         </el-table-column>
                     </el-table>
-                    <div v-if="workflowPreviewData && workflowPreviewData.summary.move_count === 0 && workflowPreviewData.summary.conflict_count === 0" class="workflow-empty-result">所有 Base Edit 顶层图片都能在 Model Edit 找到同 stem，无需处理。</div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.move_count === 0 && workflowPreviewData.summary.conflict_count === 0" class="workflow-empty-result">No unmatched Base Edit files.</div>
                 </template>
 
                 <template v-else-if="workflowPreviewKind === 'sync_originals'">
-                    <div v-if="workflowPreviewData" class="workflow-warning-box">
-                        <strong>{{ workflowPreviewData.direction === 'raw_by_jpg' ? 'Delete Extra RAW' : 'Delete Extra JPG' }}</strong>
-                        <span>{{ workflowPreviewData.direction === 'raw_by_jpg' ? '以 JPG 为基准，找出没有对应 Original stem 的多余 RAW。' : '以 RAW 为基准，找出没有对应 Original stem 的多余 JPG。' }}匹配忽略大小写，JPG 末尾 <code>-dpp</code> 按原 stem 处理。执行时先移入 <code>Deleted</code>，再将 <code>Deleted</code> 移入系统回收站，不永久删除。</span>
+                    <div class="workflow-intro-box is-warning">
+                        <strong>{{ workflowPreviewTitle }}</strong>
+                        <span>{{ workflowPreviewTitle === 'Delete Extra RAW' ? 'Find RAW files without a matching JPG stem.' : 'Find JPG files without a matching RAW stem.' }}</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Target <strong>{{ workflowPreviewData.summary.target_count }}</strong></span>
@@ -2494,13 +2493,13 @@
                             <template #default="scope">{{ workflowFormatSize(scope.row.size) }}</template>
                         </el-table-column>
                     </el-table>
-                    <div v-if="workflowPreviewData && workflowPreviewData.summary.trash_count === 0" class="workflow-empty-result">两边文件名已经对应，无需处理。</div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.trash_count === 0" class="workflow-empty-result">No unmatched files.</div>
                 </template>
 
                 <template v-else-if="workflowPreviewKind === 'protect_originals'">
-                    <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
-                        <strong>01_Original JPG + RAW</strong>
-                        <span>只保护 Base Edit 或 Model Edit 中存在同 stem 的 Original 文件。执行会设置 macOS <code>uchg</code>（user immutable），不会修改图片字节、EXIF/XMP 或文件名。Finder 仍可在明确的 Locked 警告后手动覆盖；本功能用于防误删。</span>
+                    <div class="workflow-intro-box">
+                        <strong>Protect Originals</strong>
+                        <span>Protect matching JPG/RAW with macOS <code>uchg</code>.</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
                         <span>Original <strong>{{ workflowPreviewData.summary.candidate_count }}</strong></span>
@@ -2512,7 +2511,7 @@
                     </div>
                     <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
                         <el-table-column label="Original file" min-width="360">
-                            <template #default="scope"><code>{{ scope.row.relative_path }}</code></template>
+                            <template #default="scope"><code>{{ scope.row.name }}</code></template>
                         </el-table-column>
                         <el-table-column label="Matched" width="150">
                             <template #default="scope">{{ scope.row.matched_stages.join(' / ') }}</template>
@@ -2526,31 +2525,31 @@
                             <template #default="scope">{{ workflowFormatSize(scope.row.size) }}</template>
                         </el-table-column>
                     </el-table>
-                    <div v-if="workflowPreviewData && workflowPreviewData.summary.all_protected" class="workflow-empty-result">已设置保护。仍可再次执行，系统会按当前文件重新确认并设置保护。</div>
-                    <div v-else-if="workflowPreviewData && workflowPreviewData.summary.candidate_count === 0" class="workflow-empty-result">Base Edit / Model Edit 中没有可对应到 Original JPG/RAW 的同 stem 文件。</div>
-                    <div v-if="workflowPreviewData && workflowPreviewData.summary.protected_original_count" class="workflow-empty-result">“全部取消保护”会解除当前 Set 的 01_Original/JPG 和 01_Original/RAW 中全部 {{ workflowPreviewData.summary.protected_original_count }} 个 <code>uchg</code>，包括当前不再与 Base/Model 同 stem 的旧保护文件。</div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.all_protected" class="workflow-empty-result">All matching Originals are protected.</div>
+                    <div v-else-if="workflowPreviewData && workflowPreviewData.summary.candidate_count === 0" class="workflow-empty-result">No matching Original files.</div>
+                    <div v-if="workflowPreviewData && workflowPreviewData.summary.protected_original_count" class="workflow-empty-result">Unprotect All removes <code>uchg</code> from all {{ workflowPreviewData.summary.protected_original_count }} protected Original files in this Set.</div>
                 </template>
 
                 <template v-else-if="workflowPreviewKind === 'select_raw'">
-                    <div v-if="workflowPreviewData" class="workflow-warning-box neutral">
-                        <strong>Destination: {{ workflowPreviewData.destination }}</strong>
-                        <span>只读取当前 Set 下已收藏的 JPG/JPEG；按逻辑文件 ID 查找 01_Original/RAW 中对应 CR3，并复制一份。不会移动或修改原 RAW。</span>
+                    <div class="workflow-intro-box">
+                        <strong>Pick RAW</strong>
+                        <span>Copy RAW files matching favorited JPGs.</span>
                     </div>
                     <div v-if="workflowPreviewData" class="workflow-summary-strip">
-                        <span>Favorite JPG <strong>{{ workflowPreviewData.summary.favorite_jpg_count }}</strong></span>
+                        <span>Favorites <strong>{{ workflowPreviewData.summary.favorite_jpg_count }}</strong></span>
                         <span>Copy <strong>{{ workflowPreviewData.summary.copy_count }}</strong></span>
                         <span>Exists <strong>{{ workflowPreviewData.summary.already_exists_count }}</strong></span>
                         <span>Missing <strong>{{ workflowPreviewData.summary.missing_count }}</strong></span>
                         <span>Ambiguous <strong>{{ workflowPreviewData.summary.ambiguous_count }}</strong></span>
                     </div>
                     <div v-if="workflowPreviewData && workflowPreviewData.summary.ignored_non_jpg_count" class="workflow-inline-warnings">
-                        另有 {{ workflowPreviewData.summary.ignored_non_jpg_count }} 个收藏项不是 JPG/JPEG，按本功能定义忽略。
+                        {{ workflowPreviewData.summary.ignored_non_jpg_count }} non-JPG favorites ignored.
                     </div>
                     <el-table v-if="workflowPreviewData" :data="workflowPreviewData.items" class="workflow-preview-table" stripe>
                         <el-table-column label="ID" width="130">
                             <template #default="scope"><code>{{ scope.row.logical_id }}</code></template>
                         </el-table-column>
-                        <el-table-column label="Favorite JPG" min-width="260">
+                        <el-table-column label="JPG" min-width="260">
                             <template #default="scope">{{ scope.row.favorite_files.join(' · ') }}</template>
                         </el-table-column>
                         <el-table-column label="RAW" min-width="210">
@@ -2565,13 +2564,13 @@
                 </template>
             </div>
             <template #footer>
-                <el-button @click="workflowPreviewVisible = false" :disabled="workflowPreviewLoading">取消</el-button>
+                <el-button @click="workflowPreviewVisible = false" :disabled="workflowPreviewLoading">Cancel</el-button>
                 <el-button v-if="workflowPreviewKind === 'protect_originals'"
                            type="danger"
                            plain
                            @click="startWorkflowOperation('unprotect')"
-                           :disabled="workflowPreviewLoading || !workflowPreviewData || !workflowPreviewData.summary.protected_original_count">全部取消保护</el-button>
-                <el-button type="primary" @click="startWorkflowOperation()" :disabled="!workflowCanExecute || workflowPreviewLoading">{{ workflowPreviewKind === 'protect_originals' ? '设置保护' : '执行预览结果' }}</el-button>
+                           :disabled="workflowPreviewLoading || !workflowPreviewData || !workflowPreviewData.summary.protected_original_count">Unprotect All</el-button>
+                <el-button type="primary" @click="startWorkflowOperation()" :disabled="!workflowCanExecute || workflowPreviewLoading">{{ workflowPreviewKind === 'protect_originals' ? 'Protect' : 'Execute' }}</el-button>
             </template>
         </el-dialog>
 
@@ -2583,7 +2582,7 @@
             <template #header>
                 <div class="validation-dialog-title">
                     <span>Image Inspection</span>
-                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看 Image Inspection 规则" @click="imageInspectionRulesVisible = true">?</el-button>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="Image Inspection rules" @click="imageInspectionRulesVisible = true">?</el-button>
                 </div>
             </template>
             <div v-loading="imageInspectionLoading" class="image-inspection-body">
@@ -2627,7 +2626,7 @@
                                                                circle
                                                                size="small"
                                                                class="image-inspection-metadata-menu"
-                                                               title="全部元数据"
+                                                               title="All Metadata"
                                                                @click.stop="openInspectionMetadata(scope.row[stage.key])">⋯</el-button>
                                                 </div>
                                                 <template v-if="scope.row[stage.key]">
@@ -2901,54 +2900,54 @@
                         </el-table-column>
                     </el-table>
 
-                    <div v-if="imageInspectionData.summary.file_count === 0" class="workflow-empty-result">Base Edit / Model Edit / Revision / Final 中没有找到 JPG/JPEG/PNG。</div>
+                    <div v-if="imageInspectionData.summary.file_count === 0" class="workflow-empty-result">No JPG/JPEG/PNG found.</div>
                 </template>
             </div>
             <template #footer>
-                <el-button @click="imageInspectionVisible = false" :disabled="imageInspectionLoading">关闭</el-button>
+                <el-button @click="imageInspectionVisible = false" :disabled="imageInspectionLoading">Close</el-button>
             </template>
         </el-dialog>
 
         <el-dialog v-model="imageInspectionRulesVisible" title="Image Inspection Rules" width="760px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list image-inspection-rules-list">
-                <li><strong>扫描范围：</strong>递归扫描 <code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code> 中的 JPG/JPEG/PNG；Base / Model / Revision / Final 按文件名 stem（忽略大小写）横向对齐。</li>
+                <li><strong>Scope:</strong> Recursively scans JPG/JPEG/PNG in <code>02_Base_Edit</code>, <code>03_Model_Edit</code>, <code>04_Revision</code>, and <code>05_Final</code>. Files align by case-insensitive stem.</li>
                 <li>
-                    <strong>Geometry Status：</strong>
+                    <strong>Geometry Status:</strong>
                     <ol class="image-inspection-rule-sublist">
-                        <li><code>Perfect</code>：比例精确为 2:3 / 3:2，且尺寸正好命中当前 Final 像素档位。</li>
-                        <li><code>Exact Ratio</code>：像素足够且比例精确为 2:3 / 3:2，但尺寸不是 Final 档位，仍需 resize。</li>
-                        <li><code>Slight Off</code>：像素足够，比例偏差，center crop loss ≤ {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
-                        <li><code>Ratio Error</code>：像素足够，比例偏差，center crop loss &gt; {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%。</li>
-                        <li><code>Low Res</code>：像素不足。</li>
-                        <li><code>Read Error</code>：无法读取有效尺寸。</li>
+                        <li><code>Perfect</code>: exact 2:3 / 3:2 ratio and exact Final dimensions.</li>
+                        <li><code>Exact Ratio</code>: exact ratio with enough pixels; resize still required.</li>
+                        <li><code>Slight Off</code>: enough pixels; center-crop loss ≤ {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%.</li>
+                        <li><code>Ratio Error</code>: enough pixels; center-crop loss &gt; {{ imageInspectionData?.contract?.crop_warning_percent ?? '—' }}%.</li>
+                        <li><code>Low Res</code>: insufficient pixels.</li>
+                        <li><code>Read Error</code>: dimensions unavailable.</li>
                     </ol>
 
                 </li>
-                <li><strong>Key EXIF：</strong>与 Write Metadata 共用 <code>data/final_metadata_settings.json</code>。</li>
-                <li><strong>File / Color：</strong>显示实际文件大小、色彩空间/profile 与每通道 bit depth；sRGB / 8-bit 不额外标记。只有明确识别为非 sRGB 时文件名旁显示红色 tag，明确非 8-bit 时显示黄色 warning tag；缺失或无法确认的颜色信息不作为异常。</li>
+                <li><strong>Key EXIF:</strong> Uses the same field contract as Write Metadata: <code>data/final_metadata_settings.json</code>.</li>
+                <li><strong>File / Color:</strong> Shows file size, color profile, and bit depth. sRGB / 8-bit stays untagged; confirmed non-sRGB or non-8-bit values are flagged.</li>
                 <li>
-                    <strong>Final delivery QC：</strong>
+                    <strong>Final Delivery QC:</strong>
                     <ul class="image-inspection-qc-rule-list">
-                        <li><strong>File Format：</strong>JPEG。</li>
-                        <li><strong>Pixel Dimensions：</strong>{{ imageInspectionData?.contract?.resolution_label || '—' }}（横图转置）。</li>
-                        <li><strong>Aspect Ratio：</strong>2:3 / 3:2。</li>
-                        <li><strong>JPEG Encoding：</strong>Baseline DCT。</li>
-                        <li><strong>Bit Depth：</strong>8-bit。</li>
-                        <li><strong>Chroma Sampling：</strong>{{ imageInspectionData?.contract?.chroma_sampling || '—' }}。</li>
-                        <li><strong>ICC Profile：</strong>{{ imageInspectionData?.contract?.icc_profile || '—' }}。</li>
-                        <li><strong>JPEG Quality：</strong>Q{{ imageInspectionData?.contract?.jpeg_quality ?? '—' }}。</li>
-                        <li><strong>Huffman Tables：</strong>4 DHT tables。</li>
-                        <li><strong>JFIF Header：</strong>v1.01 · unitless · 1×1 · no thumbnail。</li>
-                        <li><strong>Adobe APP14：</strong>Absent。</li>
-                        <li><strong>Metadata Contract：</strong>Key EXIF 完整且无额外业务 metadata。</li>
+                        <li><strong>File Format:</strong> JPEG.</li>
+                        <li><strong>Pixel Dimensions:</strong> {{ imageInspectionData?.contract?.resolution_label || '—' }} (transposed for landscape).</li>
+                        <li><strong>Aspect Ratio:</strong> 2:3 / 3:2.</li>
+                        <li><strong>JPEG Encoding:</strong> Baseline DCT.</li>
+                        <li><strong>Bit Depth:</strong> 8-bit.</li>
+                        <li><strong>Chroma Sampling:</strong> {{ imageInspectionData?.contract?.chroma_sampling || '—' }}.</li>
+                        <li><strong>ICC Profile:</strong> {{ imageInspectionData?.contract?.icc_profile || '—' }}.</li>
+                        <li><strong>JPEG Quality:</strong> Q{{ imageInspectionData?.contract?.jpeg_quality ?? '—' }}.</li>
+                        <li><strong>Huffman Tables:</strong> 4 DHT tables.</li>
+                        <li><strong>JFIF Header:</strong> v1.01 · unitless · 1×1 · no thumbnail.</li>
+                        <li><strong>Adobe APP14:</strong> Absent.</li>
+                        <li><strong>Metadata Contract:</strong> Complete Key EXIF with no extra business metadata.</li>
                     </ul>
                 </li>
             </ol>
-            <template #footer><el-button @click="imageInspectionRulesVisible = false">关闭</el-button></template>
+            <template #footer><el-button @click="imageInspectionRulesVisible = false">Close</el-button></template>
         </el-dialog>
 
         <el-dialog v-model="inspectionMetadataVisible"
-                   title="全部元数据"
+                   title="All Metadata"
                    width="1080px"
                    top="5vh"
                    class="image-inspection-metadata-dialog"
@@ -2989,7 +2988,7 @@
                 </template>
             </div>
             <template #footer>
-                <el-button @click="inspectionMetadataVisible = false" :disabled="inspectionMetadataLoading">关闭</el-button>
+                <el-button @click="inspectionMetadataVisible = false" :disabled="inspectionMetadataLoading">Close</el-button>
             </template>
         </el-dialog>
 
@@ -3370,7 +3369,7 @@
                    :show-close="false">
             <div class="workflow-progress-main">
                 <div class="workflow-progress-head">
-                    <strong>{{ workflowTask.message || '处理中…' }}</strong>
+                    <strong>{{ workflowTask.message || 'Processing…' }}</strong>
                     <span v-if="workflowTask.total">{{ workflowTask.completed }} / {{ workflowTask.total }}</span>
                 </div>
                 <el-progress :percentage="workflowTask.percent || 0"
@@ -3383,32 +3382,34 @@
             <template #footer>
                 <el-button type="primary"
                            :disabled="workflowTask.status === 'running' || workflowTask.status === 'queued'"
-                           @click="closeWorkflowProgress">关闭</el-button>
+                           @click="closeWorkflowProgress">Close</el-button>
             </template>
         </el-dialog>
 
         <!-- Set 内部：从相机导出目录按拍摄时间分组预览，再成对移动 JPG / RAW。 -->
-        <el-dialog v-model="photoImportVisible" title="Import Photos" width="1120px" top="5vh">
+        <el-dialog v-model="photoImportVisible" title="Import Photos" width="1120px" top="5vh" class="photo-import-dialog">
             <div v-loading="photoImportLoading || photoImportExecuting" style="min-height:180px;">
-                <div style="display:flex; align-items:flex-end; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-                    <div style="flex:1; min-width:440px;">
-                        <div style="font-size:12px; color:#606266; margin-bottom:5px;">Source Root</div>
+                <div class="workflow-intro-box">
+                    <strong>Import Photos</strong>
+                    <span>Group by capture time, then import matching JPG/RAW.</span>
+                </div>
+
+                <div class="photo-import-controls">
+                    <div class="photo-import-control photo-import-source-control">
+                        <span class="photo-import-control-label">Source Root</span>
                         <el-input v-model="photoImportForm.source_root"
                                   placeholder="/Users/flc/Pictures/Camera Exports/"
                                   @input="schedulePhotoImportSourceRootSave"
                                   @keyup.enter="previewPhotoImport"></el-input>
                     </div>
-                    <div style="width:150px;">
-                        <div style="font-size:12px; color:#606266; margin-bottom:5px;">Gap</div>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <el-input-number v-model="photoImportForm.gap_minutes"
-                                             :min="1"
-                                             :max="1440"
-                                             :step="5"
-                                             controls-position="right"
-                                             style="width:112px;"></el-input-number>
-                            <span style="font-size:12px; color:#909399;">min</span>
-                        </div>
+                    <div class="photo-import-control photo-import-gap-control">
+                        <span class="photo-import-control-label">Gap</span>
+                        <el-input-number v-model="photoImportForm.gap_minutes"
+                                         :min="1"
+                                         :max="1440"
+                                         :step="5"
+                                         controls-position="right"></el-input-number>
+                        <span class="photo-import-control-unit">min</span>
                     </div>
                     <el-button type="primary" plain @click="previewPhotoImport" :loading="photoImportLoading">Preview</el-button>
                 </div>
@@ -3468,6 +3469,7 @@
                         </div>
                     </el-checkbox-group>
                 </template>
+                <div v-else-if="photoImportError" class="workflow-empty-result">{{ photoImportError }}</div>
             </div>
             <template #footer>
                 <el-button @click="photoImportVisible = false" :disabled="photoImportExecuting">Cancel</el-button>
@@ -3507,7 +3509,7 @@
             <template #header>
                 <div class="validation-dialog-title">
                     <span>Validation</span>
-                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看校验规则" @click="validationRulesVisible = true">?</el-button>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="Validation rules" @click="validationRulesVisible = true">?</el-button>
                 </div>
             </template>
             <div v-loading="validationLoading" class="library-validation-body">
@@ -3576,39 +3578,39 @@
             <template #footer><el-button @click="validationVisible = false">Close</el-button></template>
         </el-dialog>
 
-        <el-dialog v-model="validationRulesVisible" title="校验规则" width="720px" append-to-body class="validation-rules-dialog">
+        <el-dialog v-model="validationRulesVisible" title="Validation Rules" width="720px" append-to-body class="validation-rules-dialog">
             <div class="validation-rules-groups">
                 <section class="validation-rules-group validation-rules-issue">
                     <h4>Issue</h4>
                     <ol>
-                        <li>Set 必须使用标准目录结构：<code>01_Original/JPG</code>、<code>01_Original/RAW</code>、<code>02_Base_Edit</code>、<code>03_Model_Edit</code>、<code>04_Revision</code>、<code>05_Final</code>。缺少标准目录或出现额外目录均为 Issue。</li>
-                        <li>Original JPG 只允许 JPG，RAW 只允许 CR3。两边都有文件时，stem 必须一一对应；JPG 的 <code>-dpp</code> 后缀允许，并按去掉后缀后的 stem 对应。</li>
-                        <li>Original RAW 不能为空。</li>
-                        <li>Revision 必须全部为 PNG。</li>
+                        <li>Each Set must contain only the standard folders: <code>01_Original/JPG</code>, <code>01_Original/RAW</code>, <code>02_Base_Edit</code>, <code>03_Model_Edit</code>, <code>04_Revision</code>, and <code>05_Final</code>.</li>
+                        <li>Original JPG accepts JPG only; RAW accepts CR3 only. When both exist, stems must match one-to-one. JPG <code>-dpp</code> is ignored for stem matching.</li>
+                        <li>Original RAW cannot be empty.</li>
+                        <li>Revision files must be PNG.</li>
                     </ol>
                 </section>
                 <section class="validation-rules-group validation-rules-warning">
                     <h4>Warning</h4>
                     <ol>
-                        <li>Base Edit 与 Model Edit 都有图片时，stem 必须一一对应。</li>
-                        <li>Base Edit、Model Edit、Revision 的文件 stem 必须与 Original 文件名完全一致。</li>
+                        <li>When Base Edit and Model Edit both contain files, stems must match one-to-one.</li>
+                        <li>Base Edit, Model Edit, and Revision stems must match an Original stem.</li>
                     </ol>
                 </section>
                 <section class="validation-rules-group validation-rules-normal">
                     <h4>Normal</h4>
                     <ol>
-                        <li>Base Edit 或 Model Edit 任意一方为空。</li>
-                        <li>Original 有 RAW，但没有 JPG。</li>
+                        <li>Base Edit or Model Edit is empty.</li>
+                        <li>Original has RAW but no JPG.</li>
                     </ol>
                 </section>
                 <section class="validation-rules-group validation-rules-ok">
                     <h4>OK</h4>
-                    <p>未发现以上问题。</p>
+                    <p>No issues found.</p>
                 </section>
                 <!--
-                <p class="validation-rules-footnote">同一 Set 命中多项时，按 Issue → Warning → Normal → OK 显示最高严重度。Validation 只检查，不修改文件。</p>-->
+                <p class="validation-rules-footnote">For multiple findings, the highest severity is shown: Issue → Warning → Normal → OK. Validation is read-only.</p>-->
             </div>
-            <template #footer><el-button @click="validationRulesVisible = false">关闭</el-button></template>
+            <template #footer><el-button @click="validationRulesVisible = false">Close</el-button></template>
         </el-dialog>
 
         <!-- =========================================================
@@ -4153,7 +4155,7 @@
                 <el-form-item label="Password">
                     <el-input v-model="libraryShareForm.password" type="password" show-password placeholder="Optional"></el-input>
                 </el-form-item>
-                <el-form-item label="Allow Selection"><el-switch v-model="libraryShareForm.allow_select"></el-switch></el-form-item>
+                <el-form-item label="Selection"><el-switch v-model="libraryShareForm.allow_select"></el-switch></el-form-item>
             </el-form>
             <template #footer>
                 <el-button @click="showLibraryShareDialog = false">Cancel</el-button>

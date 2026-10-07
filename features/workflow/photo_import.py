@@ -33,7 +33,7 @@ def _photo_import_set_date(set_dir: Path):
 
     match = re.match(r'^(\d{4})(\d{2})(\d{2})-', Path(set_dir).name)
     if not match:
-        raise ValueError('无法从 manifest 或 Set 名称确定拍摄日期')
+        raise ValueError('Cannot determine shoot date from manifest or Set name')
     date_text = f'{match.group(1)}-{match.group(2)}-{match.group(3)}'
     datetime.strptime(date_text, '%Y-%m-%d')
     return date_text
@@ -48,35 +48,30 @@ def _directory_has_files(directory: Path):
     if not directory.exists():
         return False
     if not directory.is_dir():
-        raise ValueError(f'目标路径不是目录: {directory}')
+        raise ValueError(f'Not a directory: {directory}')
     try:
         return any(path.is_file() and not path.name.startswith('.') for path in directory.rglob('*'))
     except OSError as exc:
-        raise ValueError(f'无法读取目标目录: {directory}') from exc
+        raise ValueError(f'Cannot read directory: {directory}') from exc
 
 
 def _assert_photo_import_target_empty(set_dir: Path):
     jpg_target, raw_target = _photo_import_target_dirs(set_dir)
-    occupied = []
-    if _directory_has_files(jpg_target):
-        occupied.append('01_Original/JPG')
-    if _directory_has_files(raw_target):
-        occupied.append('01_Original/RAW')
-    if occupied:
-        raise ValueError(f'导入只允许用于空的 Original 目录：{", ".join(occupied)} 已有文件')
+    if _directory_has_files(jpg_target) or _directory_has_files(raw_target):
+        raise ValueError('Original must be empty.')
     return jpg_target, raw_target
 
 
 def _photo_import_source_dirs(source_root, shoot_date):
     root = Path(str(source_root or '')).expanduser()
     if not root.is_absolute():
-        raise ValueError('Source Root 必须是绝对路径')
+        raise ValueError('Source Root must be absolute')
     root = root.resolve()
     if not root.is_dir():
-        raise FileNotFoundError(f'Source Root 不存在: {root}')
+        raise FileNotFoundError(f'Source Root not found: {root}')
     date_dir = root / shoot_date
     if not date_dir.is_dir():
-        raise FileNotFoundError(f'找不到当天导出目录: {date_dir}')
+        raise FileNotFoundError(f'Export folder not found: {date_dir}')
     return root, date_dir, date_dir
 
 
@@ -110,9 +105,9 @@ def _build_photo_import_plan(source_id, set_dir: Path, set_rel: str, source_root
     try:
         gap = int(gap_minutes)
     except (TypeError, ValueError) as exc:
-        raise ValueError('Gap 必须是分钟整数') from exc
+        raise ValueError('Gap must be an integer number of minutes') from exc
     if gap < 1 or gap > 24 * 60:
-        raise ValueError('Gap 必须在 1–1440 分钟之间')
+        raise ValueError('Gap must be 1–1440 minutes')
 
     _assert_photo_import_target_empty(set_dir)
     shoot_date = _photo_import_set_date(set_dir)
@@ -122,7 +117,7 @@ def _build_photo_import_plan(source_id, set_dir: Path, set_rel: str, source_root
         key=lambda path: path.name.casefold(),
     )
     if not jpg_files:
-        raise ValueError(f'当天导出目录没有 JPG: {jpg_dir}')
+        raise ValueError(f'No JPGs in export folder: {jpg_dir}')
 
     records = {}
     known = []
@@ -218,10 +213,10 @@ def _photo_import_selected_records(plan, group_ids):
     selected = {str(value) for value in (group_ids or [])}
     valid = {group['id'] for group in plan['groups']}
     if not selected:
-        raise ValueError('至少选择一组照片')
+        raise ValueError('Select at least one group')
     invalid = selected - valid
     if invalid:
-        raise ValueError('选择的分组已经失效，请重新预览')
+        raise ValueError('Selected groups are stale. Preview again.')
 
     file_ids = []
     for group in plan['groups']:
@@ -245,7 +240,7 @@ def _prepare_photo_import_execution(source_id, set_rel, plan, group_ids):
     duplicates = [items for items in jpg_stems.values() if len(items) > 1]
     if duplicates:
         names = ', '.join('/'.join(item['name'] for item in items) for items in duplicates[:5])
-        raise ValueError(f'选中的 JPG 存在重复 stem，无法一一配对 RAW: {names}')
+        raise ValueError(f'Duplicate JPG stems; RAW pairing is ambiguous: {names}')
 
     raw_dir = Path(plan['raw_dir'])
     raw_index = {}
@@ -271,7 +266,7 @@ def _prepare_photo_import_execution(source_id, set_rel, plan, group_ids):
         jpg_dst = jpg_target / jpg['name']
         raw_dst = raw_target / raw.name
         if jpg_dst.exists() or raw_dst.exists():
-            raise FileExistsError(f'目标已有同名文件: {jpg_dst.name if jpg_dst.exists() else raw_dst.name}')
+            raise FileExistsError(f'Destination file exists: {jpg_dst.name if jpg_dst.exists() else raw_dst.name}')
         operations.append({
             'jpg_src': jpg['path'],
             'jpg_dst': str(jpg_dst),
@@ -285,13 +280,13 @@ def _prepare_photo_import_execution(source_id, set_rel, plan, group_ids):
         if missing:
             preview = ', '.join(missing[:8])
             if len(missing) > 8:
-                preview += f' 等 {len(missing)} 个'
-            messages.append(f'缺少同 stem RAW: {preview}')
+                preview += f' · {len(missing)} total'
+            messages.append(f'Missing matching RAW: {preview}')
         if ambiguous:
             preview = '; '.join(ambiguous[:5])
             if len(ambiguous) > 5:
-                preview += f' 等 {len(ambiguous)} 组'
-            messages.append(f'同 stem RAW 不唯一: {preview}')
+                preview += f' · {len(ambiguous)} groups total'
+            messages.append(f'Ambiguous matching RAW: {preview}')
         raise ValueError('；'.join(messages))
 
     return {
@@ -330,10 +325,10 @@ def create_blueprint(admin_guard, get_source, resolve_path):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -369,11 +364,11 @@ def create_blueprint(admin_guard, get_source, resolve_path):
             plan = get_plan(str(plan_id), 'photo_import_preview', source_id, set_rel)
             record = plan['records'].get(str(file_id))
             if not record:
-                raise FileNotFoundError('预览图片不存在')
+                raise FileNotFoundError('Preview image not found')
             path = Path(record['path'])
             expected = plan['signatures'].get(str(path))
             if expected is None or file_signature(path) != expected:
-                raise RuntimeError('源 JPG 已发生变化，请重新 Preview')
+                raise RuntimeError('Source JPG changed. Preview again.')
 
             with Image.open(path) as image:
                 image = ImageOps.exif_transpose(image)
@@ -425,7 +420,7 @@ def create_blueprint(admin_guard, get_source, resolve_path):
             operations = list(plan['operations'])
             for item in operations:
                 if Path(item['jpg_dst']).exists() or Path(item['raw_dst']).exists():
-                    raise FileExistsError(f'目标已有同名文件: {item["stem"]}')
+                    raise FileExistsError(f'Destination file exists: {item["stem"]}')
 
             task_id = new_task('photo_import', len(operations) * 2)
 
@@ -433,7 +428,7 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                 moved = []
                 completed = 0
                 try:
-                    update_task(task_id, status='running', message='开始导入 JPG / RAW…')
+                    update_task(task_id, status='running', message='Importing JPG / RAW…')
                     Path(plan['jpg_target']).mkdir(parents=True, exist_ok=True)
                     Path(plan['raw_target']).mkdir(parents=True, exist_ok=True)
                     for item in operations:
@@ -443,26 +438,26 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                         raw_dst = Path(item['raw_dst'])
 
                         if not jpg_src.exists() or not raw_src.exists():
-                            raise FileNotFoundError(f'源文件不存在: {item["stem"]}')
+                            raise FileNotFoundError(f'Source file not found: {item["stem"]}')
                         if jpg_dst.exists() or raw_dst.exists():
-                            raise FileExistsError(f'目标已有同名文件: {item["stem"]}')
+                            raise FileExistsError(f'Destination file exists: {item["stem"]}')
 
                         shutil.move(str(jpg_src), str(jpg_dst))
                         moved.append((str(jpg_src), str(jpg_dst)))
                         completed += 1
-                        jpg_message = f'{jpg_src.name} → 01_Original/JPG/'
+                        jpg_message = f'{jpg_src.name} → Original JPG'
                         update_task(task_id, completed=completed, current=completed, message=jpg_message, log=jpg_message)
 
                         shutil.move(str(raw_src), str(raw_dst))
                         moved.append((str(raw_src), str(raw_dst)))
                         completed += 1
-                        raw_message = f'{raw_src.name} → 01_Original/RAW/'
+                        raw_message = f'{raw_src.name} → Original RAW'
                         update_task(task_id, completed=completed, current=completed, message=raw_message, log=raw_message)
 
                     update_task(
                         task_id,
                         status='done',
-                        message=f'完成：导入 {len(operations)} 组 JPG + RAW',
+                        message=f'Imported {len(operations)} JPG + RAW pairs',
                         result={
                             'jpg_count': len(operations),
                             'raw_count': len(operations),
@@ -473,8 +468,8 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                     rollback_errors = _rollback_photo_import(moved)
                     message = str(exc)
                     if rollback_errors:
-                        message += '；回滚失败: ' + '; '.join(rollback_errors[:5])
-                    update_task(task_id, status='error', message='导入失败，已尝试回滚', error=message, log=f'ERROR: {message}')
+                        message += '; rollback failed: ' + '; '.join(rollback_errors[:5])
+                    update_task(task_id, status='error', message='Import failed; rollback attempted', error=message, log=f'ERROR: {message}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})

@@ -100,7 +100,7 @@ def _format_file_preview(names):
     names = list(names)
     if len(names) <= 3:
         return ', '.join(names)
-    return f'{", ".join(names[:2])} 等 {len(names)} 个文件'
+    return f'{", ".join(names[:2])} · {len(names)} total'
 
 
 def _format_stem_counter(counter, labels):
@@ -367,13 +367,13 @@ def create_validate_blueprint(admin_guard, get_source, resolve_path):
             return denied
         source = get_source(source_id)
         if not source:
-            return jsonify({'error': 'Source 不存在或已禁用'}), 404
+            return jsonify({'error': 'Source unavailable'}), 404
         try:
             root, target, rel = resolve_path(source, '')
             if rel or target != root:
-                return jsonify({'error': 'Validation 只能在 Source 根目录执行'}), 400
+                return jsonify({'error': 'Validation is only available at the Source root'}), 400
             return jsonify(_validate_root(root))
         except Exception as exc:
-            return jsonify({'error': f'Validation 失败: {exc}'}), 500
+            return jsonify({'error': f'Validation failed: {exc}'}), 500
 
     return bp

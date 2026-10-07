@@ -58,16 +58,16 @@ def _build_visual_rename_plan(source_id, set_dir: Path, set_rel: str, threshold:
     base_dir = set_dir / '02_Base_Edit'
     model_dir = set_dir / '03_Model_Edit'
     if not base_dir.is_dir():
-        raise ValueError('02_Base_Edit 不存在')
+        raise ValueError('Base Edit missing')
     if not model_dir.is_dir():
-        raise ValueError('03_Model_Edit 不存在')
+        raise ValueError('Model Edit missing')
 
     src_files = list_source_images_original_order(base_dir)
     target_files = list_top_level_images(model_dir)
     if not src_files:
-        raise ValueError('02_Base_Edit 中没有 JPG/JPEG/PNG')
+        raise ValueError('No images in Base Edit')
     if not target_files:
-        raise ValueError('03_Model_Edit 中没有 JPG/JPEG/PNG')
+        raise ValueError('No images in Model Edit')
 
     # Cache each image hash once before pairwise similarity comparisons.
     src_hashes = {}
@@ -175,10 +175,10 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -194,7 +194,7 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
             data = request.get_json(silent=True) or {}
             threshold = float(data.get('threshold', 0.8))
             if not 0.0 <= threshold <= 1.0:
-                raise ValueError('相似度阈值必须在 0.0–1.0 之间')
+                raise ValueError('Threshold must be between 0.0 and 1.0')
             plan = _build_visual_rename_plan(source_id, set_dir, set_rel, threshold)
             plan_id = remember_plan(plan)
             return jsonify({
@@ -223,17 +223,17 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
                 renamed = 0
                 unchanged = 0
                 try:
-                    update_task(task_id, status='running', message='开始重命名…')
+                    update_task(task_id, status='running', message='Renaming…')
                     model_dir = Path(plan['model_dir'])
                     for index, item in enumerate(operations, start=1):
                         current = model_dir / item['current_name']
                         destination = model_dir / item['new_name']
                         if item['status'] == 'already_named':
                             unchanged += 1
-                            message = f"{item['current_name']} 已是目标文件名"
+                            message = f"{item['current_name']} already matches"
                         else:
                             if not current.exists():
-                                raise FileNotFoundError(f'文件不存在: {item["current_name"]}')
+                                raise FileNotFoundError(f'File not found: {item["current_name"]}')
                             old_rel = current.relative_to(root).as_posix()
                             safe_case_rename(current, destination)
                             new_rel = destination.relative_to(root).as_posix()
@@ -260,9 +260,9 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
                             log=message,
                         )
                     result = {'renamed_count': renamed, 'unchanged_count': unchanged}
-                    update_task(task_id, status='done', message=f'完成：重命名 {renamed} 个', result=result)
+                    update_task(task_id, status='done', message=f'Renamed {renamed} files', result=result)
                 except Exception as exc:
-                    update_task(task_id, status='error', message='重命名失败', error=str(exc), log=f'ERROR: {exc}')
+                    update_task(task_id, status='error', message='Rename failed', error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})

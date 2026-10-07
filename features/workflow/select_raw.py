@@ -20,7 +20,7 @@ def _logical_id_from_jpg_name(filename: str):
 def _build_select_raw_plan(source_id, set_dir: Path, set_rel: str, get_db_connection):
     raw_dir = set_dir / '01_Original' / 'RAW'
     if not raw_dir.is_dir():
-        raise ValueError('01_Original/RAW 不存在')
+        raise ValueError('Original RAW folder missing')
     selects_dir = set_dir / '01_Original' / 'Selects'
 
     conn = get_db_connection()
@@ -31,15 +31,13 @@ def _build_select_raw_plan(source_id, set_dir: Path, set_rel: str, get_db_connec
     conn.close()
 
     prefix = (set_rel.rstrip('/') + '/') if set_rel else ''
+    jpg_prefix = f'{prefix}01_Original/JPG/'
     favorite_paths = []
     ignored_non_jpg = []
     for row in rows:
         rel = str(row['relative_path'])
-        if prefix and not rel.startswith(prefix):
+        if not rel.startswith(jpg_prefix):
             continue
-        if not prefix and '/' not in rel:
-            # A source root should not normally be a Set, but keep containment explicit.
-            pass
         suffix = Path(rel).suffix.lower()
         if suffix in ('.jpg', '.jpeg'):
             favorite_paths.append(rel)
@@ -129,10 +127,10 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -173,7 +171,7 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
             def worker():
                 copied = 0
                 try:
-                    update_task(task_id, status='running', message='开始复制 RAW…')
+                    update_task(task_id, status='running', message='Copying RAW…')
                     selects_dir = Path(plan['selects_dir'])
                     if operations:
                         selects_dir.mkdir(parents=True, exist_ok=True)
@@ -181,22 +179,22 @@ def create_blueprint(admin_guard, get_source, resolve_path, get_db_connection):
                         src = Path(item['src'])
                         dst = Path(item['dst'])
                         if not src.exists():
-                            raise FileNotFoundError(f'RAW 不存在: {src.name}')
+                            raise FileNotFoundError(f'RAW not found: {src.name}')
                         if dst.exists():
-                            message = f'{dst.name} 已存在，跳过'
+                            message = f'{dst.name} exists; skipped'
                         else:
                             shutil.copy2(src, dst)
                             copied += 1
-                            message = f'{src.name} → 01_Original/Selects/'
+                            message = f'{src.name} → Selects'
                         update_task(task_id, completed=index, current=index, message=message, log=message)
                     update_task(
                         task_id,
                         status='done',
-                        message=f'完成：复制 {copied} 个 RAW',
+                        message=f'Copied {copied} RAW files',
                         result={'copied_count': copied, 'destination': '01_Original/Selects'},
                     )
                 except Exception as exc:
-                    update_task(task_id, status='error', message='复制 RAW 失败', error=str(exc), log=f'ERROR: {exc}')
+                    update_task(task_id, status='error', message='RAW copy failed', error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})

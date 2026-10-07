@@ -35,7 +35,7 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
     jpg_dir = set_dir / '01_Original' / 'JPG'
     raw_dir = set_dir / '01_Original' / 'RAW'
     if not jpg_dir.is_dir() or not raw_dir.is_dir():
-        raise ValueError('01_Original/JPG 或 01_Original/RAW 不存在')
+        raise ValueError('Original JPG or RAW folder missing')
 
     if direction == 'raw_by_jpg':
         target_type = 'RAW'
@@ -56,7 +56,7 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
         target_is_jpg = True
         reference_is_jpg = False
     else:
-        raise ValueError('同步方向不合法')
+        raise ValueError('Invalid sync direction')
 
     target_groups, target_duplicates = _scan_by_stem(
         target_dir,
@@ -134,11 +134,11 @@ def _build_sync_plan(source_id, set_dir: Path, set_rel: str, direction: str):
         },
         'warnings': [
             *(
-                [f'{target_type} 中有 {len(target_duplicates)} 个重复 Original stem；同步按 stem 分组判断是否存在对应项，不在同 stem 文件之间自动取舍。']
+                [f'{target_type} has {len(target_duplicates)} duplicate Original stems; matched by stem without tie-breaking.']
                 if target_duplicates else []
             ),
             *(
-                [f'{reference_type} 中有 {len(reference_duplicates)} 个重复 Original stem；同步按 stem 分组匹配。']
+                [f'{reference_type} has {len(reference_duplicates)} duplicate Original stems; matched by stem.']
                 if reference_duplicates else []
             ),
         ],
@@ -193,7 +193,7 @@ def _move_to_trash(path: Path):
         errors.append(str(exc))
 
     detail = '; '.join(error for error in errors if error)
-    raise RuntimeError('无法调用系统回收站，文件已保留在 Deleted 目录，未执行永久删除' + (f'：{detail}' if detail else ''))
+    raise RuntimeError('Trash unavailable; files remain in Deleted. No permanent delete.' + (f': {detail}' if detail else ''))
 
 
 def create_blueprint(admin_guard, get_source, resolve_path):
@@ -202,10 +202,10 @@ def create_blueprint(admin_guard, get_source, resolve_path):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -249,12 +249,12 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                 moved = 0
                 output_dir = Path(plan['target_dir']) / 'Deleted'
                 try:
-                    update_task(task_id, status='running', message='开始移动到 Deleted…')
+                    update_task(task_id, status='running', message='Moving to Deleted…')
                     if paths:
                         output_dir.mkdir(parents=True, exist_ok=True)
                     for index, file_path in enumerate(paths, start=1):
                         if not file_path.exists():
-                            raise FileNotFoundError(f'文件不存在: {file_path.name}')
+                            raise FileNotFoundError(f'File not found: {file_path.name}')
                         dest = next_available_path(output_dir / file_path.name)
                         shutil.move(str(file_path), str(dest))
                         moved += 1
@@ -264,7 +264,7 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                     trashed = False
                     trash_error = None
                     if output_dir.exists() and moved > 0:
-                        update_task(task_id, message='正在将 Deleted 移入系统回收站…', log='文件移动完成，准备移入系统回收站')
+                        update_task(task_id, message='Moving Deleted to Trash…', log='Files moved; sending Deleted to Trash')
                         try:
                             _move_to_trash(output_dir)
                             trashed = True
@@ -282,13 +282,13 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                         update_task(
                             task_id,
                             status='done',
-                            message=f'已移动 {moved} 个文件；回收站操作失败，文件仍保留在 Deleted',
+                            message=f'Moved {moved} files; Trash failed. Files remain in Deleted.',
                             result=result,
                         )
                     else:
-                        update_task(task_id, status='done', message=f'完成：处理 {moved} 个文件', result=result)
+                        update_task(task_id, status='done', message=f'Processed {moved} files', result=result)
                 except Exception as exc:
-                    update_task(task_id, status='error', message='同步失败', error=str(exc), log=f'ERROR: {exc}')
+                    update_task(task_id, status='error', message='Sync failed', error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})

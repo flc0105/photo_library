@@ -147,27 +147,27 @@
 <body>
 <main>
     <h1>Compare Folders</h1>
-    <p class="hint">只读取两个目录的顶层文件，按完整 stem 对比；不上传。删除操作只会把当前预览到的多余文件移入系统回收站。忽略 .DS_Store 和 ._*。</p>
+    <p class="hint">Compares top-level files by full stem. Nothing is uploaded. Delete moves previewed extras to Trash. Ignores .DS_Store and ._*.</p>
 
     <section class="panel">
         <div class="selectors">
             <div class="folder-box">
-                <div class="folder-title">目录 A</div>
+                <div class="folder-title">Folder A</div>
                 <div class="path-row">
-                    <input class="path" id="leftPath" type="text" autocomplete="off" spellcheck="false" placeholder="输入绝对路径">
-                    <button id="pickLeft">选择目录</button>
+                    <input class="path" id="leftPath" type="text" autocomplete="off" spellcheck="false" placeholder="Absolute path">
+                    <button id="pickLeft">Choose</button>
                 </div>
             </div>
             <div class="folder-box">
-                <div class="folder-title">目录 B</div>
+                <div class="folder-title">Folder B</div>
                 <div class="path-row">
-                    <input class="path" id="rightPath" type="text" autocomplete="off" spellcheck="false" placeholder="输入绝对路径">
-                    <button id="pickRight">选择目录</button>
+                    <input class="path" id="rightPath" type="text" autocomplete="off" spellcheck="false" placeholder="Absolute path">
+                    <button id="pickRight">Choose</button>
                 </div>
             </div>
         </div>
         <div class="actions">
-            <button class="primary" id="compareButton" disabled>比较</button>
+            <button class="primary" id="compareButton" disabled>Compare</button>
         </div>
         <div class="message" id="message"></div>
     </section>
@@ -177,20 +177,20 @@
     <div class="results" id="results" hidden>
         <section class="panel result-panel">
             <div class="result-head">
-                <h2>仅目录 A 有</h2>
+                <h2>Only in Folder A</h2>
                 <div class="result-head-actions">
                     <span class="count" id="leftOnlyCount"></span>
-                    <button class="danger" id="trashLeft" hidden>删除多余文件</button>
+                    <button class="danger" id="trashLeft" hidden>Move Extras to Trash</button>
                 </div>
             </div>
             <div id="leftOnly"></div>
         </section>
         <section class="panel result-panel">
             <div class="result-head">
-                <h2>仅目录 B 有</h2>
+                <h2>Only in Folder B</h2>
                 <div class="result-head-actions">
                     <span class="count" id="rightOnlyCount"></span>
-                    <button class="danger" id="trashRight" hidden>删除多余文件</button>
+                    <button class="danger" id="trashRight" hidden>Move Extras to Trash</button>
                 </div>
             </div>
             <div id="rightOnly"></div>
@@ -199,9 +199,9 @@
 </main>
 
 <div class="preview-modal" id="previewModal" hidden>
-    <div class="preview-dialog" role="dialog" aria-modal="true" aria-label="图像预览">
-        <button class="preview-close" id="previewClose" type="button" aria-label="关闭">×</button>
-        <div class="preview-status" id="previewStatus">正在加载预览…</div>
+    <div class="preview-dialog" role="dialog" aria-modal="true" aria-label="Image preview">
+        <button class="preview-close" id="previewClose" type="button" aria-label="Close">×</button>
+        <div class="preview-status" id="previewStatus">Loading preview…</div>
         <img id="previewImage" alt="" hidden>
         <div class="preview-caption" id="previewCaption"></div>
     </div>
@@ -246,15 +246,15 @@
             body: JSON.stringify(body || {})
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
         return data;
     };
 
     const pick = async (side) => {
-        setMessage('正在打开本机目录选择器…');
+        setMessage('Opening folder picker…');
         try {
             const data = await api('/api/tools/folder-compare/pick', {
-                prompt: side === 'left' ? '选择目录 A' : '选择目录 B'
+                prompt: side === 'left' ? 'Choose Folder A' : 'Choose Folder B'
             });
             if (!data.cancelled && data.path) state[side] = data.path;
             setMessage('');
@@ -292,7 +292,7 @@
         previewImage.alt = '';
         previewStatus.hidden = false;
         previewStatus.classList.remove('error');
-        previewStatus.textContent = '正在加载预览…';
+        previewStatus.textContent = 'Loading preview…';
         previewCaption.textContent = '';
         if (state.previewObjectUrl) {
             URL.revokeObjectURL(state.previewObjectUrl);
@@ -309,7 +309,7 @@
             const response = await fetch(`/api/tools/folder-compare/preview?${params.toString()}`, {cache: 'no-store'});
             if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
-                throw new Error(data.error || `预览失败 (${response.status})`);
+                throw new Error(data.error || `Preview failed (${response.status})`);
             }
             const blob = await response.blob();
             state.previewObjectUrl = URL.createObjectURL(blob);
@@ -322,13 +322,13 @@
             previewImage.hidden = true;
             previewStatus.hidden = false;
             previewStatus.classList.add('error');
-            previewStatus.textContent = error.message || '无法加载预览';
+            previewStatus.textContent = error.message || 'Preview unavailable';
         }
     };
 
     const renderRows = (container, rows, folder) => {
         if (!rows.length) {
-            container.innerHTML = '<div class="empty">没有差异。</div>';
+            container.innerHTML = '<div class="empty">No differences.</div>';
             return;
         }
         container.innerHTML = rows.map(row => `
@@ -337,7 +337,7 @@
                 <div class="files">${row.files.map(name => `
                     <div class="file-line">
                         <span class="file-name">${escapeHtml(name)}</span>
-                        ${isPreviewable(name) ? `<button type="button" class="preview-button" data-preview-name="${escapeHtml(name)}">预览</button>` : ''}
+                        ${isPreviewable(name) ? `<button type="button" class="preview-button" data-preview-name="${escapeHtml(name)}">Preview</button>` : ''}
                     </div>
                 `).join('')}</div>
             </div>
@@ -350,7 +350,7 @@
 
     const compare = async () => {
         compareButton.disabled = true;
-        setMessage('正在比较…');
+        setMessage('Comparing…');
         try {
             const data = await api('/api/tools/folder-compare/compare', {
                 left_path: state.left,
@@ -363,9 +363,9 @@
 
             const s = data.summary;
             summary.innerHTML = `
-                <span>目录 A <strong>${s.left_file_count}</strong> 文件 / <strong>${s.left_stem_count}</strong> stems</span>
-                <span>目录 B <strong>${s.right_file_count}</strong> 文件 / <strong>${s.right_stem_count}</strong> stems</span>
-                <span>已对齐 <strong>${s.matched_stem_count}</strong></span>
+                <span>Folder A <strong>${s.left_file_count}</strong> files / <strong>${s.left_stem_count}</strong> stems</span>
+                <span>Folder B <strong>${s.right_file_count}</strong> files / <strong>${s.right_stem_count}</strong> stems</span>
+                <span>Matched <strong>${s.matched_stem_count}</strong></span>
             `;
             document.getElementById('leftOnlyCount').textContent = `${s.only_left_count} stems`;
             document.getElementById('rightOnlyCount').textContent = `${s.only_right_count} stems`;
@@ -377,7 +377,7 @@
             document.getElementById('trashRight').hidden = !state.onlyRight.length;
             summary.hidden = false;
             results.hidden = false;
-            setMessage(s.only_left_count || s.only_right_count ? '比较完成。' : '两个目录的 stem 已完全对齐。');
+            setMessage(s.only_left_count || s.only_right_count ? 'Done.' : 'Stems match.');
         } catch (error) {
             setMessage(error.message, true);
         } finally {
@@ -388,14 +388,14 @@
     const trashExtras = async (side) => {
         const rows = side === 'left' ? state.onlyLeft : state.onlyRight;
         if (!rows.length) return;
-        const folderLabel = side === 'left' ? '目录 A' : '目录 B';
+        const folderLabel = side === 'left' ? 'Folder A' : 'Folder B';
         const fileCount = rows.reduce((total, row) => total + row.files.length, 0);
-        if (!window.confirm(`将 ${folderLabel} 中当前预览的 ${fileCount} 个多余文件移入系统回收站？`)) return;
+        if (!window.confirm(`Move ${fileCount} previewed extras from ${folderLabel} to Trash?`)) return;
 
         const button = document.getElementById(side === 'left' ? 'trashLeft' : 'trashRight');
         button.disabled = true;
         compareButton.disabled = true;
-        setMessage('正在移入系统回收站…');
+        setMessage('Moving to Trash…');
         try {
             const data = await api('/api/tools/folder-compare/trash-extra', {
                 left_path: state.left,
@@ -403,7 +403,7 @@
                 side,
                 expected_rows: rows
             });
-            setMessage(`已将 ${data.moved_count} 个文件移入系统回收站，正在重新比较…`);
+            setMessage(`Moved ${data.moved_count} files to Trash. Rechecking…`);
             await compare();
         } catch (error) {
             setMessage(error.message, true);

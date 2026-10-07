@@ -594,7 +594,7 @@ def _final_delivery_analysis(path: Path, record, width: int, height: int, canoni
         'final_qc_total': total,
         'final_qc_missing': len(failures),
         'final_qc_status_level': 'success' if not failures else 'error',
-        'final_qc_status_text': 'Final 合格' if not failures else 'Final 异常',
+        'final_qc_status_text': 'Final PASS' if not failures else 'Final FAILED',
         'final_bit_depth': f'{bits}-bit' if bits else 'Missing',
         'final_canonical_exif_present': canonical_exif['present'],
         'final_canonical_exif_total': canonical_exif['total'],
@@ -825,13 +825,13 @@ def _run_exiftool_records(exiftool_path: str, files):
         )
         if not result.stdout.strip():
             detail = result.stderr.strip() or f'ExifTool exited with code {result.returncode}'
-            raise RuntimeError(f'ExifTool 扫描失败：{detail}')
+            raise RuntimeError(f'ExifTool scan failed: {detail}')
         try:
             batch_records = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f'ExifTool 返回结果无法解析：{exc}') from exc
+            raise RuntimeError(f'Invalid ExifTool output: {exc}') from exc
         if not isinstance(batch_records, list):
-            raise RuntimeError('ExifTool 返回结果格式异常')
+            raise RuntimeError('Invalid ExifTool result format')
         records.extend(batch_records)
     return records
 
@@ -859,10 +859,10 @@ def _run_exiftool_full_metadata(exiftool_path: str, path: Path):
     )
     if not result.stdout.strip():
         detail = result.stderr.strip() or f'ExifTool exited with code {result.returncode}'
-        raise RuntimeError(f'ExifTool 元数据读取失败：{detail}')
+        raise RuntimeError(f'ExifTool metadata failed: {detail}')
     groups = _parse_exiftool_full_output(result.stdout)
     if not groups:
-        raise RuntimeError('ExifTool 元数据结果为空')
+        raise RuntimeError('ExifTool metadata is empty')
     return groups
 
 
@@ -879,7 +879,7 @@ def _build_image_inspection(set_dir: Path):
 
     exiftool_path = resolve_exiftool()
     if not exiftool_path:
-        raise FileNotFoundError('ExifTool 未安装或不可用；图像检测不会 fallback 到 Pillow。')
+        raise FileNotFoundError('ExifTool unavailable. Pillow fallback is disabled.')
     validate_metadata_fields_with_exiftool(exiftool_path, field_defs)
 
     version = probe_exiftool_version(exiftool_path)
@@ -985,8 +985,8 @@ def _build_image_inspection(set_dir: Path):
             'metadata_focus_missing': len(field_defs) - focus_present,
             'metadata_status_level': 'success' if focus_present == len(field_defs) else 'error',
             'metadata_status_text': (
-                'EXIF完整' if focus_present == len(field_defs)
-                else 'EXIF缺失'
+                'EXIF Complete' if focus_present == len(field_defs)
+                else 'EXIF Missing'
             ),
             'focus_fields': focus_fields,
             'focus_field_map': {field['name']: field for field in focus_fields},
@@ -1039,10 +1039,10 @@ def create_blueprint(admin_guard, get_source, resolve_path):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -1071,26 +1071,26 @@ def create_blueprint(admin_guard, get_source, resolve_path):
             data = request.get_json(silent=True) or {}
             relative_path = str(data.get('relative_path') or '').strip().replace('\\', '/')
             if not relative_path:
-                raise ValueError('缺少图片路径')
+                raise ValueError('Image path required')
 
             candidate = (set_dir / relative_path).resolve()
             set_resolved = set_dir.resolve()
             try:
                 candidate.relative_to(set_resolved)
             except ValueError as exc:
-                raise ValueError('图片路径超出当前 Set') from exc
+                raise ValueError('Image path is outside the current Set') from exc
 
             relative = candidate.relative_to(set_resolved)
             if not relative.parts or relative.parts[0] not in {stage[2] for stage in _IMAGE_INSPECTION_STAGES}:
-                raise ValueError('图片不属于图像检测 stage')
+                raise ValueError('Image is outside inspection stages')
             if any(part.casefold() in {'deleted', 'discards'} for part in relative.parts):
-                raise ValueError('Deleted / discards 不属于图像检测范围')
+                raise ValueError('Deleted / discards are outside inspection scope')
             if candidate.name.startswith('._') or candidate.suffix.lower() not in _IMAGE_EXTENSIONS or not candidate.is_file():
-                raise FileNotFoundError('图片不存在或格式不支持')
+                raise FileNotFoundError('Image not found or unsupported')
 
             exiftool_path = resolve_exiftool()
             if not exiftool_path:
-                raise FileNotFoundError('ExifTool 未安装或不可用')
+                raise FileNotFoundError('ExifTool unavailable')
             groups = _run_exiftool_full_metadata(exiftool_path, candidate)
             return jsonify({
                 'file': candidate.name,

@@ -39,10 +39,10 @@ def _stem_map(folder: Path):
 def _resolved_directory(value):
     text = str(value or '').strip()
     if not text:
-        raise ValueError('请选择目录')
+        raise ValueError('Select a folder')
     path = Path(text).expanduser().resolve()
     if not path.is_dir():
-        raise ValueError(f'目录不存在: {path}')
+        raise ValueError(f'Folder not found: {path}')
     return path
 
 
@@ -51,15 +51,15 @@ def _resolved_preview_file(folder_path, filename):
     folder = _resolved_directory(folder_path)
     name = str(filename or '').strip()
     if not name or Path(name).name != name:
-        raise ValueError('无效的预览文件名')
+        raise ValueError('Invalid preview filename')
     if name in _IGNORED_NAMES or name.startswith('._'):
-        raise ValueError('该文件不参与比较')
+        raise ValueError('File is not part of this comparison')
 
     path = (folder / name).resolve()
     if path.parent != folder or not path.is_file():
-        raise ValueError('预览文件不存在或已变化')
+        raise ValueError('Preview file changed or is missing')
     if path.suffix.casefold() not in _PREVIEW_EXTENSIONS:
-        raise ValueError('该文件类型不支持图像预览')
+        raise ValueError('Unsupported preview format')
     return path
 
 
@@ -131,7 +131,7 @@ def compare_folders(left_path, right_path):
     }
 
 
-def choose_directory(prompt='选择目录'):
+def choose_directory(prompt='Select Folder'):
     """Open a native folder picker on the machine running Photo Library."""
     system = platform.system()
     if system == 'Darwin':
@@ -147,7 +147,7 @@ def choose_directory(prompt='选择目录'):
             # AppleScript returns -128 when the user cancels the picker.
             if '(-128)' in stderr or 'User canceled' in stderr:
                 return None
-            raise RuntimeError(stderr or '无法打开目录选择器')
+            raise RuntimeError(stderr or 'Cannot open folder picker')
         selected = (completed.stdout or '').strip()
         return str(_resolved_directory(selected)) if selected else None
 
@@ -157,7 +157,7 @@ def choose_directory(prompt='选择目录'):
         import tkinter as tk
         from tkinter import filedialog
     except ImportError as exc:
-        raise RuntimeError('当前系统没有可用的本机目录选择器') from exc
+        raise RuntimeError('No native folder picker available') from exc
 
     root = tk.Tk()
     root.withdraw()
@@ -195,11 +195,11 @@ def _normalize_expected_rows(rows):
 def trash_extra_files(left_path, right_path, side, expected_rows):
     """Move the already-previewed side-only files to the system Trash."""
     if side not in {'left', 'right'}:
-        raise ValueError('无效的目录侧')
+        raise ValueError('Invalid folder side')
 
     result, current_rows = _difference_rows(left_path, right_path, side)
     if _normalize_expected_rows(current_rows) != _normalize_expected_rows(expected_rows):
-        raise ValueError('目录内容已变化，请重新比较后再删除')
+        raise ValueError('Folder contents changed. Compare again before deleting.')
 
     root = Path(result['left_path'] if side == 'left' else result['right_path'])
     targets = []
@@ -207,7 +207,7 @@ def trash_extra_files(left_path, right_path, side, expected_rows):
         for name in row['files']:
             path = root / name
             if not path.is_file() or path.parent != root:
-                raise ValueError(f'文件状态已变化，请重新比较: {name}')
+                raise ValueError(f'File changed. Compare again: {name}')
             targets.append(path)
 
     moved = []
@@ -234,7 +234,7 @@ def create_folder_compare_blueprint(admin_guard):
         if denied:
             return denied
         data = request.get_json(silent=True) or {}
-        prompt = (data.get('prompt') or '选择目录').strip() or '选择目录'
+        prompt = (data.get('prompt') or 'Select Folder').strip() or 'Select Folder'
         try:
             path = choose_directory(prompt)
             return jsonify({'path': path, 'cancelled': path is None})

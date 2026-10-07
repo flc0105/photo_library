@@ -15,7 +15,7 @@ _SET_RE = re.compile(r'^\d{8}-.+-.+$')
 def _user_immutable_mask():
     mask = getattr(stat, 'UF_IMMUTABLE', None)
     if mask is None or not hasattr(os, 'chflags'):
-        raise RuntimeError('Protect Originals 需要 macOS/BSD user immutable file flag 支持')
+        raise RuntimeError('Protect Originals requires macOS/BSD user immutable flags')
     return int(mask)
 
 
@@ -23,7 +23,7 @@ def _file_is_user_immutable(path: Path) -> bool:
     """Read the real filesystem protection state; no database mirror is kept."""
     flags = getattr(path.stat(), 'st_flags', None)
     if flags is None:
-        raise RuntimeError('当前文件系统无法读取 user immutable flag')
+        raise RuntimeError('Filesystem cannot read user immutable flags')
     return bool(int(flags) & _user_immutable_mask())
 
 
@@ -32,7 +32,7 @@ def _ensure_user_immutable(path: Path):
     st = path.stat()
     flags = getattr(st, 'st_flags', None)
     if flags is None:
-        raise RuntimeError('当前文件系统无法读取 user immutable flag')
+        raise RuntimeError('Filesystem cannot read user immutable flags')
     os.chflags(path, int(flags) | _user_immutable_mask())
 
 
@@ -41,7 +41,7 @@ def _clear_user_immutable(path: Path):
     st = path.stat()
     flags = getattr(st, 'st_flags', None)
     if flags is None:
-        raise RuntimeError('当前文件系统无法读取 user immutable flag')
+        raise RuntimeError('Filesystem cannot read user immutable flags')
     os.chflags(path, int(flags) & ~_user_immutable_mask())
 
 
@@ -147,13 +147,13 @@ def _build_protect_originals_plan(source_id, set_dir: Path, set_rel: str):
 def _verify_protect_originals_snapshot(plan, set_dir: Path):
     current_snapshot, current_paths = _protect_originals_snapshot(set_dir)
     if current_snapshot != plan.get('snapshot'):
-        raise RuntimeError('Base/Model 或 Original 文件列表在预览后发生变化，请重新预览')
+        raise RuntimeError('Preview is stale. Run Preview again.')
     current_protection_snapshot = {
         path.relative_to(set_dir).as_posix(): _file_is_user_immutable(path)
         for path in (current_paths['jpg'] + current_paths['raw'])
     }
     if current_protection_snapshot != plan.get('protection_snapshot'):
-        raise RuntimeError('Original 保护状态在预览后发生变化，请重新预览')
+        raise RuntimeError('Protection changed after Preview. Run Preview again.')
 
 
 def create_blueprint(admin_guard, get_source, resolve_path):
@@ -162,10 +162,10 @@ def create_blueprint(admin_guard, get_source, resolve_path):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -210,7 +210,7 @@ def create_blueprint(admin_guard, get_source, resolve_path):
             data = request.get_json(silent=True) or {}
             action = str(data.get('action') or 'protect').strip().casefold()
             if action not in {'protect', 'unprotect'}:
-                raise ValueError('无效的 Original 保护操作')
+                raise ValueError('Invalid protection action')
 
             plan = get_plan(str(data.get('plan_id') or ''), 'protect_originals', source_id, set_rel)
             verify_signatures(plan['signatures'])
@@ -218,8 +218,8 @@ def create_blueprint(admin_guard, get_source, resolve_path):
             paths = [Path(path) for path in (plan['paths'] if action == 'protect' else plan['unprotect_paths'])]
             if not paths:
                 if action == 'protect':
-                    raise ValueError('当前没有需要保护的 Original JPG/RAW')
-                raise ValueError('当前 Set 没有已保护的 Original JPG/RAW')
+                    raise ValueError('No Original files to protect')
+                raise ValueError('No protected Original files')
             task_id = new_task('protect_originals', len(paths))
 
             def worker():
@@ -227,19 +227,19 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                     if action == 'protect':
                         newly_protected = 0
                         already_protected = 0
-                        update_task(task_id, status='running', message='开始设置 Original 保护…')
+                        update_task(task_id, status='running', message='Protecting Originals…')
                         for index, path in enumerate(paths, start=1):
                             if not path.is_file():
-                                raise FileNotFoundError(f'Original 文件不存在: {path.name}')
+                                raise FileNotFoundError(f'Original file not found: {path.name}')
                             was_protected = _file_is_user_immutable(path)
                             _ensure_user_immutable(path)
                             if not _file_is_user_immutable(path):
-                                raise RuntimeError(f'保护设置未生效: {path.name}')
+                                raise RuntimeError(f'Protection failed to apply: {path.name}')
                             if was_protected:
                                 already_protected += 1
                             else:
                                 newly_protected += 1
-                            message = f'{path.name} · 已设置保护'
+                            message = f'{path.name} · Protected'
                             update_task(task_id, completed=index, current=index, message=message, log=message)
                         result = {
                             'action': action,
@@ -250,18 +250,18 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                         update_task(
                             task_id,
                             status='done',
-                            message=f'完成：已确认保护 {len(paths)} 个 Original 文件',
+                            message=f'Protected {len(paths)} Original files',
                             result=result,
                         )
                     else:
-                        update_task(task_id, status='running', message='开始取消 Original 保护…')
+                        update_task(task_id, status='running', message='Removing protection…')
                         for index, path in enumerate(paths, start=1):
                             if not path.is_file():
-                                raise FileNotFoundError(f'Original 文件不存在: {path.name}')
+                                raise FileNotFoundError(f'Original file not found: {path.name}')
                             _clear_user_immutable(path)
                             if _file_is_user_immutable(path):
-                                raise RuntimeError(f'取消保护未生效: {path.name}')
-                            message = f'{path.name} · 已取消保护'
+                                raise RuntimeError(f'Unprotect failed: {path.name}')
+                            message = f'{path.name} · Unprotected'
                             update_task(task_id, completed=index, current=index, message=message, log=message)
                         result = {
                             'action': action,
@@ -270,11 +270,11 @@ def create_blueprint(admin_guard, get_source, resolve_path):
                         update_task(
                             task_id,
                             status='done',
-                            message=f'完成：已取消保护 {len(paths)} 个 Original 文件',
+                            message=f'Unprotected {len(paths)} Original files',
                             result=result,
                         )
                 except Exception as exc:
-                    message = '设置 Original 保护失败' if action == 'protect' else '取消 Original 保护失败'
+                    message = 'Protect failed' if action == 'protect' else 'Unprotect failed'
                     update_task(task_id, status='error', message=message, error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
