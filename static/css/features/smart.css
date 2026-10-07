@@ -428,3 +428,31 @@
         margin-left: 0;
     }
 }
+
+.explore-python-help-scroll {
+    height: 520px;
+    max-height: calc(100vh - 210px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+}
+
+.explore-python-parameter-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 9px;
+    color: #909399;
+    font-size: 12px;
+}
+
+.explore-python-parameter-list > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.explore-python-parameter-list > div > code {
+    min-width: 154px;
+    color: #606266;
+}

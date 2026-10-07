@@ -143,7 +143,7 @@
             <div v-if="isAdmin" class="album-group smart-view-group">
                 <div class="group-header">
                     <div class="group-title" @click="toggleGroupCollapse('smart-views')">
-                        <h2>Smart View <span class="album-count">{{ smartViews.length }}</span></h2>
+                        <h2>Smart View <span class="album-count">{{ smartViews.length }} View{{ smartViews.length === 1 ? '' : 's' }}</span></h2>
                     </div>
                     <div class="group-actions">
                         <span class="el-dropdown-link"
@@ -1057,12 +1057,10 @@
                         </template>
                     </el-dropdown>
 
-                    <el-button v-if="isAdmin" @click="showEditAlbumDialog = true">Edit Album</el-button>
-                    <el-button v-if="canUpload" @click="showUploadDialog = true">Upload Photos</el-button>
-                    <el-button v-if="isAdmin" type="danger" @click="deleteAlbum(currentAlbum.id)">Delete Album</el-button>
-                    <el-button @click="showShareDialog('album')">
-                        Share Album
-                    </el-button>
+                    <el-button v-if="isAdmin" @click="showEditAlbumDialog = true">Edit</el-button>
+                    <el-button v-if="isAdmin" type="danger" @click="deleteAlbum(currentAlbum.id)">Delete</el-button>
+                    <el-button v-if="canUpload" @click="showUploadDialog = true">Upload</el-button>
+                    <el-button @click="showShareDialog('album')">Share</el-button>
 
                     <el-button :disabled="getFavoriteCount === 0" @click="exportFavoriteList">
                         Favorites{{ getFavoriteCount > 0 ? ` (${getFavoriteCount})` : '' }}
@@ -1962,24 +1960,21 @@
             </template>
         </el-dialog>
 
-        <el-dialog v-model="showExploreBlockHelpDialog" title="Explore Python" width="860px" append-to-body>
-            <div style="line-height:1.65;">
+        <el-dialog v-model="showExploreBlockHelpDialog" title="Explore Python Reference" width="860px" append-to-body>
+            <div class="explore-python-help-scroll" style="line-height:1.65;">
                 <template v-if="exploreBlockRuntime">
                     <div style="margin-bottom:14px; color:#606266; font-size:13px;">
-                        Assign <code>result</code> from <code>group_sets()</code> or <code>group_photos()</code>. Explore handles counts, percentages, metric switching, and drill-down results.
-                        <code>group_sets()</code> counts the supplied Sets and, by default, all indexed Photos in those Sets; use <code>photo_scope=...</code> to limit Photo versions.
-                        <code>group_photos()</code> counts matching Photos and deduplicates their Sets. Display mode only controls the card presentation.
+                        Set <code>result</code> with <code>group_sets()</code> or <code>group_photos()</code>. Counts and drill-down are automatic.
                     </div>
                     <div style="margin-bottom:14px;">
-                        <strong>Built-in Helpers</strong>
+                        <strong>Grouping Functions</strong>
                         <div style="display:flex; flex-direction:column; gap:6px; margin-top:7px;">
                             <code v-for="helper in (exploreBlockRuntime.helpers || [])" :key="helper"
                                   style="padding:5px 8px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ helper }}</code>
                         </div>
-                        <div style="margin-top:8px; color:#909399; font-size:12px;">
-                            <code>many=True</code> allows one Set or Photo in multiple buckets; each object counts once per bucket.
-                            <code>include_missing=False</code> excludes empty / <code>Not Set</code> values from both rows and the percentage base; default is <code>True</code>.
-                            Photo version scope is explicit: pass filtered Photos to <code>group_photos()</code>, or use <code>photo_scope=helpers.preferred_versions(photos)</code> / <code>helpers.finals(photos)</code> with <code>group_sets()</code>.
+                        <div class="explore-python-parameter-list">
+                            <div><code>many=True</code><span>Allow one item in multiple buckets.</span></div>
+                            <div><code>include_missing=False</code><span>Exclude empty / <code>Not Set</code> buckets.</span></div>
                         </div>
                         <div v-if="(exploreBlockRuntime.custom_helpers || []).length" style="margin-top:12px;">
                             <strong>Custom Python Helpers</strong>
@@ -1988,10 +1983,6 @@
                                       style="padding:5px 8px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">{{ helper }}</code>
                             </div>
                         </div>
-                    </div>
-                    <div style="margin-bottom:14px;">
-                        <strong>Example</strong>
-                        <pre style="white-space:pre-wrap; padding:10px; background:#f7f8fa; border:1px solid #ebeef5; border-radius:4px; font-size:12px;">{{ exploreBlockRuntime.default_code }}</pre>
                     </div>
                     <div v-for="group in (exploreBlockRuntime.set_contract_groups || [])" :key="`set-${group.label}`" style="margin-bottom:12px;">
                         <strong>Set · {{ group.label }}</strong>
@@ -2215,6 +2206,7 @@
                     <el-input
                             v-model="newPassword"
                             type="password"
+                            autocomplete="new-password"
                             placeholder="New password"
                             style="width: 200px;"
                     />
@@ -2367,18 +2359,25 @@
                     <div>
                         <div class="source-title-row">
                             <strong>{{ source.name }}</strong>
-                            <el-tag size="small" :type="source.enabled ? 'success' : 'info'">{{ source.enabled ? 'Enabled' : 'Disabled' }}</el-tag>
+                            <el-tag v-if="!source.enabled" size="small" type="info">Disabled</el-tag>
                             <el-tag size="small" :type="source.available ? 'success' : 'danger'">{{ source.available ? 'Available' : 'Unavailable' }}</el-tag>
                         </div>
                         <div class="source-path">{{ source.root_path }}</div>
                     </div>
                     <div class="source-actions">
-                        <el-button plain size="small" @click="renameLibrarySource(source)">Rename</el-button>
                         <el-button :type="source.enabled ? 'warning' : 'success'" plain size="small"
                                    @click="setLibrarySourceEnabled(source, !source.enabled)">
                             {{ source.enabled ? 'Disable' : 'Enable' }}
                         </el-button>
-                        <el-button type="danger" plain size="small" @click="deleteLibrarySource(source)">Remove</el-button>
+                        <el-dropdown trigger="click" placement="bottom-end">
+                            <el-button plain size="small">More</el-button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item @click="renameLibrarySource(source)">Rename</el-dropdown-item>
+                                    <el-dropdown-item divided @click="deleteLibrarySource(source)">Remove</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                     </div>
                 </div>
             </div>
