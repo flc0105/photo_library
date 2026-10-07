@@ -464,7 +464,7 @@
              v-loading="currentView === 'smart-set' ? smartSetLoading : libraryLoading">
             <div class="back-button">
                 <el-button @click="currentView === 'smart-set' ? (currentSmartSet.is_explore ? backToExplore() : backToAlbums()) : libraryBack()">
-                    {{ currentView === 'smart-set' ? (currentSmartSet.is_explore ? '返回 Explore' : '返回相册列表') : '返回上一级' }}
+                    {{ currentView === 'smart-set' ? (currentSmartSet.is_explore ? 'Back to Explore' : 'Back to Albums') : 'Back' }}
                 </el-button>
             </div>
 
@@ -517,13 +517,13 @@
                     <!-- 非 Set root 的普通目录仍保留原来的目录 Display 控件。 -->
                     <el-dropdown v-else-if="currentView === 'library' && libraryDirectories.length > 0" trigger="click" placement="bottom-start">
                         <el-button>
-                            <span>{{ folderViewMode === 'grid' ? '目录网格' : '目录列表' }}</span>
+                            <span>{{ folderViewMode === 'grid' ? 'Grid' : 'List' }}</span>
                             <el-icon class="el-icon--right"><arrow-down/></el-icon>
                         </el-button>
                         <template #dropdown>
                             <el-dropdown-menu>
-                                <el-dropdown-item :class="{ 'is-active': folderViewMode === 'grid' }" @click="folderViewMode = 'grid'">目录网格</el-dropdown-item>
-                                <el-dropdown-item :class="{ 'is-active': folderViewMode === 'list' }" @click="folderViewMode = 'list'">目录列表</el-dropdown-item>
+                                <el-dropdown-item :class="{ 'is-active': folderViewMode === 'grid' }" @click="folderViewMode = 'grid'">Grid</el-dropdown-item>
+                                <el-dropdown-item :class="{ 'is-active': folderViewMode === 'list' }" @click="folderViewMode = 'list'">List</el-dropdown-item>
                             </el-dropdown-menu>
                         </template>
                     </el-dropdown>
@@ -531,13 +531,13 @@
                     <!-- 与原相册图片页一致的浏览模式切换。只在当前层有图片时显示。 -->
                     <el-dropdown v-if="currentView === 'library' && libraryImages.length > 0" trigger="click" placement="bottom-start" style="margin-right: 10px;">
                         <el-button>
-                            <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
+                            <span>{{ viewMode === 'grid' ? 'Grid' : 'Waterfall' }}</span>
                             <el-icon class="el-icon--right"><arrow-down/></el-icon>
                         </el-button>
                         <template #dropdown>
                             <el-dropdown-menu>
-                                <el-dropdown-item :class="{ 'is-active': viewMode === 'grid' }" @click="viewMode = 'grid'">网格模式</el-dropdown-item>
-                                <el-dropdown-item :class="{ 'is-active': viewMode === 'waterfall' }" @click="viewMode = 'waterfall'">瀑布流模式</el-dropdown-item>
+                                <el-dropdown-item :class="{ 'is-active': viewMode === 'grid' }" @click="viewMode = 'grid'">Grid</el-dropdown-item>
+                                <el-dropdown-item :class="{ 'is-active': viewMode === 'waterfall' }" @click="viewMode = 'waterfall'">Waterfall</el-dropdown-item>
                             </el-dropdown-menu>
                         </template>
                     </el-dropdown>
@@ -556,7 +556,7 @@
                             </template>
                         </el-dropdown>
                         <el-button v-if="isSetDirectory" @click="openManifestEditor">
-                            {{ libraryListing.manifest && libraryListing.manifest.exists ? '编辑 manifest' : '创建 manifest' }}
+                            {{ libraryListing.manifest && libraryListing.manifest.exists ? 'Edit Manifest' : 'Create Manifest' }}
                         </el-button>
                         <el-dropdown v-if="isSetDirectory" trigger="click" placement="bottom-end" @visible-change="handleWorkflowMenuVisible">
                             <el-button title="Workflow" aria-label="Workflow">Workflow</el-button>
@@ -577,16 +577,16 @@
                         </el-dropdown>
                         <el-button v-if="libraryImages.length > 0 && libraryFavoriteCount > 1"
                                    @click="exportLibraryFavorites">
-                            选图{{ libraryFavoriteCount > 0 ? `(${libraryFavoriteCount})` : '' }}
+                            Favorites{{ libraryFavoriteCount > 0 ? ` (${libraryFavoriteCount})` : '' }}
                         </el-button>
                         <el-button v-if="isSetDirectory" type="primary"
-                                   title="分享完整 Set"
+                                   title="Share Set"
                                    @click="openLibraryShareDialog">Share Set</el-button>
                     </template>
                     <template v-if="isAdmin && currentView === 'smart-set' && !currentSmartSet.is_explore">
-                        <el-button @click="runSmartSet">运行查询</el-button>
-                        <el-button @click="editSmartSet()">编辑</el-button>
-                        <el-button type="danger" @click="deleteSmartSet()">删除</el-button>
+                        <el-button @click="runSmartSet">Run</el-button>
+                        <el-button @click="editSmartSet()">Edit</el-button>
+                        <el-button type="danger" @click="deleteSmartSet()">Delete</el-button>
                     </template>
                 </div>
             </div>
@@ -596,19 +596,19 @@
 
             <div v-if="currentView === 'library' && isSetDirectory && libraryListing.manifest && libraryListing.manifest.exists && !libraryListing.manifest.valid"
                  class="library-manifest-error">
-                manifest.json 读取失败：{{ libraryListing.manifest.error }}
+                manifest.json: {{ libraryListing.manifest.error }}
             </div>
 
             <div v-if="currentView === 'library' && manifestSummary" class="library-manifest-card library-manifest-summary">
                 <div class="library-manifest-summary-main">
-                    <div class="library-manifest-title">{{ manifestSummary.title || '未命名 Set' }}</div>
+                    <div class="library-manifest-title">{{ manifestSummary.title || 'Untitled Set' }}</div>
                     <div class="library-manifest-meta">
                         <span v-if="manifestSummary.date">{{ manifestSummary.date }}</span>
                         <span v-if="manifestSummary.model">Model: {{ manifestSummary.model }}</span>
                         <span v-if="manifestSummary.location">Location: {{ manifestSummary.location }}</span>
                     </div>
                 </div>
-                <el-button plain @click="openManifestDetails">Detail</el-button>
+                <el-button plain @click="openManifestDetails">Details</el-button>
             </div>
 
             <!-- 文件夹：网格和紧凑列表两种布局；切换入口放在 album-actions。 -->
@@ -630,10 +630,10 @@
                         <div class="album-info">
                             <div class="album-name">{{ item.name }}</div>
                             <div class="album-meta library-folder-meta">
-                                <span v-if="item.is_set && item.has_manifest && item.manifest_valid">SET · manifest</span>
-                                <span v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</span>
-                                <span v-else-if="item.is_set">SET</span>
-                                <span v-else>文件夹</span>
+                                <span v-if="item.is_set && item.has_manifest && item.manifest_valid">Set · Manifest</span>
+                                <span v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">Set · Manifest Error</span>
+                                <span v-else-if="item.is_set">Set</span>
+                                <span v-else>Folder</span>
                             </div>
                             <div class="library-folder-stats">{{ formatLibraryFolderCounts(item) }}</div>
                         </div>
@@ -655,10 +655,10 @@
                         <div class="library-folder-list-main">
                             <div class="library-folder-list-name">{{ item.name }}</div>
                             <div class="library-folder-list-type">
-                                <span v-if="item.is_set && item.has_manifest && item.manifest_valid">SET · manifest</span>
-                                <span v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">SET · manifest error</span>
-                                <span v-else-if="item.is_set">SET</span>
-                                <span v-else>文件夹</span>
+                                <span v-if="item.is_set && item.has_manifest && item.manifest_valid">Set · Manifest</span>
+                                <span v-else-if="item.is_set && item.has_manifest" class="manifest-error-text">Set · Manifest Error</span>
+                                <span v-else-if="item.is_set">Set</span>
+                                <span v-else>Folder</span>
                             </div>
                         </div>
                         <div class="library-folder-list-stats">{{ formatLibraryFolderCounts(item) }}</div>
@@ -670,8 +670,8 @@
             <!-- 图片：完全沿用原相册的筛选/排序状态和两种布局。 -->
             <div v-if="currentView === 'library' && libraryImages.length > 0" class="library-section">
                 <div v-if="filteredImages.length > 0" style="margin: 10px 0; color: #666; font-size: 13px;">
-                    <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
-                    <span>排序: {{ getCurrentSortLabel }}</span>
+                    <span>Filter: {{ getCurrentFilterLabel }}</span> ·
+                    <span>Sort: {{ getCurrentSortLabel }}</span>
                 </div>
 
                 <div v-if="viewMode === 'grid'">
@@ -687,7 +687,7 @@
                                 <button class="action-button"
                                         :class="{ 'favorited': image.is_favorited }"
                                         @click.stop="toggleImageFavorite(image)"
-                                        :title="image.is_favorited ? '取消收藏' : '收藏'">
+                                        :title="image.is_favorited ? 'Unfavorite' : 'Favorite'">
                                     <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'"><Star/></el-icon>
                                 </button>
                             </div>
@@ -743,7 +743,7 @@
             </div>
             <div v-if="currentView === 'smart-set' && !smartSetQueryError && !smartSetLoading && libraryDirectories.length === 0"
                  class="empty-state library-directory-state">
-                <p>{{ smartSetResults.length > 0 && setSearchQuery.trim() ? `没有匹配“${setSearchQuery.trim()}”的 Set。` : '当前查询没有 Set 结果。' }}</p>
+                <p>{{ smartSetResults.length > 0 && setSearchQuery.trim() ? 'No matching Sets.' : 'No Sets.' }}</p>
             </div>
         </div>
 
@@ -753,20 +753,20 @@
         <!-- Set 分享页：复用本地目录的文件夹/图片交互，但不暴露编辑或 Workflow。 -->
         <div v-if="currentView === 'library-share'" v-loading="shareLoading">
             <div v-if="shareNeedsPassword" class="share-password-box">
-                <h2 style="margin:0;">{{ libraryShare.title || '分享 Set' }}</h2>
-                <el-input v-model="sharePassword" type="password" show-password placeholder="输入分享密码"
+                <h2 style="margin:0;">{{ libraryShare.title || 'Shared Set' }}</h2>
+                <el-input v-model="sharePassword" type="password" show-password placeholder="Password"
                           @keyup.enter="unlockLibraryShare"></el-input>
-                <el-button type="primary" @click="unlockLibraryShare">进入</el-button>
+                <el-button type="primary" @click="unlockLibraryShare">Open</el-button>
             </div>
 
             <template v-else>
                 <div v-if="libraryShare.listing && libraryShare.listing.parent_path !== null" class="back-button">
-                    <el-button @click="libraryShareBack">返回上一级</el-button>
+                    <el-button @click="libraryShareBack">Back</el-button>
                 </div>
 
                 <div class="header">
                     <div>
-                        <h1>{{ libraryShare.listing && !libraryShare.listing.is_share_root ? libraryShare.listing.name : (libraryShare.title || '分享 Set') }}</h1>
+                        <h1>{{ libraryShare.listing && !libraryShare.listing.is_share_root ? libraryShare.listing.name : (libraryShare.title || 'Shared Set') }}</h1>
                         <div class="library-path">
                             {{ libraryShare.title || 'Set' }}
                             <span v-if="libraryShare.listing && !libraryShare.listing.is_share_root"> / {{ libraryShare.listing.path }}</span>
@@ -775,30 +775,30 @@
                     <div class="album-actions">
                         <el-dropdown v-if="shareDirectories.length > 0" trigger="click" placement="bottom-start" style="margin-right:10px;">
                             <el-button>
-                                <span>{{ folderViewMode === 'grid' ? '目录网格' : '目录列表' }}</span>
+                                <span>{{ folderViewMode === 'grid' ? 'Grid' : 'List' }}</span>
                                 <el-icon class="el-icon--right"><arrow-down/></el-icon>
                             </el-button>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item :class="{ 'is-active': folderViewMode === 'grid' }" @click="folderViewMode = 'grid'">目录网格</el-dropdown-item>
-                                    <el-dropdown-item :class="{ 'is-active': folderViewMode === 'list' }" @click="folderViewMode = 'list'">目录列表</el-dropdown-item>
+                                    <el-dropdown-item :class="{ 'is-active': folderViewMode === 'grid' }" @click="folderViewMode = 'grid'">Grid</el-dropdown-item>
+                                    <el-dropdown-item :class="{ 'is-active': folderViewMode === 'list' }" @click="folderViewMode = 'list'">List</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
                         <el-dropdown v-if="shareImages.length > 0" trigger="click" placement="bottom-start" style="margin-right:10px;">
                             <el-button>
-                                <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
+                                <span>{{ viewMode === 'grid' ? 'Grid' : 'Waterfall' }}</span>
                                 <el-icon class="el-icon--right"><arrow-down/></el-icon>
                             </el-button>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item :class="{ 'is-active': viewMode === 'grid' }" @click="viewMode = 'grid'">网格模式</el-dropdown-item>
-                                    <el-dropdown-item :class="{ 'is-active': viewMode === 'waterfall' }" @click="viewMode = 'waterfall'">瀑布流模式</el-dropdown-item>
+                                    <el-dropdown-item :class="{ 'is-active': viewMode === 'grid' }" @click="viewMode = 'grid'">Grid</el-dropdown-item>
+                                    <el-dropdown-item :class="{ 'is-active': viewMode === 'waterfall' }" @click="viewMode = 'waterfall'">Waterfall</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
                         <el-button v-if="libraryShare.allow_select" :disabled="shareSelectedImages.length === 0" @click="exportShareSelection">
-                            选图{{ shareSelectedImages.length > 0 ? `(${shareSelectedImages.length})` : '' }}
+                            Selected{{ shareSelectedImages.length > 0 ? ` (${shareSelectedImages.length})` : '' }}
                         </el-button>
                     </div>
                 </div>
@@ -806,14 +806,14 @@
                 <div v-if="manifestSummary && libraryShare.listing && libraryShare.listing.is_share_root"
                      class="library-manifest-card library-manifest-summary">
                     <div class="library-manifest-summary-main">
-                        <div class="library-manifest-title">{{ manifestSummary.title || libraryShare.title || '未命名 Set' }}</div>
+                        <div class="library-manifest-title">{{ manifestSummary.title || libraryShare.title || 'Untitled Set' }}</div>
                         <div class="library-manifest-meta">
                             <span v-if="manifestSummary.date">{{ manifestSummary.date }}</span>
                             <span v-if="manifestSummary.model">Model: {{ manifestSummary.model }}</span>
                             <span v-if="manifestSummary.location">Location: {{ manifestSummary.location }}</span>
                         </div>
                     </div>
-                    <el-button plain @click="openManifestDetails">Detail</el-button>
+                    <el-button plain @click="openManifestDetails">Details</el-button>
                 </div>
 
                 <div v-if="shareDirectories.length > 0" class="library-section">
@@ -830,7 +830,7 @@
                             </div>
                             <div class="album-info">
                                 <div class="album-name">{{ item.name }}</div>
-                                <div class="album-meta library-folder-meta"><span>文件夹</span></div>
+                                <div class="album-meta library-folder-meta"><span>Folder</span></div>
                                 <div class="library-folder-stats">{{ formatLibraryFolderCounts(item) }}</div>
                             </div>
                         </div>
@@ -846,7 +846,7 @@
                             </div>
                             <div class="library-folder-list-main">
                                 <div class="library-folder-list-name">{{ item.name }}</div>
-                                <div class="library-folder-list-type">文件夹</div>
+                                <div class="library-folder-list-type">Folder</div>
                             </div>
                             <div class="library-folder-list-stats">{{ formatLibraryFolderCounts(item) }}</div>
                             <div class="library-folder-list-arrow" aria-hidden="true">›</div>
@@ -856,8 +856,8 @@
 
                 <div v-if="shareImages.length > 0" class="library-section">
                     <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
-                        <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
-                        <span>排序: {{ getCurrentSortLabel }}</span>
+                        <span>Filter: {{ getCurrentFilterLabel }}</span> ·
+                        <span>Sort: {{ getCurrentSortLabel }}</span>
                     </div>
 
                     <div v-if="viewMode === 'grid'" class="image-grid">
@@ -867,7 +867,7 @@
                                 <button class="action-button"
                                         :class="{ 'favorited': image.is_favorited }"
                                         @click.stop="toggleImageFavorite(image)"
-                                        :title="image.is_favorited ? '取消收藏' : '收藏'">
+                                        :title="image.is_favorited ? 'Unselect' : 'Select'">
                                     <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'"><Star/></el-icon>
                                 </button>
                             </div>
@@ -1286,7 +1286,7 @@
         <!-- 图片详情页面 -->
         <div v-if="currentView === 'image-detail'">
             <div class="back-button">
-                <el-button @click="backToAlbum">{{ currentImage.explore_result ? '返回 Explore 结果' : (currentImage.smart_album_id ? '返回智能相册' : (currentImage.source_type === 'library-share' ? '返回分享' : (currentImage.source_type === 'library' ? '返回目录' : '返回相册'))) }}</el-button>
+                <el-button @click="backToAlbum">{{ currentImage.explore_result ? 'Back to Explore' : (currentImage.smart_album_id ? 'Back to Smart Album' : (currentImage.source_type === 'library-share' ? 'Back to Share' : (currentImage.source_type === 'library' ? 'Back to Folder' : 'Back to Album'))) }}</el-button>
             </div>
 
             <div class="image-detail-layout">
@@ -1306,7 +1306,7 @@
                                 circle
                                 :type="currentImage.is_favorited ? 'primary' : 'default'"
                                 @click="toggleCurrentFavorite"
-                                :title="currentImage.is_favorited ? '取消收藏' : '收藏'"
+                                :title="currentImage.is_favorited ? 'Unfavorite' : 'Favorite'"
                         >
                             <el-icon>
                                 <Star/>
@@ -1316,7 +1316,7 @@
                                    circle
                                    type="danger"
                                    @click="deleteImage(currentImage.id, true)"
-                                   title="删除图片"
+                                   title="Delete Photo"
                         >
                             <el-icon>
                                 <Delete/>
@@ -1326,7 +1326,7 @@
                                    circle
                                    type="danger"
                                    @click="softDeleteCurrentLibraryImage"
-                                   title="移动到 Deleted"
+                                   title="Move to Deleted"
                         >
                             <el-icon>
                                 <Delete/>
@@ -1336,7 +1336,7 @@
                         <el-button
                                 circle
                                 @click="downloadImage(currentImage.id)"
-                                title="下载"
+                                title="Download"
                         >
                             <el-icon>
                                 <Download/>
@@ -1348,59 +1348,59 @@
 
                 <div class="info-section">
                     <div class="info-panel">
-                        <h3>图片信息</h3>
+                        <h3>Photo Info</h3>
                         <div class="info-content" style="margin-top:30px">
 
 
                             <div class="info-item" @dblclick="isAdmin && currentImage.source_type !== 'library-share' && !currentImage.smart_album_id ? editImageFilename(currentImage) : null"
                                  style="cursor: pointer;">
-                                <strong>文件名: </strong>
+                                <strong>Filename: </strong>
 
                                 <span v-if="currentImage.original_filename">{{ currentImage.original_filename }}</span>
 
                             </div>
 
 
-                            <div class="info-item"><strong>文件大小:</strong> {{ formatFileSize(currentImage.file_size)}}
+                            <div class="info-item"><strong>Size:</strong> {{ formatFileSize(currentImage.file_size)}}
                             </div>
-                            <div class="info-item"><strong>尺寸:</strong> {{ currentImage.width }} ×
+                            <div class="info-item"><strong>Dimensions:</strong> {{ currentImage.width }} ×
                                 {{ currentImage.height }}
                             </div>
-                            <div class="info-item"><strong>{{ currentImage.source_type === 'library' || currentImage.source_type === 'library-share' ? '修改时间:' : '上传时间:' }}</strong> {{ formatDate(currentImage.uploaded_at) }}
+                            <div class="info-item"><strong>{{ currentImage.source_type === 'library' || currentImage.source_type === 'library-share' ? 'Modified:' : 'Uploaded:' }}</strong> {{ formatDate(currentImage.uploaded_at) }}
                             </div>
-                            <div class="info-item"><strong>当前位置:</strong> {{ currentImageIndex + 1 }} /
+                            <div class="info-item"><strong>Position:</strong> {{ currentImageIndex + 1 }} /
                                 {{ detailImageList.length }}
                                 <span v-if="currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share' && currentFilter !== 'all'" style="color: #409eff; margin-left: 10px;">
-                        (筛选: {{ getCurrentFilterLabel }})
+                        (Filter: {{ getCurrentFilterLabel }})
                     </span>
                             </div>
                             <div v-if="currentImage.source_type === 'library' && currentImage.relative_path" class="info-item">
-                                <strong>文件路径:</strong>
+                                <strong>Path:</strong>
                                 <span :title="currentImage.relative_path" style="word-break:break-all;">{{ currentImage.relative_path }}</span>
                             </div>
 
                             <!-- 图片描述 -->
                             <div class="info-item" @dblclick="isAdmin && currentImage.source_type !== 'library-share' ? editImageDescription(currentImage) : null"
                                  style="cursor: pointer;">
-                                <strong>描述: </strong>
+                                <strong>Description: </strong>
                                 <span v-if="currentImage.description"
                                       style="white-space: pre-wrap;">{{ currentImage.description }}</span>
-                                <span v-else>暂无描述</span>
+                                <span v-else>No Description</span>
 
                             </div>
                         </div>
 
 
                         <div class="action-buttons">
-                            <el-button type="primary" @click="downloadImage(currentImage.id)">下载原图</el-button>
-                            <el-button v-if="isAdmin && currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share'" type="primary" @click="setAsCover(currentImage.id)">设为封面
+                            <el-button type="primary" @click="downloadImage(currentImage.id)">Download Original</el-button>
+                            <el-button v-if="isAdmin && currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share'" type="primary" @click="setAsCover(currentImage.id)">Set as Cover
                             </el-button>
                             <el-button v-if="isAdmin" type="primary" @click="showImageExif(currentImage.id)">
-                                查看EXIF信息
+                                EXIF Info
                             </el-button>
 
                             <el-button v-if="currentImage.source_type !== 'library' && currentImage.source_type !== 'library-share'" @click="showShareDialog('image')">
-                                分享图片
+                                Share Photo
                             </el-button>
                         </div>
 
@@ -1718,17 +1718,17 @@
                 <el-tabs v-model="smartAlbumIndexTab" class="smart-view-index-tabs" @tab-change="handleSmartAlbumIndexTabChange">
                     <el-tab-pane label="Rebuild" name="rebuild" :disabled="smartAlbumSyncActive || smartAlbumSyncScanning">
                         <div style="padding:14px; border:1px solid #ebeef5; border-radius:8px; margin-bottom:16px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                            <div style="display:flex; align-items:center; margin-bottom:8px;">
                                 <strong>Overall · Photos</strong>
-                                <span v-if="smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.ready" style="font-size:12px; color:#606266;">
-                                    {{ smartAlbumIndexProgress.overall.current || 0 }} / {{ smartAlbumIndexProgress.overall.total || 0 }} Photos
-                                </span>
-                                <span v-else-if="smartAlbumIndexProgress.active" style="font-size:12px; color:#909399;">Scanning Sources…</span>
                             </div>
                             <el-progress :percentage="(smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.percent) || 0"
                                          :status="smartAlbumIndexProgress.error ? 'exception' : (smartAlbumIndexProgress.phase === 'done' ? 'success' : '')"></el-progress>
                             <div style="margin-top:8px; font-size:12px; color:#606266; display:flex; justify-content:space-between; gap:12px;">
-                                <span>{{ smartAlbumIndexProgress.message || 'Ready' }}</span>
+                                <span v-if="smartAlbumIndexProgress.overall && smartAlbumIndexProgress.overall.ready">
+                                    {{ smartAlbumIndexProgress.overall.current || 0 }} / {{ smartAlbumIndexProgress.overall.total || 0 }} Photos
+                                </span>
+                                <span v-else-if="smartAlbumIndexProgress.active">Scanning Sources…</span>
+                                <span v-else>Ready</span>
                                 <span v-if="smartAlbumIndexProgress.steps && smartAlbumIndexProgress.steps.length">{{ smartAlbumStepSummary(smartAlbumIndexProgress.steps) }}</span>
                             </div>
                         </div>
@@ -2055,8 +2055,8 @@
             <div v-loading="smartSetHelpLoading" style="line-height:1.65;">
                 <template v-if="smartSetRuntime">
                     <div style="margin-bottom:16px; color:#606266; font-size:13px;">
-                        <code>sets</code> 是当前 Smart View 索引范围内、仍启用且已挂载 Source 中实时存在的 Set；代码需要给 <code>result</code> 赋值。
-                        Manifest 与各 stage 数量运行时读取；<code>set.photos</code> 复用同一图片索引。
+                        <code>sets</code> contains live Sets from enabled, mounted Sources in the current Smart View index. Assign the query output to <code>result</code>.
+                        Manifest and stage counts are read at runtime; <code>set.photos</code> reuses the photo index.
                     </div>
                     <div v-for="group in (smartSetRuntime.contract_groups || [])" :key="group.label" style="margin-bottom:14px;">
                         <strong>{{ group.label }}</strong>
@@ -2075,20 +2075,20 @@
                     </div>
                 </template>
             </div>
-            <template #footer><el-button @click="showSmartSetHelpDialog = false">关闭</el-button></template>
+            <template #footer><el-button @click="showSmartSetHelpDialog = false">Close</el-button></template>
         </el-dialog>
 
         <el-dialog v-model="showSmartHelpersDialog" title="Python Helpers" width="860px" append-to-body>
             <div v-loading="smartHelpersLoading">
                 <div style="margin-bottom:10px; color:#606266; font-size:13px; line-height:1.6;">
-                    <code>{{ smartHelpersPath }}</code> 是 Smart Album、Smart Set 与 Explore 共用的业务 Helper。
-                    公开顶层函数通过 <code>helpers.&lt;name&gt;(...)</code> 调用；删除函数后不会回退到系统内置版本。
+                    <code>{{ smartHelpersPath }}</code> is shared by Smart Album, Smart Set, and Explore.
+                    Call public functions with <code>helpers.&lt;name&gt;(...)</code>.
                 </div>
                 <el-input v-model="smartHelpersSource" type="textarea" :rows="24" resize="vertical"
                           style="font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"></el-input>
                 <el-alert v-if="smartHelpersError" :title="smartHelpersError" type="error" :closable="false" show-icon style="margin-top:12px;"></el-alert>
                 <div v-if="smartHelpersFunctions.length" style="margin-top:14px;">
-                    <strong>公开 Helpers</strong>
+                    <strong>Public Helpers</strong>
                     <div style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-top:8px;">
                         <code v-for="helper in smartHelpersFunctions" :key="helper.name"
                               style="padding:4px 7px; border:1px solid #ebeef5; border-radius:4px; background:#f7f8fa; font-size:12px;">helpers.{{ helper.signature }}</code>
@@ -2097,8 +2097,8 @@
             </div>
             <template #footer>
                 <el-button :loading="smartHelpersValidating" :disabled="smartHelpersSaving" @click="validateSmartHelpers">Validate</el-button>
-                <el-button @click="showSmartHelpersDialog = false">取消</el-button>
-                <el-button type="primary" :loading="smartHelpersSaving" :disabled="smartHelpersLoading || smartHelpersValidating" @click="saveSmartHelpers">保存</el-button>
+                <el-button @click="showSmartHelpersDialog = false">Cancel</el-button>
+                <el-button type="primary" :loading="smartHelpersSaving" :disabled="smartHelpersLoading || smartHelpersValidating" @click="saveSmartHelpers">Save</el-button>
             </template>
         </el-dialog>
 
@@ -2239,15 +2239,15 @@
         </el-dialog>
 
         <!-- EXIF信息对话框 -->
-        <el-dialog v-model="showExifDialog" title="图片EXIF信息" width="700px">
+        <el-dialog v-model="showExifDialog" title="EXIF Info" width="700px">
             <div v-if="exifData" class="exif-container">
                 <el-table :data="exifTableData" stripe style="width: 100%">
-                    <el-table-column prop="key" label="属性" width="200">
+                    <el-table-column prop="key" label="Property" width="200">
                         <template #default="scope">
                             {{ scope.row.key }}
                         </template>
                     </el-table-column>
-                    <el-table-column prop="value" label="值">
+                    <el-table-column prop="value" label="Value">
                         <template #default="scope">
                             <span class="exif-value">{{ scope.row.value }}</span>
                         </template>
@@ -2258,7 +2258,7 @@
                 <el-skeleton :rows="5" animated/>
             </div>
             <template #footer>
-                <el-button @click="showExifDialog = false">关闭</el-button>
+                <el-button @click="showExifDialog = false">Close</el-button>
             </template>
         </el-dialog>
 
@@ -2324,7 +2324,7 @@
                                filterable
                                allow-create
                                default-first-option
-                               placeholder="选择或输入模特"
+                               placeholder="Select or enter model"
                                style="width: 100%;">
                         <el-option v-for="model in newSetModelOptions"
                                    :key="model"
@@ -2337,15 +2337,15 @@
                                     type="date"
                                     format="YYYYMMDD"
                                     value-format="YYYY-MM-DD"
-                                    placeholder="日期"
+                                    placeholder="Date"
                                     style="width: 100%;"></el-date-picker>
                 </el-form-item>
                 <el-form-item label="Theme">
-                    <el-input v-model="newSetForm.theme" placeholder="主题" @keyup.enter="createNewSet"></el-input>
+                    <el-input v-model="newSetForm.theme" placeholder="Theme" @keyup.enter="createNewSet"></el-input>
                 </el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showNewSetDialog = false" :disabled="newSetCreating">取消</el-button>
+                <el-button @click="showNewSetDialog = false" :disabled="newSetCreating">Cancel</el-button>
                 <el-button type="primary" @click="createNewSet" :loading="newSetCreating">Create</el-button>
             </template>
         </el-dialog>
@@ -4149,15 +4149,15 @@
         <!-- 完整 Set 分享 -->
         <el-dialog v-model="showLibraryShareDialog" title="Share Set" width="500px">
             <el-form label-width="90px">
-                <el-form-item label="标题"><el-input v-model="libraryShareForm.title"></el-input></el-form-item>
-                <el-form-item label="分享密码">
-                    <el-input v-model="libraryShareForm.password" type="password" show-password placeholder="可留空；随机 token 本身即可访问"></el-input>
+                <el-form-item label="Title"><el-input v-model="libraryShareForm.title"></el-input></el-form-item>
+                <el-form-item label="Password">
+                    <el-input v-model="libraryShareForm.password" type="password" show-password placeholder="Optional"></el-input>
                 </el-form-item>
-                <el-form-item label="允许选图"><el-switch v-model="libraryShareForm.allow_select"></el-switch></el-form-item>
+                <el-form-item label="Allow Selection"><el-switch v-model="libraryShareForm.allow_select"></el-switch></el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showLibraryShareDialog = false">取消</el-button>
-                <el-button type="primary" @click="createLibraryShare">创建分享链接</el-button>
+                <el-button @click="showLibraryShareDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="createLibraryShare">Create Link</el-button>
             </template>
         </el-dialog>
 

@@ -51,7 +51,7 @@ def _shared_directory_listing(share, requested_path=None):
     base = normalize_relative_path(share['relative_path'])
     requested = base if requested_path in (None, '') else normalize_relative_path(requested_path)
     if not _share_contains_path(share, requested):
-        raise ValueError('目录不属于该分享 Set')
+        raise ValueError('Directory is outside this shared Set.')
 
     listing = list_library_directory(source, requested)
     parent = listing.get('parent_path')
@@ -91,14 +91,14 @@ def create_library_share():
     data = request.get_json(silent=True) or {}
     source = get_library_source(data.get('source_id'))
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         _, target, rel = resolve_library_path(source, data.get('relative_path', ''))
         if not target.is_dir() or not is_set_folder_name(target.name):
-            return jsonify({'error': '只能分享完整 Set'}), 400
+            return jsonify({'error': 'Only full Sets can be shared.'}), 400
         counts = directory_content_counts(target)
         if counts.get('image_count', 0) <= 0:
-            return jsonify({'error': '当前 Set 没有可分享的图片'}), 400
+            return jsonify({'error': 'No shareable photos.'}), 400
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
     token = secrets.token_urlsafe(24)
@@ -128,12 +128,12 @@ def unlock_library_share(token):
     from werkzeug.security import check_password_hash
     share = _share_row(token)
     if not share or not share['source_enabled']:
-        return jsonify({'error': '分享不存在'}), 404
+        return jsonify({'error': 'Share not found.'}), 404
     if not share['password_hash']:
         return jsonify({'success': True})
     data = request.get_json(silent=True) or {}
     if not check_password_hash(share['password_hash'], data.get('password') or ''):
-        return jsonify({'error': '密码错误'}), 401
+        return jsonify({'error': 'Incorrect password.'}), 401
     unlocked = list(session.get('library_share_unlocked', []))
     if token not in unlocked:
         unlocked.append(token)
@@ -146,9 +146,9 @@ def unlock_library_share(token):
 def get_library_share(token):
     share = _share_row(token)
     if not share or not share['source_enabled']:
-        return jsonify({'error': '分享不存在'}), 404
+        return jsonify({'error': 'Share not found.'}), 404
     if share['password_hash'] and not _share_is_authorized(share):
-        return jsonify({'error': '需要密码', 'needs_password': True, 'title': share['title']}), 401
+        return jsonify({'error': 'Password required.', 'needs_password': True, 'title': share['title']}), 401
     try:
         listing = _shared_directory_listing(share)
         manifest_data = _share_manifest_data(share)
@@ -168,7 +168,7 @@ def get_library_share(token):
 def browse_library_share(token):
     share = _share_row(token)
     if not share or not _share_is_authorized(share):
-        return jsonify({'error': '无权访问'}), 401
+        return jsonify({'error': 'Access denied.'}), 401
     try:
         listing = _shared_directory_listing(share, request.args.get('path', ''))
         return jsonify({
@@ -187,13 +187,13 @@ def browse_library_share(token):
 def get_library_share_asset(token):
     share = _share_row(token)
     if not share or not _share_is_authorized(share):
-        return jsonify({'error': '无权访问'}), 401
+        return jsonify({'error': 'Access denied.'}), 401
     source = _share_source_dict(share)
     requested = request.args.get('path', '')
     try:
         requested_rel = normalize_relative_path(requested)
         if not _share_contains_path(share, requested_rel):
-            raise ValueError('资源不属于该分享 Set')
+            raise ValueError('Resource is outside this shared Set.')
         file_path = make_library_variant(source, requested_rel, request.args.get('variant', 'compressed'))
         return send_file(file_path)
     except Exception as exc:
@@ -204,12 +204,12 @@ def get_library_share_asset(token):
 def get_library_share_image_info(token):
     share = _share_row(token)
     if not share or not _share_is_authorized(share):
-        return jsonify({'error': '无权访问'}), 401
+        return jsonify({'error': 'Access denied.'}), 401
     source = _share_source_dict(share)
     try:
         requested_rel = normalize_relative_path(request.args.get('path', ''))
         if not _share_contains_path(share, requested_rel):
-            raise ValueError('图片不属于该分享 Set')
+            raise ValueError('Photo is outside this shared Set.')
         info = library_image_info(source, requested_rel)
         info['source_type'] = 'library-share'
         info['share_token'] = token
@@ -223,15 +223,15 @@ def get_library_share_image_info(token):
 def get_library_share_exif(token):
     share = _share_row(token)
     if not share or not _share_is_authorized(share):
-        return jsonify({'error': '无权访问'}), 401
+        return jsonify({'error': 'Access denied.'}), 401
     source = _share_source_dict(share)
     try:
         requested_rel = normalize_relative_path(request.args.get('path', ''))
         if not _share_contains_path(share, requested_rel):
-            raise ValueError('图片不属于该分享 Set')
+            raise ValueError('Photo is outside this shared Set.')
         _, target, _ = resolve_library_path(source, requested_rel)
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-            raise FileNotFoundError('图片不存在')
+            raise FileNotFoundError('Photo not found.')
         return jsonify({'exif': get_image_exif_simple(str(target))})
     except Exception as exc:
         return jsonify({'error': str(exc)}), 404
@@ -241,18 +241,18 @@ def get_library_share_exif(token):
 def toggle_library_share_selection(token):
     share = _share_row(token)
     if not share or not _share_is_authorized(share):
-        return jsonify({'error': '无权访问'}), 401
+        return jsonify({'error': 'Access denied.'}), 401
     if not share['allow_select']:
-        return jsonify({'error': '此分享不允许选片'}), 403
+        return jsonify({'error': 'Selection is disabled.'}), 403
     data = request.get_json(silent=True) or {}
     try:
         requested_rel = normalize_relative_path(data.get('relative_path', ''))
         if not _share_contains_path(share, requested_rel):
-            raise ValueError('图片不属于该分享 Set')
+            raise ValueError('Photo is outside this shared Set.')
         source = _share_source_dict(share)
         _, target, _ = resolve_library_path(source, requested_rel)
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-            raise ValueError('图片不存在')
+            raise ValueError('Photo not found.')
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
     selected = set_library_favorite(share['source_id'], requested_rel)

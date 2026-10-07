@@ -24,13 +24,13 @@ def get_library_manifest_suggestion(source_id):
         return denied
     source = get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         _, target, _ = resolve_library_path(source, request.args.get('path', ''))
         if not target.is_dir():
-            return jsonify({'error': '目标不是目录'}), 400
+            return jsonify({'error': 'Target is not a directory.'}), 400
         if not is_set_folder_name(target.name):
-            return jsonify({'error': '目标不是 Set 目录'}), 400
+            return jsonify({'error': 'Target is not a Set directory.'}), 400
         return jsonify(suggest_manifest(target, include_times=True))
     except (ValueError, FileNotFoundError, NotADirectoryError, OSError) as exc:
         return jsonify({'error': str(exc)}), 400
@@ -43,7 +43,7 @@ def get_library_manifest_reference(source_id):
         return denied
     source = get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         conn = get_db_connection()
         rows = conn.execute('SELECT root_path FROM library_sources WHERE enabled = 1').fetchall()
@@ -66,17 +66,17 @@ def extract_gps_from_uploaded_photo():
 
     photo = request.files.get('photo')
     if not photo or not photo.filename:
-        return jsonify({'error': '请选择一张照片'}), 400
+        return jsonify({'error': 'Select a photo.'}), 400
 
     # iPhone originals are commonly JPEG or HEIC. ExifTool, when installed,
     # handles HEIC/HEIF; Pillow remains the fallback for supported formats.
     suffix = Path(photo.filename).suffix.lower() or '.img'
     allowed = {'.jpg', '.jpeg', '.heic', '.heif', '.tif', '.tiff', '.png'}
     if suffix not in allowed:
-        return jsonify({'error': '仅支持 JPG/JPEG/HEIC/HEIF/TIFF/PNG 照片'}), 400
+        return jsonify({'error': 'Unsupported photo format.'}), 400
 
     if request.content_length and request.content_length > 100 * 1024 * 1024:
-        return jsonify({'error': '照片过大，最大支持 100 MB'}), 413
+        return jsonify({'error': 'Photo exceeds 100 MB.'}), 413
 
     temp_path = None
     try:
@@ -89,7 +89,7 @@ def extract_gps_from_uploaded_photo():
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
     except Exception as exc:
-        return jsonify({'error': f'读取 GPS 失败: {str(exc)}'}), 500
+        return jsonify({'error': f'GPS read failed: {str(exc)}'}), 500
     finally:
         if temp_path:
             try:
@@ -105,10 +105,10 @@ def save_library_manifest(source_id):
         return denied
     source = get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        return jsonify({'error': 'manifest 必须是 JSON object'}), 400
+        return jsonify({'error': 'Manifest must be a JSON object.'}), 400
     # Enforce only the agreed ordering. Custom fields stay exactly where the
     # user inserted them relative to the available slots, and no missing
     # optional field is synthesized.
@@ -116,7 +116,7 @@ def save_library_manifest(source_id):
     try:
         root, target, rel = resolve_library_path(source, request.args.get('path', ''))
         if not target.is_dir():
-            return jsonify({'error': 'manifest 只能保存到目录'}), 400
+            return jsonify({'error': 'Manifest target must be a directory.'}), 400
         manifest_path = target / MANIFEST_FILENAME
         backup_path = target / (MANIFEST_FILENAME + '.bak')
         temp_path = target / (MANIFEST_FILENAME + '.tmp')

@@ -288,22 +288,22 @@ _BLOCKED_NAMES = {
 
 def _validate_script(code):
     if not isinstance(code, str) or not code.strip():
-        raise ValueError('Python code 不能为空')
+        raise ValueError('Python code required.')
     if len(code) > 100_000:
-        raise ValueError('Python code 过长')
+        raise ValueError('Python code too long.')
     try:
         tree = ast.parse(code, mode='exec')
     except SyntaxError as exc:
         location = f'line {exc.lineno}' if exc.lineno else 'unknown line'
-        raise ValueError(f'Python 语法错误 ({location}): {exc.msg}') from exc
+        raise ValueError(f'Python syntax error ({location}): {exc.msg}') from exc
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            raise ValueError('Smart Album Python 不开放 import；常用模块已经预置。')
+            raise ValueError('Imports are not allowed.')
         if isinstance(node, ast.Attribute) and node.attr.startswith('__'):
-            raise ValueError('Smart Album Python 不开放 dunder attribute。')
+            raise ValueError('Dunder attributes are not allowed.')
         if isinstance(node, ast.Name) and node.id in _BLOCKED_NAMES:
-            raise ValueError(f'Smart Album Python 不开放 {node.id}。')
+            raise ValueError(f'{node.id} is not allowed.')
 
     return tree
 
@@ -396,9 +396,9 @@ def resolve_shoot_time(manifest, capture_time, set_name):
 def _validate_custom_helpers_source(code):
     """Validate the user-editable helper module without executing it."""
     if not isinstance(code, str):
-        raise ValueError('Custom Helpers source 必须是字符串。')
+        raise ValueError('Custom Helpers source must be a string.')
     if len(code) > 100_000:
-        raise ValueError('Custom Helpers source 过长。')
+        raise ValueError('Custom Helpers source is too long.')
     if not code.strip():
         return ast.parse('', mode='exec')
     tree = _validate_script(code)
@@ -407,25 +407,25 @@ def _validate_custom_helpers_source(code):
             continue
         if isinstance(node, ast.FunctionDef):
             if node.decorator_list:
-                raise ValueError('Custom Helper 顶层函数不支持 decorator。')
+                raise ValueError('Top-level Custom Helper functions cannot use decorators.')
             continue
         if isinstance(node, ast.Assign):
             if not all(isinstance(target, ast.Name) for target in node.targets):
-                raise ValueError('Custom Helper 顶层常量只能使用简单名称赋值。')
+                raise ValueError('Top-level Custom Helper constants must use simple-name assignments.')
             try:
                 ast.literal_eval(node.value)
             except Exception as exc:
-                raise ValueError('Custom Helper 顶层常量只能使用字面量。') from exc
+                raise ValueError('Top-level Custom Helper constants must be literals.') from exc
             continue
         if isinstance(node, ast.AnnAssign):
             if not isinstance(node.target, ast.Name) or node.value is None:
-                raise ValueError('Custom Helper 顶层常量只能使用简单名称赋值。')
+                raise ValueError('Top-level Custom Helper constants must use simple-name assignments.')
             try:
                 ast.literal_eval(node.value)
             except Exception as exc:
-                raise ValueError('Custom Helper 顶层常量只能使用字面量。') from exc
+                raise ValueError('Top-level Custom Helper constants must be literals.') from exc
             continue
-        raise ValueError('Custom Helper 顶层只允许函数定义、模块说明和字面量常量。')
+        raise ValueError('Custom Helpers may only contain functions, a module docstring, and literal constants.')
     return tree
 
 
@@ -499,7 +499,7 @@ class _HelperNamespace:
         try:
             return self._functions[name]
         except KeyError as exc:
-            raise AttributeError(f'Custom Helper 不存在：{name}') from exc
+            raise AttributeError(f'Custom Helper not found: {name}') from exc
 
     def __setattr__(self, name, value):
         raise AttributeError('Custom Helpers namespace is read-only')
@@ -534,7 +534,7 @@ def _load_custom_helpers(helper_source):
         if isinstance(item, ast.FunctionDef) and not item.name.startswith('_'):
             value = namespace.get(item.name)
             if not callable(value):
-                raise ValueError(f'Custom Helper {item.name} 不是可调用函数。')
+                raise ValueError(f'Custom Helper {item.name} is not callable.')
             functions[item.name] = value
     return _HelperNamespace(functions)
 
@@ -574,7 +574,7 @@ def _execute_query(code, payloads, helper_source):
     exec(compiled, namespace, namespace)
 
     if 'result' not in namespace:
-        raise ValueError('Python code 必须给变量 result 赋值。')
+        raise ValueError('Assign the query output to result.')
     result = namespace.get('result')
     if result is None:
         return []
@@ -672,7 +672,7 @@ def _execute_set_query(code, payloads, helper_source):
     exec(compiled, namespace, namespace)
 
     if 'result' not in namespace:
-        raise ValueError('Python code 必须给变量 result 赋值。')
+        raise ValueError('Assign the query output to result.')
     result = namespace.get('result')
     if result is None:
         return []
@@ -681,16 +681,16 @@ def _execute_set_query(code, payloads, helper_source):
     try:
         result_items = list(result)
     except TypeError as exc:
-        raise ValueError('result 必须是 Set 对象或 Set 对象 iterable。') from exc
+        raise ValueError('result must be a Set or iterable of Sets.') from exc
 
     ordered_ids = []
     seen = set()
     for item in result_items:
         if not isinstance(item, SetRecord):
-            raise ValueError('result 只能包含 sets 中的 Set 对象。')
+            raise ValueError('result may only contain Sets from sets.')
         set_id = item.id
         if set_id not in by_id:
-            raise ValueError('result 包含不属于当前候选池的 Set 对象。')
+            raise ValueError('result contains a Set outside the candidate pool.')
         if set_id in seen:
             continue
         seen.add(set_id)
@@ -731,15 +731,15 @@ def run_set_query(code, payloads, helper_source, timeout_seconds=10):
         process.terminate()
         process.join(2)
         parent_conn.close()
-        raise TimeoutError(f'Smart Set Python 执行超过 {timeout_seconds} 秒，已停止。')
+        raise TimeoutError(f'Smart Set timed out after {timeout_seconds}s.')
     if not parent_conn.poll():
         exit_code = process.exitcode
         parent_conn.close()
-        raise RuntimeError(f'Smart Set Python worker 异常退出 (exit={exit_code})。')
+        raise RuntimeError(f'Smart Set worker exited unexpectedly (exit={exit_code}).')
     message = parent_conn.recv()
     parent_conn.close()
     if not message.get('ok'):
-        error = RuntimeError(message.get('error') or 'Smart Set Python 执行失败')
+        error = RuntimeError(message.get('error') or 'Smart Set run failed.')
         error.smart_traceback = message.get('traceback') or ''
         raise error
     return message.get('ids') or []
@@ -828,7 +828,7 @@ def _execute_explore_block(code, set_payloads, photo_payloads, helper_source):
     exec(compiled, namespace, namespace)
 
     if 'result' not in namespace:
-        raise ValueError('Python code 必须给变量 result 赋值。')
+        raise ValueError('Assign the query output to result.')
     grouping = namespace.get('result')
     if not isinstance(grouping, _ExploreGrouping):
         raise ValueError('Explore Block 的 result 必须是 group_sets() 或 group_photos() 的返回值。')

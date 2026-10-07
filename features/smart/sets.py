@@ -104,7 +104,7 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         description = str(data.get('description') or '')
         python_code = str(data.get('python_code') or DEFAULT_SMART_SET_CODE)
         if not name:
-            return jsonify({'error': 'Smart Set 名称不能为空'}), 400
+            return jsonify({'error': 'Name required.'}), 400
         try:
             _validate_script(python_code)
         except Exception as exc:
@@ -133,13 +133,13 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         existing = _set_row(conn, smart_set_id)
         if not existing:
             conn.close()
-            return jsonify({'error': 'Smart Set 不存在'}), 404
+            return jsonify({'error': 'Smart Set not found.'}), 404
         name = str(data.get('name', existing['name']) or '').strip()
         description = str(data.get('description', existing['description']) or '')
         python_code = str(data.get('python_code', existing['python_code']) or '')
         if not name:
             conn.close()
-            return jsonify({'error': 'Smart Set 名称不能为空'}), 400
+            return jsonify({'error': 'Name required.'}), 400
         try:
             _validate_script(python_code)
         except Exception as exc:
@@ -165,7 +165,7 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         row = _set_row(conn, smart_set_id)
         if not row:
             conn.close()
-            return jsonify({'error': 'Smart Set 不存在'}), 404
+            return jsonify({'error': 'Smart Set not found.'}), 404
         conn.execute('DELETE FROM smart_sets WHERE id=?', (smart_set_id,))
         conn.commit()
         conn.close()
@@ -180,7 +180,7 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         row = _set_row(conn, smart_set_id)
         conn.close()
         if not row:
-            return jsonify({'error': 'Smart Set 不存在'}), 404
+            return jsonify({'error': 'Smart Set not found.'}), 404
         try:
             results, status = _run_smart_set(smart_db_path, main_db_path, row)
             conn = _connect(smart_db_path)
@@ -190,7 +190,7 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         except RuntimeError as exc:
             if str(exc) == 'SMART_ALBUM_INDEX_REQUIRED':
                 return jsonify({
-                    'error': 'Smart Album 索引尚未建立或配置已变化，请先完成索引刷新。',
+                    'error': 'Index required.',
                     'code': 'smart_album_index_required',
                     'index': _index_status(smart_db_path),
                 }), 409

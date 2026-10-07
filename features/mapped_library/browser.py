@@ -31,7 +31,7 @@ def _is_admin_request():
 
 def _library_admin_guard():
     if not _is_admin_request():
-        return jsonify({'error': '需要管理员权限'}), 401
+        return jsonify({'error': 'Admin access required.'}), 401
     return None
 
 
@@ -51,7 +51,7 @@ def _normalize_relative_path(value):
         return ''
     parts = [part for part in value.split('/') if part not in ('', '.')]
     if any(part == '..' for part in parts):
-        raise ValueError('非法路径')
+        raise ValueError('Invalid path.')
     return '/'.join(parts)
 
 
@@ -62,11 +62,11 @@ def _resolve_library_path(source, relative_path='', require_exists=True):
     try:
         target.relative_to(root)
     except ValueError:
-        raise ValueError('路径超出 Source 根目录')
+        raise ValueError('Path is outside the Source root.')
     if _is_library_deleted_path(root, target):
-        raise FileNotFoundError('Deleted 目录仅供本地恢复或清理，网页端不可访问')
+        raise FileNotFoundError('Deleted is only available from the local filesystem.')
     if require_exists and not target.exists():
-        raise FileNotFoundError('路径不存在')
+        raise FileNotFoundError('Path not found.')
     return root, target, rel
 
 
@@ -119,15 +119,15 @@ def _soft_delete_library_image(source, relative_path):
     """
     root, target, rel = _resolve_library_path(source, relative_path)
     if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-        raise FileNotFoundError('图片不存在或格式不支持')
+        raise FileNotFoundError('Photo not found or unsupported.')
 
     set_root = _find_library_set_root(root, target)
     if set_root is None:
-        raise ValueError('只能软删除 Set 目录内的图片')
+        raise ValueError('Only photos inside a Set can be moved to Deleted.')
 
     source_relative_to_set = target.relative_to(set_root)
     if not source_relative_to_set.parts or source_relative_to_set.parts[0].casefold() == 'deleted':
-        raise ValueError('Deleted 目录中的文件不能通过网页删除')
+        raise ValueError('Files in Deleted cannot be removed from the web UI.')
 
     destination = set_root / 'Deleted' / source_relative_to_set
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -264,11 +264,11 @@ def _suggest_manifest(target, include_times=False):
 def _validate_new_set_text(value, label, allow_hyphen=True):
     text = str(value or '').strip()
     if not text:
-        raise ValueError(f'{label}不能为空')
+        raise ValueError(f'{label} required.')
     if text in {'.', '..'} or any(char in text for char in ('/', '\\', '\x00', '\n', '\r')):
-        raise ValueError(f'{label}包含非法路径字符')
+        raise ValueError(f'{label} contains invalid path characters.')
     if not allow_hyphen and '-' in text:
-        raise ValueError(f'{label}不能包含连字符 -')
+        raise ValueError(f'{label} cannot contain hyphens.')
     return text
 
 
@@ -289,24 +289,24 @@ def _create_new_set(root, date_text, model, theme):
     """Create one complete Set atomically below a Source root."""
     root = Path(root).expanduser().resolve()
     if not root.is_dir():
-        raise FileNotFoundError('Source 根目录不存在')
+        raise FileNotFoundError('Source root not found.')
     if _is_set_folder_name(root.name):
-        raise ValueError('New Set 只能在 Set 父目录创建')
+        raise ValueError('New Set is only available at the Set root.')
 
     try:
         shoot_date = datetime.strptime(str(date_text or '').strip(), '%Y-%m-%d').date()
     except ValueError as exc:
-        raise ValueError('日期格式必须为 YYYY-MM-DD') from exc
+        raise ValueError('Date must use YYYY-MM-DD.') from exc
 
     # The first hyphen separates date/model in the canonical Set name, so a
     # model containing '-' would make the existing Set parser ambiguous.
-    model = _validate_new_set_text(model, '模特', allow_hyphen=False)
-    theme = _validate_new_set_text(theme, '主题', allow_hyphen=True)
+    model = _validate_new_set_text(model, 'Model', allow_hyphen=False)
+    theme = _validate_new_set_text(theme, 'Theme', allow_hyphen=True)
     set_name = f'{shoot_date:%Y%m%d}-{model}-{theme}'
     set_path = root / set_name
 
     if set_path.exists():
-        raise FileExistsError(f'Set 已存在: {set_name}')
+        raise FileExistsError(f'Set already exists: {set_name}')
 
     set_path.mkdir()
     try:
@@ -364,7 +364,7 @@ def _collect_manifest_array(root):
     """
     root = Path(root).expanduser().resolve()
     if not root.is_dir():
-        raise FileNotFoundError('Source 根目录不存在')
+        raise FileNotFoundError('Source root not found.')
 
     manifest_paths = []
     for current_root, dir_names, file_names in os.walk(root, followlinks=False):
@@ -379,7 +379,7 @@ def _collect_manifest_array(root):
         try:
             data = json.loads(path.read_text(encoding='utf-8'))
             if not isinstance(data, dict):
-                raise ValueError('manifest 根节点必须是 JSON object')
+                raise ValueError('Manifest root must be a JSON object.')
             manifests.append((path, data))
         except Exception as exc:
             errors.append({
@@ -388,7 +388,7 @@ def _collect_manifest_array(root):
             })
 
     if errors:
-        error = ValueError('存在无法解析的 manifest.json')
+        error = ValueError('Invalid manifest.json found.')
         error.manifest_errors = errors
         raise error
 
@@ -424,7 +424,7 @@ def _remove_source_dotfiles(root):
     """
     root = Path(root).expanduser().resolve()
     if not root.is_dir():
-        raise FileNotFoundError('Source 根目录不存在')
+        raise FileNotFoundError('Source root not found.')
 
     removed_count = 0
     failures = []
@@ -531,7 +531,7 @@ def _set_library_description(source_id, relative_path, description):
 def _library_image_info(source, relative_path):
     _, target, rel = _resolve_library_path(source, relative_path)
     if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-        raise FileNotFoundError('图片不存在或格式不支持')
+        raise FileNotFoundError('Photo not found or unsupported.')
     stat = target.stat()
     width = height = None
     try:
@@ -687,7 +687,7 @@ def _directory_content_counts(directory):
 def _list_library_directory(source, relative_path=''):
     root, target, rel = _resolve_library_path(source, relative_path)
     if not target.is_dir():
-        raise NotADirectoryError('目标不是目录')
+        raise NotADirectoryError('Target is not a directory.')
 
     # When disabled, skip cover discovery entirely.  This both avoids filesystem
     # scanning and ensures the frontend never receives a thumbnail URL to request.
@@ -795,7 +795,7 @@ def _list_library_directory(source, relative_path=''):
 def _make_library_variant(source, relative_path, variant='compressed'):
     root, target, rel = _resolve_library_path(source, relative_path)
     if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-        raise FileNotFoundError('图片不存在或格式不支持')
+        raise FileNotFoundError('Photo not found or unsupported.')
     if variant == 'original':
         return target
 
@@ -909,7 +909,7 @@ def browse_library_source(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         return jsonify(_list_library_directory(source, request.args.get('path', '')))
     except (ValueError, FileNotFoundError, NotADirectoryError) as exc:
@@ -923,7 +923,7 @@ def create_library_set(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
 
     data = request.get_json(silent=True) or {}
     try:
@@ -940,7 +940,7 @@ def create_library_set(source_id):
     except (ValueError, FileNotFoundError, NotADirectoryError) as exc:
         return jsonify({'error': str(exc)}), 400
     except OSError as exc:
-        return jsonify({'error': f'创建 Set 失败: {exc}'}), 500
+        return jsonify({'error': f'Create Set failed: {exc}'}), 500
 
 
 @bp.route('/api/library/sources/<int:source_id>/manifests', methods=['GET'])
@@ -950,7 +950,7 @@ def collect_library_manifests(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         root, _, _ = _resolve_library_path(source, '')
         manifests = _collect_manifest_array(root)
@@ -977,7 +977,7 @@ def remove_library_dotfiles(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         root, _, _ = _resolve_library_path(source, '')
         return jsonify(_remove_source_dotfiles(root))
@@ -992,7 +992,7 @@ def get_library_asset(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         file_path = _make_library_variant(source, request.args.get('path', ''), request.args.get('variant', 'compressed'))
         return send_file(file_path)
@@ -1007,7 +1007,7 @@ def get_library_image_info(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         return jsonify(_library_image_info(source, request.args.get('path', '')))
     except Exception as exc:
@@ -1021,11 +1021,11 @@ def get_library_image_exif(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     try:
         _, target, _ = _resolve_library_path(source, request.args.get('path', ''))
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-            raise FileNotFoundError('图片不存在')
+            raise FileNotFoundError('Photo not found.')
         return jsonify({'exif': get_image_exif_simple(str(target))})
     except Exception as exc:
         return jsonify({'error': str(exc)}), 404
@@ -1038,12 +1038,12 @@ def toggle_library_image_favorite(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     data = request.get_json(silent=True) or {}
     try:
         _, target, rel = _resolve_library_path(source, data.get('relative_path', ''))
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-            raise FileNotFoundError('图片不存在')
+            raise FileNotFoundError('Photo not found.')
         value = data.get('is_favorited') if 'is_favorited' in data else None
         favorited = _set_library_favorite(source_id, rel, value)
         return jsonify({'is_favorited': favorited})
@@ -1058,7 +1058,7 @@ def soft_delete_library_image(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     data = request.get_json(silent=True) or {}
     try:
         result = _soft_delete_library_image(source, data.get('relative_path', ''))
@@ -1076,12 +1076,12 @@ def update_library_image_description(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     data = request.get_json(silent=True) or {}
     try:
         _, target, rel = _resolve_library_path(source, data.get('relative_path', ''))
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-            raise FileNotFoundError('图片不存在')
+            raise FileNotFoundError('Photo not found.')
         description = str(data.get('description') or '')
         _set_library_description(source_id, rel, description)
         return jsonify({'description': description})
@@ -1096,19 +1096,19 @@ def rename_library_image(source_id):
         return denied
     source = _get_library_source(source_id)
     if not source:
-        return jsonify({'error': 'Source 不存在或已禁用'}), 404
+        return jsonify({'error': 'Source not found or disabled.'}), 404
     data = request.get_json(silent=True) or {}
     new_filename = str(data.get('new_filename') or '').strip()
     if not new_filename or new_filename in {'.', '..'} or Path(new_filename).name != new_filename or '/' in new_filename or '\\' in new_filename:
-        return jsonify({'error': '文件名不合法'}), 400
+        return jsonify({'error': 'Invalid filename.'}), 400
     try:
         root, target, rel = _resolve_library_path(source, data.get('relative_path', ''))
         if not target.is_file() or target.suffix.lower() not in LIBRARY_IMAGE_EXTENSIONS:
-            raise FileNotFoundError('图片不存在')
+            raise FileNotFoundError('Photo not found.')
         destination = target.with_name(new_filename)
         destination.resolve().relative_to(root)
         if destination.exists() and destination != target:
-            return jsonify({'error': '目标文件名已存在'}), 409
+            return jsonify({'error': 'Filename already exists.'}), 409
         old_rel = rel
         new_rel = destination.relative_to(root).as_posix()
         conn = get_db_connection()

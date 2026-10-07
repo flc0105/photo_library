@@ -20,7 +20,7 @@ def _read_source_bytes():
         return CUSTOM_HELPERS_PATH.read_bytes()
     except FileNotFoundError as exc:
         raise FileNotFoundError(
-            f'Custom Helpers 文件不存在：{CUSTOM_HELPERS_PATH}'
+            f'Custom Helpers file not found: {CUSTOM_HELPERS_PATH}'
         ) from exc
 
 
@@ -31,7 +31,7 @@ def read_custom_helpers_source(*, validate=True):
         stat = CUSTOM_HELPERS_PATH.stat()
     except FileNotFoundError as exc:
         raise FileNotFoundError(
-            f'Custom Helpers 文件不存在：{CUSTOM_HELPERS_PATH}'
+            f'Custom Helpers file not found: {CUSTOM_HELPERS_PATH}'
         ) from exc
 
     signature = (stat.st_mtime_ns, stat.st_size)
@@ -57,7 +57,7 @@ def _invalidate_cache():
 
 def write_custom_helpers_source(source):
     if not isinstance(source, str):
-        raise ValueError('Custom Helpers source 必须是字符串。')
+        raise ValueError('Custom Helpers source must be a string.')
     docs = custom_helper_docs(source)
     CUSTOM_HELPERS_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp_path = CUSTOM_HELPERS_PATH.with_name(
@@ -123,7 +123,7 @@ def create_smart_helpers_blueprint(admin_guard):
         data = request.get_json(silent=True) or {}
         source = data.get('source')
         if not isinstance(source, str):
-            return jsonify({'error': 'source 必须是字符串。'}), 400
+            return jsonify({'error': 'source must be a string.'}), 400
         payload = _helper_payload(source)
         if not payload['valid']:
             return jsonify(payload), 400
@@ -137,7 +137,7 @@ def create_smart_helpers_blueprint(admin_guard):
         data = request.get_json(silent=True) or {}
         source = data.get('source')
         if not isinstance(source, str):
-            return jsonify({'error': 'source 必须是字符串。'}), 400
+            return jsonify({'error': 'source must be a string.'}), 400
         try:
             docs = write_custom_helpers_source(source)
         except Exception as exc:

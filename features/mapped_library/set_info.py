@@ -334,13 +334,13 @@ def create_set_info_blueprint(admin_guard, get_source, resolve_path, get_db_conn
             return None, None, None, denied
         source = get_source(source_id)
         if not source:
-            return None, None, None, (jsonify({'error': 'Source 不存在或已禁用'}), 404)
+            return None, None, None, (jsonify({'error': 'Source not found or disabled.'}), 404)
         try:
             _, target, rel = resolve_path(source, request.args.get('path', ''))
         except Exception as exc:
             return None, None, None, (jsonify({'error': str(exc)}), 400)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            return None, None, None, (jsonify({'error': '目标不是 Set 目录'}), 400)
+            return None, None, None, (jsonify({'error': 'Target is not a Set directory.'}), 400)
         return source, target, rel, None
 
     @bp.route('/api/library/insights/sources/<int:source_id>/set-stats', methods=['GET'])
@@ -354,7 +354,7 @@ def create_set_info_blueprint(admin_guard, get_source, resolve_path, get_db_conn
             payload['same_day_sessions'] = _same_day_sessions(root, target)
             return jsonify(payload)
         except OSError as exc:
-            return jsonify({'error': f'统计 Set 文件失败: {exc}'}), 500
+            return jsonify({'error': f'Set stats failed: {exc}'}), 500
 
     @bp.route('/api/library/insights/sources/<int:source_id>/equipment', methods=['GET'])
     def equipment(source_id):
@@ -380,8 +380,8 @@ def create_set_info_blueprint(admin_guard, get_source, resolve_path, get_db_conn
             _write_equipment_cache(get_db_connection, source_id, rel, signature, payload)
             return jsonify(payload)
         except subprocess.TimeoutExpired:
-            return jsonify({'error': '设备信息扫描超时'}), 504
+            return jsonify({'error': 'Equipment scan timed out.'}), 504
         except Exception as exc:
-            return jsonify({'error': f'设备信息扫描失败: {exc}'}), 500
+            return jsonify({'error': f'Equipment scan failed: {exc}'}), 500
 
     return bp
