@@ -27,7 +27,6 @@ from features.smart.sets import SMART_SET_CONTRACT_GROUPS
 
 _MISSING_LABEL = '未记录'
 _SET_DIMENSIONS = {'year', 'year_month', 'model', 'environment', 'theme', 'location'}
-_EXPLORE_BLOCK_ENGINE_VERSION = 4
 _EXPLORE_BLOCK_DISPLAY_MODES = {'sets', 'photos', 'both', 'sets_count_only'}
 DEFAULT_EXPLORE_BLOCK_CODE = '''selected = helpers.preferred_versions(photos)
 
@@ -40,7 +39,7 @@ result = group_sets(
 '''
 
 
-_DEFAULT_EXPLORE_PRESET_KEY = 'default_explore_presets_v1'
+_DEFAULT_EXPLORE_PRESET_KEY = 'default_explore_presets_seeded'
 _DEFAULT_EXPLORE_PRESETS = (
     {
         'name': 'Cosplay Variant',
@@ -144,7 +143,6 @@ def _create_explore_blocks_table(conn):
             presentation TEXT NOT NULL DEFAULT 'list',
             display_order INTEGER NOT NULL DEFAULT 0,
             enabled INTEGER NOT NULL DEFAULT 1,
-            engine_version INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -154,36 +152,7 @@ def _create_explore_blocks_table(conn):
 def _init_explore_db(db_path):
     conn = _connect(db_path)
     try:
-        columns = [row['name'] for row in conn.execute('PRAGMA table_info(explore_blocks)').fetchall()]
-        if not columns:
-            _create_explore_blocks_table(conn)
-        elif 'default_metric' in columns or 'display_mode' not in columns:
-            # v1.40: replace the old default_metric setting with one four-state display mode.
-            # Old photos-default Blocks become photo-only; old Set-default Blocks keep their
-            # previous ability to switch metrics and become both, whose fixed initial view is Set.
-            legacy_table = 'explore_blocks_legacy_display_mode'
-            conn.execute(f'DROP TABLE IF EXISTS {legacy_table}')
-            conn.execute(f'ALTER TABLE explore_blocks RENAME TO {legacy_table}')
-            _create_explore_blocks_table(conn)
-            legacy_columns = {row['name'] for row in conn.execute(f'PRAGMA table_info({legacy_table})').fetchall()}
-            if 'display_mode' in legacy_columns:
-                mode_expr = (
-                    "CASE WHEN display_mode IN ('sets', 'photos', 'both', 'sets_count_only') "
-                    "THEN display_mode ELSE 'both' END"
-                )
-            elif 'default_metric' in legacy_columns:
-                mode_expr = "CASE WHEN default_metric='photos' THEN 'photos' ELSE 'both' END"
-            else:
-                mode_expr = "'both'"
-            conn.execute(f'''
-                INSERT INTO explore_blocks
-                    (id, name, description, python_code, display_mode, presentation,
-                     display_order, enabled, engine_version, created_at, updated_at)
-                SELECT id, name, description, python_code, {mode_expr}, presentation,
-                       display_order, enabled, engine_version, created_at, updated_at
-                FROM {legacy_table}
-            ''')
-            conn.execute(f'DROP TABLE {legacy_table}')
+        _create_explore_blocks_table(conn)
         conn.execute('''
             CREATE TABLE IF NOT EXISTS explore_meta (
                 key TEXT PRIMARY KEY,
@@ -208,10 +177,10 @@ def _init_explore_db(db_path):
                 conn.execute(
                     '''INSERT INTO explore_blocks
                        (name, description, python_code, display_mode, presentation,
-                        display_order, enabled, engine_version, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, 'list', ?, 1, ?, ?, ?)''',
+                        display_order, enabled, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, 'list', ?, 1, ?, ?)''',
                     (preset['name'], preset['description'], preset['python_code'],
-                     preset['display_mode'], next_order, _EXPLORE_BLOCK_ENGINE_VERSION, now, now),
+                     preset['display_mode'], next_order, now, now),
                 )
                 existing_names.add(preset['name'])
                 next_order += 10
@@ -880,10 +849,9 @@ def create_explore_blueprint(admin_guard, main_db_path):
         cursor = conn.execute(
             '''INSERT INTO explore_blocks
                (name, description, python_code, display_mode, presentation,
-                display_order, enabled, engine_version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'list', ?, ?, ?, ?, ?)''',
-            (name, description, python_code, display_mode, display_order, enabled,
-             _EXPLORE_BLOCK_ENGINE_VERSION, now, now),
+                display_order, enabled, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'list', ?, ?, ?, ?)''',
+            (name, description, python_code, display_mode, display_order, enabled, now, now),
         )
         block_id = cursor.lastrowid
         conn.commit()
@@ -916,11 +884,9 @@ def create_explore_blueprint(admin_guard, main_db_path):
             return jsonify({'error': str(exc)}), 400
         conn.execute(
             '''UPDATE explore_blocks
-               SET name=?, description=?, python_code=?, display_mode=?, enabled=?,
-                   engine_version=?, updated_at=?
+               SET name=?, description=?, python_code=?, display_mode=?, enabled=?, updated_at=?
                WHERE id=?''',
-            (name, description, python_code, display_mode, enabled,
-             _EXPLORE_BLOCK_ENGINE_VERSION, _now_iso(), block_id),
+            (name, description, python_code, display_mode, enabled, _now_iso(), block_id),
         )
         conn.commit()
         row = _block_row(conn, block_id)
@@ -969,7 +935,6 @@ def create_explore_blueprint(admin_guard, main_db_path):
                 'presentation': 'list',
                 'display_order': 0,
                 'enabled': 1,
-                'engine_version': _EXPLORE_BLOCK_ENGINE_VERSION,
                 'created_at': '',
                 'updated_at': '',
             }
@@ -1024,7 +989,6 @@ def create_explore_blueprint(admin_guard, main_db_path):
             return denied
         helper_docs = custom_helper_docs(read_custom_helpers_source())
         return jsonify({
-            'engine_version': _EXPLORE_BLOCK_ENGINE_VERSION,
             'default_code': DEFAULT_EXPLORE_BLOCK_CODE,
             'helpers': [
                 'group_sets(items, key, many=False, label=None, missing="未记录", include_missing=True, photo_scope=None)',

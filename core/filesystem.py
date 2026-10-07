@@ -25,7 +25,7 @@ IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png')
 def list_top_level_images(directory: Path):
     if not directory.is_dir():
         return []
-    # Target order in the original Qt worker was explicitly sorted.
+    # Keep deterministic filename order for top-level images.
     return sorted(
         [p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS],
         key=lambda p: p.name,
@@ -35,7 +35,7 @@ def list_top_level_images(directory: Path):
 def list_source_images_original_order(directory: Path):
     if not directory.is_dir():
         return []
-    # Preserve the old os.listdir() tie behaviour for source candidates.
+    # Keep filesystem enumeration order because tie resolution uses the first candidate.
     import os
     names = os.listdir(directory)
     return [directory / name for name in names if (directory / name).is_file() and Path(name).suffix.lower() in IMAGE_EXTENSIONS]

@@ -198,11 +198,6 @@ def _group_explore_records(
         seen_item_buckets = set()
         for raw_bucket in raw_values:
             value = _normalize_explore_bucket_value(raw_bucket)
-            # Treat the configured missing label itself as missing too.  This
-            # keeps older blocks that explicitly returned "未记录" compatible
-            # with the new include_missing switch.
-            if isinstance(value, str) and value == missing_label:
-                value = None
             if value is None and not include_missing:
                 continue
             token = _explore_bucket_token(value)

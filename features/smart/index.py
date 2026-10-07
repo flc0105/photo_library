@@ -18,8 +18,6 @@ from features.smart.runtime import resolve_shoot_time
 
 SMART_ALBUM_DB_FILENAME = 'smart_albums.db'
 
-SMART_ALBUM_ENGINE_VERSION = 1
-
 SMART_ALBUM_QUERY_TIMEOUT_SECONDS = 10
 
 SMART_ALBUM_EXIF_BATCH_SIZE = 25  # Smaller batches keep index progress visibly granular without changing query semantics.
@@ -78,7 +76,6 @@ def _init_smart_db(db_path):
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             python_code TEXT NOT NULL,
-            engine_version INTEGER NOT NULL DEFAULT 1,
             last_result_count INTEGER,
             last_run_at TEXT,
             created_at TEXT NOT NULL,
@@ -160,16 +157,9 @@ def _enabled_sources(main_db_path):
     return [dict(row) for row in rows]
 
 
-def _selected_enabled_sources(main_db_path, source_ids=None):
-    """Resolve an optional Smart Album index Source selection.
-
-    Source selection belongs only to the removable Smart Album index layer. It
-    never changes library_sources.enabled. When source_ids is omitted, preserve
-    the historical behavior and index every currently enabled Library Source.
-    """
+def _selected_enabled_sources(main_db_path, source_ids):
+    """Resolve the explicit Smart Album index Source selection."""
     sources = _enabled_sources(main_db_path)
-    if source_ids is None:
-        return sources
     if not isinstance(source_ids, (list, tuple, set)):
         raise ValueError('source_ids 必须是 Source ID 数组')
     try:
@@ -183,7 +173,6 @@ def _selected_enabled_sources(main_db_path, source_ids=None):
     if invalid_ids:
         raise ValueError('所选 Source 已停用或不存在：' + ', '.join(str(source_id) for source_id in invalid_ids))
     return [source for source in sources if int(source['id']) in requested]
-
 
 def _library_states(main_db_path, enabled_source_ids):
     if not enabled_source_ids:
@@ -646,7 +635,7 @@ def _new_index_steps():
     ]
 
 
-def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_callback=None, cancel_callback=None):
+def _refresh_index(smart_db_path, main_db_path, *, source_ids, progress_callback=None, cancel_callback=None):
     if SMART_ALBUM_CAPTURE_METADATA_SOURCE not in _CAPTURE_METADATA_MODES:
         raise RuntimeError(
             'SMART_ALBUM_CAPTURE_METADATA_SOURCE must be one of: ' +
@@ -691,13 +680,8 @@ def _refresh_index(smart_db_path, main_db_path, *, source_ids=None, progress_cal
             if overall_ready and phase != 'done':
                 percent = min(percent, 99.0)
         payload = {
-            # Keep legacy top-level fields for the existing API shape, but from
-            # planning onward current/total always mean indexed images.
-            'percent': max(0, min(100, int(round(percent)))),
             'phase': phase,
             'message': message,
-            'current': overall_current,
-            'total': overall_total,
             'overall': {
                 'dimension': 'image',
                 'label': '图片总进度',
@@ -1443,14 +1427,6 @@ def _index_status(smart_db_path):
         indexed_source_names = [str(value) for value in json.loads(_meta_get(conn, 'indexed_source_names_json', '[]') or '[]')]
     except (json.JSONDecodeError, TypeError, ValueError):
         indexed_source_names = []
-    # v1.13 and older indexes did not persist Source selection metadata. Derive
-    # IDs from the existing cache so the first v1.14 refresh dialog can preserve
-    # the user's current indexed scope instead of silently selecting everything.
-    if last_refresh_at and not indexed_source_ids:
-        indexed_source_ids = [
-            int(row['source_id'])
-            for row in conn.execute('SELECT DISTINCT source_id FROM smart_album_assets ORDER BY source_id').fetchall()
-        ]
     conn.close()
     policy_matches = stored_policy == current_policy
     if last_refresh_at and not policy_matches:
@@ -1470,8 +1446,8 @@ def _index_status(smart_db_path):
 
 
 def _asset_payloads(smart_db_path, main_db_path):
-    # Enabled-but-unmounted Sources are excluded at query time so an old index
-    # never surfaces broken files after a removable drive is disconnected.
+    # Exclude enabled Sources that are currently unmounted so queries never
+    # surface broken paths from disconnected drives.
     sources = [
         source for source in _enabled_sources(main_db_path)
         if Path(source['root_path']).expanduser().is_dir()

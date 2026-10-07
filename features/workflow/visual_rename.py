@@ -13,10 +13,9 @@ _SET_RE = re.compile(r'^\d{8}-.+-.+$')
 
 
 def _phash64(path: Path) -> int:
-    """Compatible 8x8 perceptual hash used by the old imagehash.phash flow.
+    """Return the 8x8 perceptual hash used for visual similarity matching.
 
-    It keeps the same 32x32 grayscale/Lanczos + low-frequency DCT + median rule,
-    but is implemented locally so Photo Library does not need the imagehash package.
+    Uses 32x32 grayscale/Lanczos input, low-frequency DCT, and a median threshold.
     """
     size = 32
     low = 8
@@ -70,8 +69,7 @@ def _build_visual_rename_plan(source_id, set_dir: Path, set_rel: str, threshold:
     if not target_files:
         raise ValueError('03_Model_Edit 中没有 JPG/JPEG/PNG')
 
-    # Optimization only: the Qt version recalculated both hashes for every pair.
-    # Computing each image hash once produces the same comparisons and threshold logic.
+    # Cache each image hash once before pairwise similarity comparisons.
     src_hashes = {}
     for path in src_files:
         src_hashes[path.name] = _phash64(path)

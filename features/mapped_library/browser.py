@@ -418,8 +418,7 @@ def _collect_manifest_array(root):
 def _remove_source_dotfiles(root):
     """Recursively remove macOS AppleDouble files and .DS_Store only.
 
-    This intentionally mirrors the old Shot Flow Manager cleanup semantics:
-    other dotfiles are never touched, and directory symlinks are not followed.
+    Other dotfiles are never touched, and directory symlinks are not followed.
     Individual failures are reported without preventing other junk files from
     being cleaned.
     """
@@ -801,7 +800,7 @@ def _make_library_variant(source, relative_path, variant='compressed'):
         return target
 
     stat = target.stat()
-    cache_key = hashlib.sha256(f"{source['id']}|{rel}|{stat.st_mtime_ns}|{stat.st_size}|{variant}|library-exif-orientation-v1".encode()).hexdigest()
+    cache_key = hashlib.sha256(f"{source['id']}|{rel}|{stat.st_mtime_ns}|{stat.st_size}|{variant}|library-exif-orientation".encode()).hexdigest()
     cache_dir = Path(LIBRARY_CACHE_FOLDER) / str(source['id'])
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f'{cache_key}.jpg'

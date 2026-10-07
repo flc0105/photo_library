@@ -10,7 +10,7 @@ from features.smart.runtime import custom_helper_docs, run_query
 from features.smart.helpers import read_custom_helpers_source
 from features.smart.index import (
     SMART_ALBUM_CAPTURE_METADATA_SOURCE, SMART_ALBUM_DB_FILENAME,
-    SMART_ALBUM_ENGINE_VERSION, SMART_ALBUM_QUERY_TIMEOUT_SECONDS, _STAGE_DEFS,
+    SMART_ALBUM_QUERY_TIMEOUT_SECONDS, _STAGE_DEFS,
     SmartAlbumIndexCancelled, _apply_sync_changes, _asset_payloads, _build_sync_plan,
     _connect, _index_status, _init_smart_db, _new_index_steps, _new_sync_steps,
     _now_iso, _prepare_sync_rows, _public_sync_plan, _refresh_index,
@@ -107,11 +107,8 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
     index_job_lock = threading.Lock()
     index_job = {
         'active': False,
-        'percent': 0,
         'phase': 'idle',
         'message': '',
-        'current': 0,
-        'total': 0,
         'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
         'steps': _new_index_steps(),
         'summary': {
@@ -167,11 +164,8 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             overall.update({'current': status['asset_count'], 'total': status['asset_count'], 'percent': 100, 'ready': True})
             update_index_job(
                 active=False,
-                percent=100,
                 phase='done',
                 message=f"索引重建完成：{status['asset_count']} 张图片",
-                current=status['asset_count'],
-                total=status['asset_count'],
                 overall=overall,
                 error='',
                 cancel_requested=False,
@@ -427,9 +421,9 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         conn = _connect(smart_db_path)
         cursor = conn.execute(
             '''INSERT INTO smart_albums
-               (name, description, python_code, engine_version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (name, description, python_code, SMART_ALBUM_ENGINE_VERSION, now, now),
+               (name, description, python_code, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)''',
+            (name, description, python_code, now, now),
         )
         album_id = cursor.lastrowid
         conn.commit()
@@ -474,9 +468,9 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             return jsonify({'error': str(exc)}), 400
         conn.execute(
             '''UPDATE smart_albums
-               SET name=?, description=?, python_code=?, engine_version=?, updated_at=?
+               SET name=?, description=?, python_code=?, updated_at=?
                WHERE id=?''',
-            (name, description, python_code, SMART_ALBUM_ENGINE_VERSION, _now_iso(), album_id),
+            (name, description, python_code, _now_iso(), album_id),
         )
         conn.commit()
         row = _album_row(conn, album_id)
@@ -545,7 +539,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         if denied:
             return denied
         data = request.get_json(silent=True) or {}
-        requested_source_ids = data.get('source_ids') if 'source_ids' in data else None
+        requested_source_ids = data.get('source_ids')
         try:
             selected_sources = _selected_enabled_sources(main_db_path, requested_source_ids)
         except ValueError as exc:
@@ -562,11 +556,8 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
                 return jsonify(dict(index_job)), 202
             index_job.update({
                 'active': True,
-                'percent': 0,
                 'phase': 'starting',
                 'message': '准备重建 Smart View 索引',
-                'current': 0,
-                'total': 0,
                 'overall': {'dimension': 'image', 'label': '图片总进度', 'current': 0, 'total': 0, 'percent': 0, 'ready': False},
                 'steps': _new_index_steps(),
                 'summary': {
@@ -621,7 +612,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         if sync_job_snapshot().get('active'):
             return jsonify({'error': '索引同步正在运行。'}), 409
         data = request.get_json(silent=True) or {}
-        requested_source_ids = data.get('source_ids') if 'source_ids' in data else None
+        requested_source_ids = data.get('source_ids')
         try:
             plan = _build_sync_plan(smart_db_path, main_db_path, requested_source_ids)
         except (ValueError, RuntimeError) as exc:
@@ -700,7 +691,6 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
             return denied
         helper_docs = custom_helper_docs(read_custom_helpers_source())
         return jsonify({
-            'engine_version': SMART_ALBUM_ENGINE_VERSION,
             'default_code': DEFAULT_QUERY_CODE,
             'provider': 'library',
             'notes': [

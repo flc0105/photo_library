@@ -687,7 +687,7 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
             warnings.append('Alpha 通道实际全不透明；Build 时只移除 Alpha，不改变可见像素')
 
         if info and info['mode'] == 'CMYK':
-            errors.append('Final v1 的输入契约是 sRGB；CMYK 不允许按 sRGB 直接解释')
+            errors.append('Final 输入契约是 sRGB；CMYK 不允许按 sRGB 直接解释')
         if info and info['color_status'] == 'non_srgb':
             errors.append(f'sRGB 预检未通过：{info["color_description"]}')
         elif info and info['color_status'] == 'invalid':

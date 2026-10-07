@@ -20,7 +20,7 @@ def _secret():
     return value
 
 
-_serializer = URLSafeTimedSerializer(_secret(), salt='photo-library-auth-v1')
+_serializer = URLSafeTimedSerializer(_secret(), salt='photo-library-auth')
 album_token_expire_minutes = int(os.environ.get('PHOTO_LIBRARY_ALBUM_TOKEN_MINUTES', '1440'))
 admin_token_expire_seconds = int(os.environ.get('PHOTO_LIBRARY_ADMIN_TOKEN_SECONDS', str(7 * 24 * 3600)))
 

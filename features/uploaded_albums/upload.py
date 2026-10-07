@@ -210,28 +210,3 @@ def start_upload_worker():
     worker_thread = threading.Thread(target=image_processing_worker, daemon=True)
     worker_thread.start()
     return worker_thread
-
-
-
-def add_md5_to_existing_images():
-    """为已有图片计算并添加MD5值（一次性运行）"""
-    conn = get_db_connection()
-    images = conn.execute('SELECT id, filename FROM images WHERE file_hash IS NULL').fetchall()
-
-    for image in images:
-        original_path = os.path.join(UPLOAD_FOLDER, image['filename'])
-        if os.path.exists(original_path):
-            try:
-                with open(original_path, 'rb') as f:
-                    file_content = f.read()
-                    md5_hash = hashlib.md5(file_content).hexdigest()
-
-                conn.execute('UPDATE images SET file_hash = ? WHERE id = ?',
-                             (md5_hash, image['id']))
-                print(f"Updated MD5 for image {image['id']}")
-            except Exception as e:
-                print(f"Error processing image {image['id']}: {e}")
-
-    conn.commit()
-    conn.close()
-    print("MD5 migration completed")

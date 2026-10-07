@@ -136,8 +136,6 @@ def init_db():
             FOREIGN KEY (source_id) REFERENCES library_sources (id) ON DELETE CASCADE
         )
     ''')
-    # v1 曾按分享 session 保存选片；v2 改为图片本身的全局收藏状态。
-    c.execute('DROP TABLE IF EXISTS library_share_selections')
     # 本地映射图片的全局状态。分享页和管理员目录共用，不按分享 session 拆分。
     c.execute('''
         CREATE TABLE IF NOT EXISTS library_image_states (

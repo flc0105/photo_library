@@ -14,11 +14,7 @@ from features.smart.explore import create_explore_blueprint
 from features.smart.helpers import create_smart_helpers_blueprint
 from features.smart.sets import create_smart_set_blueprint
 from features.uploaded_albums.albums import bp as uploaded_albums_blueprint
-from features.uploaded_albums.upload import (
-    add_md5_to_existing_images,
-    bp as upload_blueprint,
-    start_upload_worker,
-)
+from features.uploaded_albums.upload import bp as upload_blueprint, start_upload_worker
 from features.workflow.discard_unreturned import create_blueprint as create_discard_unreturned_blueprint
 from features.workflow.folder_compare import create_folder_compare_blueprint
 from features.workflow.image_inspection import create_blueprint as create_image_inspection_blueprint
@@ -91,11 +87,10 @@ app.register_blueprint(create_folder_compare_blueprint(mapped_browser.library_ad
 app.register_blueprint(create_smart_album_blueprint(mapped_browser.library_admin_guard, DATABASE))
 app.register_blueprint(create_smart_set_blueprint(mapped_browser.library_admin_guard, DATABASE))
 app.register_blueprint(create_explore_blueprint(mapped_browser.library_admin_guard, DATABASE))
-app.register_blueprint(create_smart_helpers_blueprint(mapped_browser.library_admin_guard, DATABASE))
+app.register_blueprint(create_smart_helpers_blueprint(mapped_browser.library_admin_guard))
 
 
 if __name__ == '__main__':
     init_db()
     start_upload_worker()
-    # add_md5_to_existing_images()
     app.run(debug=False, host='0.0.0.0', port=8081)

@@ -59,12 +59,9 @@ def _normalize_fixed(value, index):
 def _normalize_contract(data):
     if not isinstance(data, dict):
         raise RuntimeError('Final Metadata 字段配置必须是 JSON object')
-    extra_top = sorted(set(data) - {'schema_version', 'fields'})
+    extra_top = sorted(set(data) - {'fields'})
     if extra_top:
         raise RuntimeError(f'Final Metadata 字段配置存在未知顶层项：{", ".join(extra_top)}')
-    if data.get('schema_version') != 1:
-        raise RuntimeError('Final Metadata 字段配置 schema_version 必须为 1')
-
     raw_fields = data.get('fields')
     if not isinstance(raw_fields, list) or not raw_fields:
         raise RuntimeError('Final Metadata 字段配置 fields 必须是非空列表')
@@ -137,7 +134,7 @@ def _normalize_contract(data):
             field['fixed'] = fixed
         fields.append(field)
 
-    return {'schema_version': 1, 'fields': fields}
+    return {'fields': fields}
 
 
 def load_metadata_contract():

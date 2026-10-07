@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request
 from features.smart.runtime import _validate_script, custom_helper_docs, run_set_query
 from features.smart.helpers import read_custom_helpers_source
 from features.smart.index import (
-    SMART_ALBUM_DB_FILENAME, SMART_ALBUM_ENGINE_VERSION, SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
+    SMART_ALBUM_DB_FILENAME, SMART_ALBUM_QUERY_TIMEOUT_SECONDS,
     _connect, _index_status, _now_iso, set_candidates,
 )
 
@@ -34,7 +34,6 @@ def _init_smart_set_db(db_path):
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             python_code TEXT NOT NULL,
-            engine_version INTEGER NOT NULL DEFAULT 1,
             last_result_count INTEGER,
             last_run_at TEXT,
             created_at TEXT NOT NULL,
@@ -114,9 +113,9 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
         conn = _connect(smart_db_path)
         cursor = conn.execute(
             '''INSERT INTO smart_sets
-               (name, description, python_code, engine_version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (name, description, python_code, SMART_ALBUM_ENGINE_VERSION, now, now),
+               (name, description, python_code, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)''',
+            (name, description, python_code, now, now),
         )
         smart_set_id = cursor.lastrowid
         conn.commit()
@@ -148,9 +147,9 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
             return jsonify({'error': str(exc)}), 400
         conn.execute(
             '''UPDATE smart_sets
-               SET name=?, description=?, python_code=?, engine_version=?, updated_at=?
+               SET name=?, description=?, python_code=?, updated_at=?
                WHERE id=?''',
-            (name, description, python_code, SMART_ALBUM_ENGINE_VERSION, _now_iso(), smart_set_id),
+            (name, description, python_code, _now_iso(), smart_set_id),
         )
         conn.commit()
         row = _set_row(conn, smart_set_id)
@@ -206,7 +205,6 @@ def create_smart_set_blueprint(admin_guard, main_db_path):
             return denied
         helper_docs = custom_helper_docs(read_custom_helpers_source())
         return jsonify({
-            'engine_version': SMART_ALBUM_ENGINE_VERSION,
             'default_code': DEFAULT_SMART_SET_CODE,
             'provider': 'library-set',
             'notes': [
