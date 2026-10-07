@@ -95,7 +95,7 @@ def zip_project():
             file_path = BASE_DIR / file_name
 
             if not file_path.exists():
-                print(f"警告：文件不存在，已跳过：{file_path}")
+                print(f"Warning: file not found, skipped: {file_path}")
                 continue
 
             if should_ignore(file_path):
@@ -109,7 +109,7 @@ def zip_project():
             root_dir = BASE_DIR / target_dir
 
             if not root_dir.exists():
-                print(f"警告：目录不存在，已跳过：{root_dir}")
+                print(f"Warning: directory not found, skipped: {root_dir}")
                 continue
 
             for current_root, dirs, files in os.walk(root_dir):
@@ -133,9 +133,9 @@ def zip_project():
 
     zip_size = zip_path.stat().st_size
 
-    print("压缩完成")
-    print(f"ZIP 文件路径：{zip_path}")
-    print(f"ZIP 文件大小：{format_size(zip_size)}")
+    print("Archive created.")
+    print(f"ZIP path: {zip_path}")
+    print(f"ZIP size: {format_size(zip_size)}")
 
 
 if __name__ == "__main__":

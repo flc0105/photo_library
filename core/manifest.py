@@ -108,7 +108,7 @@ def read_manifest(path):
         raw = manifest_path.read_text(encoding='utf-8')
         data = json.loads(raw)
         if not isinstance(data, dict):
-            raise ValueError('manifest 根节点必须是 JSON object')
+            raise ValueError('Manifest root must be a JSON object.')
         # Keep the original text alongside parsed data so Raw JSON editing can
         # preserve the file's exact field order and formatting on open.
         return {'exists': True, 'valid': True, 'data': data, 'raw': raw, 'error': None}

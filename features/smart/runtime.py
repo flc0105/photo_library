@@ -583,16 +583,16 @@ def _execute_query(code, payloads, helper_source):
     try:
         result_items = list(result)
     except TypeError as exc:
-        raise ValueError('result 必须是 Photo 对象或 Photo 对象 iterable。') from exc
+        raise ValueError('result must be a Photo or an iterable of Photo objects.') from exc
 
     ordered_ids = []
     seen = set()
     for item in result_items:
         if not isinstance(item, PhotoRecord):
-            raise ValueError('result 只能包含 photos 中的 Photo 对象。')
+            raise ValueError('result may only contain Photo objects from photos.')
         photo_id = item.id
         if photo_id not in by_id:
-            raise ValueError('result 包含不属于当前候选池的 Photo 对象。')
+            raise ValueError('result contains a Photo outside the current candidate pool.')
         if photo_id in seen:
             continue
         seen.add(photo_id)
@@ -633,15 +633,15 @@ def run_query(code, payloads, helper_source, timeout_seconds=10):
         process.terminate()
         process.join(2)
         parent_conn.close()
-        raise TimeoutError(f'Smart Album Python 执行超过 {timeout_seconds} 秒，已停止。')
+        raise TimeoutError(f'Smart Album Python timed out after {timeout_seconds}s.')
     if not parent_conn.poll():
         exit_code = process.exitcode
         parent_conn.close()
-        raise RuntimeError(f'Smart Album Python worker 异常退出 (exit={exit_code})。')
+        raise RuntimeError(f'Smart Album Python worker exited unexpectedly (exit={exit_code}).')
     message = parent_conn.recv()
     parent_conn.close()
     if not message.get('ok'):
-        error = RuntimeError(message.get('error') or 'Smart Album Python 执行失败')
+        error = RuntimeError(message.get('error') or 'Smart Album Python failed.')
         error.smart_traceback = message.get('traceback') or ''
         raise error
     return message.get('ids') or []

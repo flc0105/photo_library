@@ -839,10 +839,10 @@ def create_library_source():
     name = (data.get('name') or '').strip()
     root_path = (data.get('root_path') or '').strip()
     if not name or not root_path:
-        return jsonify({'error': '名称和目录不能为空'}), 400
+        return jsonify({'error': 'Name and path required.'}), 400
     path = Path(root_path).expanduser().resolve()
     if not path.is_dir():
-        return jsonify({'error': f'目录不存在: {path}'}), 400
+        return jsonify({'error': f'Path not found: {path}'}), 400
     conn = get_db_connection()
     try:
         cur = conn.execute('INSERT INTO library_sources (name, root_path) VALUES (?, ?)', (name, str(path)))
@@ -850,7 +850,7 @@ def create_library_source():
         source_id = cur.lastrowid
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({'error': '这个目录已经添加过了'}), 409
+        return jsonify({'error': 'Path already added.'}), 409
     conn.close()
     return jsonify({'id': source_id, 'name': name, 'root_path': str(path)}), 201
 
@@ -865,7 +865,7 @@ def update_library_source(source_id):
     source = conn.execute('SELECT * FROM library_sources WHERE id = ?', (source_id,)).fetchone()
     if not source:
         conn.close()
-        return jsonify({'error': 'Source 不存在'}), 404
+        return jsonify({'error': 'Source not found.'}), 404
     name = data.get('name', source['name'])
     root_path = data.get('root_path', source['root_path'])
     enabled = 1 if data.get('enabled', bool(source['enabled'])) else 0
@@ -876,14 +876,14 @@ def update_library_source(source_id):
     # 重命名不依赖目录在线；启用 Source 或修改启用中的映射路径时仍校验目录。
     if enabled and (enabling_source or root_path_changed) and not path.is_dir():
         conn.close()
-        return jsonify({'error': f'目录不存在: {path}'}), 400
+        return jsonify({'error': f'Path not found: {path}'}), 400
     try:
         conn.execute('UPDATE library_sources SET name=?, root_path=?, enabled=? WHERE id=?',
                      (name, str(path), enabled, source_id))
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({'error': '这个目录已经被其他 Source 使用'}), 409
+        return jsonify({'error': 'Path already used by another Source.'}), 409
     conn.close()
     return jsonify({'success': True})
 

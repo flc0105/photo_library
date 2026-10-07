@@ -62,7 +62,7 @@ def get_image_exif_all(image_path):
         # 使用统一解析到的 ExifTool 获取 EXIF 信息。
         exiftool_path = resolve_exiftool()
         if not exiftool_path:
-            raise FileNotFoundError('ExifTool 未安装或不可用')
+            raise FileNotFoundError('ExifTool unavailable.')
         result = subprocess.run(
             [exiftool_path, '-j', '-s', '-EXIF:All', image_path],
             capture_output=True,
@@ -76,7 +76,7 @@ def get_image_exif_all(image_path):
         else:
             return {}
     except Exception as e:
-        raise Exception(f'获取EXIF信息失败: {str(e)}')
+        raise Exception(f'Failed to read EXIF: {str(e)}')
 
 
 def get_image_exif_simple(image_path):
@@ -90,7 +90,7 @@ def get_image_exif_simple(image_path):
         # 构建命令获取指定字段
         exiftool_path = resolve_exiftool()
         if not exiftool_path:
-            raise FileNotFoundError('ExifTool 未安装或不可用')
+            raise FileNotFoundError('ExifTool unavailable.')
         cmd = [exiftool_path, '-j', '-s']
         for field in simple_fields:
             cmd.append(f'-{field}')
@@ -110,7 +110,7 @@ def get_image_exif_simple(image_path):
             return {}
 
     except Exception as e:
-        raise Exception(f'获取EXIF信息失败: {str(e)}')
+        raise Exception(f'Failed to read EXIF: {str(e)}')
 
 
 def format_exif(exif_data):
@@ -120,13 +120,13 @@ def format_exif(exif_data):
 
     # 字段翻译
     field_translation = {
-        'Make': '相机品牌',
-        'Model': '相机型号',
-        'LensModel': '镜头型号',
-        'DateTimeOriginal': '拍摄时间',
-        'FocalLength': '焦距',
-        'FNumber': '光圈',
-        'ExposureTime': '快门速度',
+        'Make': 'Camera Make',
+        'Model': 'Camera Model',
+        'LensModel': 'Lens Model',
+        'DateTimeOriginal': 'Date Taken',
+        'FocalLength': 'Focal Length',
+        'FNumber': 'Aperture',
+        'ExposureTime': 'Shutter Speed',
         'ISO': 'ISO'
     }
 
@@ -287,8 +287,8 @@ def extract_gps_from_image(path, precision=5):
     result = _extract_with_exiftool(path) or _extract_with_pillow(path)
     if not result:
         if path.suffix.lower() in {'.heic', '.heif'} and not resolve_exiftool():
-            raise ValueError('未读取到 GPS。HEIC/HEIF 建议在运行 Photo Library 的 Mac 上安装 ExifTool，或上传带 GPS 的 JPEG。')
-        raise ValueError('照片中未读取到 GPS 经纬度。请确认照片保留了定位信息。')
+            raise ValueError('GPS not found. For HEIC/HEIF, install ExifTool on the Mac running Photo Library or use a JPEG with GPS.')
+        raise ValueError('GPS coordinates not found.')
 
     return {
         'lat': round(result['lat'], precision),

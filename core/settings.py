@@ -14,7 +14,7 @@ def update_site_title():
     new_title = data.get('title', '').strip()
 
     if not new_title:
-        return jsonify({'error': '标题不能为空'}), 400
+        return jsonify({'error': 'Title required.'}), 400
 
     # 这里可以将标题保存到数据库或者配置文件中
     # 为了方便，我们可以创建一个配置表，这里简化处理
@@ -32,9 +32,9 @@ def update_site_title():
         conn.commit()
         conn.close()
 
-        return jsonify({'message': '标题更新成功', 'title': new_title})
+        return jsonify({'message': 'Updated.', 'title': new_title})
     except Exception as e:
-        return jsonify({'error': f'更新标题失败: {str(e)}'}), 500
+        return jsonify({'error': f'Update failed: {str(e)}'}), 500
 
 
 @bp.route('/api/albums/title', methods=['GET'])
@@ -63,7 +63,7 @@ def verify_admin_password():
     password = data.get('password')
 
     if not password:
-        return jsonify({'error': '密码不能为空'}), 400
+        return jsonify({'error': 'Password required.'}), 400
 
     # 这里从数据库获取正确密码（简化示例）
     conn = get_db_connection()
@@ -72,7 +72,7 @@ def verify_admin_password():
     conn.close()
 
     if not admin:
-        return jsonify({'error': '系统未配置管理员'}), 500
+        return jsonify({'error': 'Admin not configured.'}), 500
 
     # 验证密码
     password_hash = hashlib.md5(password.encode()).hexdigest()
@@ -83,12 +83,12 @@ def verify_admin_password():
         session.modified = True
         return jsonify({
             'success': True,
-            'message': '密码验证成功',
+            'message': 'Signed in.',
             'token': token,
             # 'expires_in': 24 * 60 * 60,  # 24小时
         })
     else:
-        return jsonify({'error': '密码错误'}), 401
+        return jsonify({'error': 'Incorrect password.'}), 401
 
 
 @bp.route('/api/admin/verify-token', methods=['POST'])
@@ -97,20 +97,20 @@ def verify_admin_token_api():
     token = data.get('token')
 
     if not token:
-        return jsonify({'valid': False, 'error': 'Token不能为空'}), 400
+        return jsonify({'valid': False, 'error': 'Token required.'}), 400
 
     if verify_admin_token(token):
         session['photo_library_admin'] = True
         session.modified = True
-        return jsonify({'valid': True, 'message': 'Token有效'})
+        return jsonify({'valid': True, 'message': 'Token valid.'})
     else:
-        return jsonify({'valid': False, 'error': 'Token无效或已过期'})
+        return jsonify({'valid': False, 'error': 'Token invalid or expired.'})
 
 
 def _site_config_admin_guard():
     if is_admin_request():
         return None
-    return jsonify({'error': '需要管理员权限'}), 401
+    return jsonify({'error': 'Admin access required.'}), 401
 
 
 @bp.route('/api/site-config', methods=['GET'])
@@ -135,7 +135,7 @@ def update_site_config():
 
     data = request.get_json()
     if not isinstance(data, dict):
-        return jsonify({'error': '配置数据格式错误'}), 400
+        return jsonify({'error': 'Invalid settings data.'}), 400
 
     conn = get_db_connection()
 
@@ -170,7 +170,7 @@ def update_site_config():
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'message': '配置更新成功'})
+    return jsonify({'success': True, 'message': 'Saved.'})
 
 
 @bp.route('/api/site-config/<string:key>', methods=['GET'])
@@ -189,7 +189,7 @@ def get_site_config_by_key(key):
     if config:
         return jsonify({'key': key, 'value': config['value']})
     else:
-        return jsonify({'error': '配置不存在'}), 404
+        return jsonify({'error': 'Setting not found.'}), 404
 
 
 @bp.route('/api/admin/logout', methods=['POST'])

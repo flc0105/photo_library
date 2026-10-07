@@ -37,9 +37,9 @@ def _get_plan(plan_id, kind, source_id, set_rel):
     with _PLAN_LOCK:
         plan = _PLANS.get(plan_id)
     if not plan:
-        raise ValueError('预览结果已过期，请重新预览')
+        raise ValueError('Preview expired. Preview again.')
     if plan.get('kind') != kind or int(plan.get('source_id')) != int(source_id) or plan.get('set_rel') != set_rel:
-        raise ValueError('预览结果与当前操作不匹配，请重新预览')
+        raise ValueError('Preview mismatch. Preview again.')
     return plan
 
 
@@ -54,7 +54,7 @@ def _new_task(kind, total):
         'total': int(total),
         'completed': 0,
         'current': 0,
-        'message': '等待开始…',
+        'message': 'Ready.',
         'logs': [],
         'result': None,
         'error': None,
@@ -97,7 +97,7 @@ def _safe_case_rename(src: Path, dst: Path):
         tmp.rename(dst)
         return True
     if dst.exists():
-        raise FileExistsError(f'目标文件已存在: {dst.name}')
+        raise FileExistsError(f'Destination exists: {dst.name}')
     src.rename(dst)
     return True
 
@@ -132,8 +132,8 @@ def _verify_signatures(signatures):
     if changed:
         preview = ', '.join(changed[:8])
         if len(changed) > 8:
-            preview += f' 等 {len(changed)} 个文件'
-        raise RuntimeError(f'文件在预览后发生变化，请重新预览：{preview}')
+            preview += f' and {len(changed)} files total'
+        raise RuntimeError(f'Files changed after preview. Preview again: {preview}')
 
 # Public aliases keep feature modules readable without changing behavior.
 remember_plan = _remember_plan
@@ -159,7 +159,7 @@ def create_operations_blueprint(admin_guard):
             return denied
         task = task_snapshot(task_id)
         if not task:
-            return jsonify({'error': '任务不存在或已过期'}), 404
+            return jsonify({'error': 'Task not found or expired.'}), 404
         task.pop('created_at', None)
         task.pop('updated_at', None)
         total = max(0, int(task.get('total') or 0))

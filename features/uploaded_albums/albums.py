@@ -40,7 +40,7 @@ def create_album():
     group_ids = data.get('group_ids', [])  # 新增：分组ID列表
 
     if not name:
-        return jsonify({'error': '相册名称不能为空'}), 400
+        return jsonify({'error': 'Album name required.'}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -60,7 +60,7 @@ def create_album():
     conn.commit()
     conn.close()
 
-    return jsonify({'id': album_id, 'message': '相册创建成功'})
+    return jsonify({'id': album_id, 'message': 'Album created.'})
 
 
 @bp.route('/api/albums/<int:album_id>', methods=['PUT'])
@@ -120,7 +120,7 @@ def update_album(album_id):
 
     conn.commit()
     conn.close()
-    return jsonify({'message': '相册更新成功'})
+    return jsonify({'message': 'Album saved.'})
 
 
 @bp.route('/api/albums/<int:album_id>', methods=['DELETE'])
@@ -147,7 +147,7 @@ def delete_album(album_id):
     conn.commit()
     conn.close()
 
-    return jsonify({'message': '相册删除成功'})
+    return jsonify({'message': 'Album deleted.'})
 
 
 @bp.route('/api/albums/<int:album_id>/images', methods=['GET'])
@@ -166,11 +166,11 @@ def get_album_images(album_id):
         # 如果是管理员，允许访问；否则验证相册密码。
         if not is_admin_request() and (not auth_token or not verify_auth_token(auth_token, album_id)):
             conn.close()
-            return jsonify({'error': '无权访问此加密相册'}), 403
+            return jsonify({'error': 'Album access denied.'}), 403
 
         # if not auth_token or not verify_auth_token(auth_token, album_id):
         #     conn.close()
-        #     return jsonify({'error': '无权访问此加密相册'}), 403
+        #     return jsonify({'error': 'Album access denied.'}), 403
 
     images = conn.execute('''
         SELECT * FROM images WHERE album_id = ? ORDER BY uploaded_at DESC
@@ -188,7 +188,7 @@ def get_image_file(image_id):
     conn.close()
 
     if not image:
-        return jsonify({'error': '图片不存在'}), 404
+        return jsonify({'error': 'Photo not found.'}), 404
 
     # 获取文件路径
     original_path = os.path.join(UPLOAD_FOLDER, image['filename'])
@@ -219,10 +219,10 @@ def get_image_file(image_id):
                 return send_file(file_path)
         except Exception as e:
             # 生成失败，返回错误
-            return jsonify({'error': f'文件生成失败: {str(e)}'}), 500
+            return jsonify({'error': f'File generation failed: {str(e)}'}), 500
 
     # 其他情况返回文件不存在
-    return jsonify({'error': '文件不存在'}), 404
+    return jsonify({'error': 'File not found.'}), 404
 
 
 @bp.route('/api/images/<int:image_id>/exif', methods=['GET'])
@@ -232,7 +232,7 @@ def get_image_exif(image_id):
 
     if not image:
         conn.close()
-        return jsonify({'error': '图片不存在'}), 404
+        return jsonify({'error': 'Photo not found.'}), 404
 
     conn.close()
 
@@ -240,7 +240,7 @@ def get_image_exif(image_id):
     original_path = os.path.join(UPLOAD_FOLDER, image['filename'])
 
     if not os.path.exists(original_path):
-        return jsonify({'error': '原图文件不存在'}), 404
+        return jsonify({'error': 'Original file not found.'}), 404
 
     try:
         exif = get_image_exif_simple(original_path)
@@ -255,21 +255,21 @@ def rename_image(image_id):
     new_filename = data.get('new_filename')
 
     if not new_filename:
-        return jsonify({'error': '新文件名不能为空'}), 400
+        return jsonify({'error': 'Filename required.'}), 400
 
     conn = get_db_connection()
     image = conn.execute('SELECT * FROM images WHERE id = ?', (image_id,)).fetchone()
 
     if not image:
         conn.close()
-        return jsonify({'error': '图片不存在'}), 404
+        return jsonify({'error': 'Photo not found.'}), 404
 
     # 检查新文件名是否已存在
     existing = conn.execute('SELECT id FROM images WHERE original_filename = ? AND id != ?',
                             (new_filename, image_id)).fetchone()
     if existing:
         conn.close()
-        return jsonify({'error': '文件名已存在'}), 400
+        return jsonify({'error': 'Filename already exists.'}), 400
 
     # 更新数据库
     conn.execute('UPDATE images SET original_filename = ? WHERE id = ?',
@@ -277,7 +277,7 @@ def rename_image(image_id):
     conn.commit()
     conn.close()
 
-    return jsonify({'message': '重命名成功'})
+    return jsonify({'message': 'Renamed.'})
 
 
 @bp.route('/api/images/<int:image_id>/description', methods=['PUT'])
@@ -291,7 +291,7 @@ def update_image_description(image_id):
     image = conn.execute('SELECT * FROM images WHERE id = ?', (image_id,)).fetchone()
     if not image:
         conn.close()
-        return jsonify({'error': '图片不存在'}), 404
+        return jsonify({'error': 'Photo not found.'}), 404
 
     # 更新描述
     conn.execute('UPDATE images SET description = ? WHERE id = ?',
@@ -299,7 +299,7 @@ def update_image_description(image_id):
     conn.commit()
     conn.close()
 
-    return jsonify({'message': '描述更新成功'})
+    return jsonify({'message': 'Description saved.'})
 
 
 @bp.route('/api/images/<int:image_id>/favorite', methods=['POST'])
@@ -309,7 +309,7 @@ def toggle_favorite(image_id):
 
     if not image:
         conn.close()
-        return jsonify({'error': '图片不存在'}), 404
+        return jsonify({'error': 'Photo not found.'}), 404
 
     # 切换收藏状态
     new_favorite_state = not image['is_favorited']
@@ -320,7 +320,7 @@ def toggle_favorite(image_id):
 
     return jsonify({
         'is_favorited': new_favorite_state,
-        'message': '操作成功'
+        'message': 'Done.'
     })
 
 
@@ -347,7 +347,7 @@ def delete_image(image_id):
         conn.commit()
 
     conn.close()
-    return jsonify({'message': '图片删除成功'})
+    return jsonify({'message': 'Photo deleted.'})
 
 
 @bp.route('/api/albums/<int:album_id>/verify-password', methods=['POST'])
@@ -356,7 +356,7 @@ def verify_album_password(album_id):
     password = data.get('password')
 
     if not password:
-        return jsonify({'error': '密码不能为空'}), 400
+        return jsonify({'error': 'Password required.'}), 400
 
     conn = get_db_connection()
 
@@ -364,7 +364,7 @@ def verify_album_password(album_id):
     album = conn.execute('SELECT * FROM albums WHERE id = ?', (album_id,)).fetchone()
     if not album:
         conn.close()
-        return jsonify({'error': '相册不存在'}), 404
+        return jsonify({'error': 'Album not found.'}), 404
 
     # 获取密码哈希
     password_record = conn.execute(
@@ -374,7 +374,7 @@ def verify_album_password(album_id):
     conn.close()
 
     if not password_record:
-        return jsonify({'error': '此相册未设置密码'}), 400
+        return jsonify({'error': 'Album has no password.'}), 400
 
     # 简单密码验证（实际应该使用加密哈希）
     token = generate_auth_token(album_id)
@@ -382,12 +382,12 @@ def verify_album_password(album_id):
     if password_record['password_hash'] == password:
         return jsonify({
             'success': True,
-            'message': '密码验证成功',
+            'message': 'Password verified.',
             'token': token,
             'expires_in': album_token_expire_minutes * 60  # 返回有效期（秒）
         })
     else:
-        return jsonify({'error': '密码错误'}), 401
+        return jsonify({'error': 'Incorrect password.'}), 401
 
 
 @bp.route('/api/albums/<int:album_id>/password', methods=['POST'])
@@ -396,7 +396,7 @@ def set_album_password(album_id):
     password = data.get('password')
 
     if not password:
-        return jsonify({'error': '密码不能为空'}), 400
+        return jsonify({'error': 'Password required.'}), 400
 
     conn = get_db_connection()
 
@@ -404,7 +404,7 @@ def set_album_password(album_id):
     album = conn.execute('SELECT * FROM albums WHERE id = ?', (album_id,)).fetchone()
     if not album:
         conn.close()
-        return jsonify({'error': '相册不存在'}), 404
+        return jsonify({'error': 'Album not found.'}), 404
 
     # 检查是否已设置密码
     existing_password = conn.execute(
@@ -428,7 +428,7 @@ def set_album_password(album_id):
     conn.commit()
     conn.close()
 
-    return jsonify({'message': '密码设置成功'})
+    return jsonify({'message': 'Password saved.'})
 
 
 @bp.route('/api/albums/<int:album_id>/password', methods=['DELETE'])
@@ -439,14 +439,14 @@ def remove_album_password(album_id):
     album = conn.execute('SELECT * FROM albums WHERE id = ?', (album_id,)).fetchone()
     if not album:
         conn.close()
-        return jsonify({'error': '相册不存在'}), 404
+        return jsonify({'error': 'Album not found.'}), 404
 
     # 删除密码记录
     conn.execute('DELETE FROM album_passwords WHERE album_id = ?', (album_id,))
     conn.commit()
     conn.close()
 
-    return jsonify({'message': '密码已移除'})
+    return jsonify({'message': 'Password removed.'})
 
 
 @bp.route('/api/albums/<int:album_id>/has-password')
@@ -468,13 +468,13 @@ def verify_album_token(album_id):
     token = data.get('token')
 
     if not token:
-        return jsonify({'valid': False, 'error': 'Token不能为空'}), 400
+        return jsonify({'valid': False, 'error': 'Token required.'}), 400
 
     # 使用之前的verify_auth_token函数验证
     if verify_auth_token(token, album_id):
-        return jsonify({'valid': True, 'message': 'Token有效'})
+        return jsonify({'valid': True, 'message': 'Token valid.'})
     else:
-        return jsonify({'valid': False, 'error': 'Token无效或已过期'})
+        return jsonify({'valid': False, 'error': 'Token invalid or expired.'})
 
 
 @bp.route('/api/images/move', methods=['POST'])
@@ -484,10 +484,10 @@ def move_images():
     target_album_id = data.get('target_album_id')
 
     if not image_ids:
-        return jsonify({'error': '请选择要移动的图片'}), 400
+        return jsonify({'error': 'Select photos to move.'}), 400
 
     if not target_album_id:
-        return jsonify({'error': '请选择目标相册'}), 400
+        return jsonify({'error': 'Select a destination album.'}), 400
 
     conn = get_db_connection()
 
@@ -496,7 +496,7 @@ def move_images():
         target_album = conn.execute('SELECT id FROM albums WHERE id = ?', (target_album_id,)).fetchone()
         if not target_album:
             conn.close()
-            return jsonify({'error': '目标相册不存在'}), 404
+            return jsonify({'error': 'Destination album not found.'}), 404
 
         # 检查所有图片是否存在
         placeholders = ','.join(['?'] * len(image_ids))
@@ -506,7 +506,7 @@ def move_images():
 
         if len(existing_images) != len(image_ids):
             conn.close()
-            return jsonify({'error': '部分图片不存在'}), 404
+            return jsonify({'error': 'Some photos were not found.'}), 404
 
         # 移动图片
         moved_count = 0
@@ -523,14 +523,14 @@ def move_images():
         conn.close()
 
         return jsonify({
-            'message': f'成功移动 {moved_count} 张图片',
+            'message': f'Moved {moved_count} photos.',
             'moved_count': moved_count,
             'total_count': len(image_ids)
         })
 
     except Exception as e:
         conn.close()
-        return jsonify({'error': f'移动图片失败: {str(e)}'}), 500
+        return jsonify({'error': f'Move failed: {str(e)}'}), 500
 
 
 @bp.route('/api/album-groups', methods=['GET'])
@@ -585,7 +585,7 @@ def get_album_groups():
     if ungrouped_albums:
         result.append({
             'id': -1,  # 使用-1表示未分组
-            'name': '未分组',
+            'name': 'Ungrouped',
             'sort_order': 9999,  # 排在最后
             'album_count': len(ungrouped_albums),
             'albums': [dict(album) for album in ungrouped_albums],
@@ -603,7 +603,7 @@ def create_album_group():
     sort_order = data.get('sort_order', 0)
 
     if not name:
-        return jsonify({'error': '分组名称不能为空'}), 400
+        return jsonify({'error': 'Group name required.'}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -617,10 +617,10 @@ def create_album_group():
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({'error': '分组名称已存在'}), 400
+        return jsonify({'error': 'Group name already exists.'}), 400
 
     conn.close()
-    return jsonify({'id': group_id, 'message': '分组创建成功'})
+    return jsonify({'id': group_id, 'message': 'Group created.'})
 
 
 @bp.route('/api/album-groups/<int:group_id>', methods=['PUT'])
@@ -651,10 +651,10 @@ def update_album_group(group_id):
             conn.commit()
         except sqlite3.IntegrityError:
             conn.close()
-            return jsonify({'error': '分组名称已存在'}), 400
+            return jsonify({'error': 'Group name already exists.'}), 400
 
     conn.close()
-    return jsonify({'message': '分组更新成功'})
+    return jsonify({'message': 'Group saved.'})
 
 
 @bp.route('/api/album-groups/<int:group_id>', methods=['DELETE'])
@@ -668,7 +668,7 @@ def delete_album_group(group_id):
     group = conn.execute('SELECT * FROM album_groups WHERE id = ?', (group_id,)).fetchone()
     if not group:
         conn.close()
-        return jsonify({'error': '分组不存在'}), 404
+        return jsonify({'error': 'Group not found.'}), 404
 
     try:
         # 先获取该分组下的相册ID
@@ -689,13 +689,13 @@ def delete_album_group(group_id):
 
         if move_to_ungrouped:
             return jsonify({
-                'message': '分组删除成功，相册已移到未分组',
+                'message': 'Group deleted. Albums moved to Ungrouped.',
                 'affected_albums': album_id_list,
                 'album_count': len(album_id_list)
             })
         else:
             return jsonify({
-                'message': '分组删除成功',
+                'message': 'Group deleted.',
                 'affected_albums': album_id_list,
                 'album_count': len(album_id_list)
             })
@@ -703,7 +703,7 @@ def delete_album_group(group_id):
     except Exception as e:
         conn.rollback()
         conn.close()
-        return jsonify({'error': f'删除失败: {str(e)}'}), 500
+        return jsonify({'error': f'Delete failed: {str(e)}'}), 500
 
 
 @bp.route('/api/albums/<int:album_id>/groups', methods=['POST'])
@@ -727,10 +727,10 @@ def set_album_groups(album_id):
 
         conn.commit()
         conn.close()
-        return jsonify({'message': '分组设置成功'})
+        return jsonify({'message': 'Groups saved.'})
     except Exception as e:
         conn.close()
-        return jsonify({'error': f'设置失败: {str(e)}'}), 500
+        return jsonify({'error': f'Save failed: {str(e)}'}), 500
 
 
 @bp.route('/api/albums/<int:album_id>/groups', methods=['GET'])

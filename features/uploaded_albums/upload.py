@@ -24,11 +24,11 @@ current_processing = {}
 @bp.route('/api/albums/<int:album_id>/images', methods=['POST'])
 def upload_image(album_id):
     if 'file' not in request.files:
-        return jsonify({'error': '没有文件'}), 400
+        return jsonify({'error': 'No file.'}), 400
 
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': '没有选择文件'}), 400
+        return jsonify({'error': 'No file selected.'}), 400
 
 
     #config start
@@ -46,7 +46,7 @@ def upload_image(album_id):
         conn.close()
 
         if not config or config['value'] != '1':
-            return jsonify({'error': '游客不允许上传图片'}), 403
+            return jsonify({'error': 'Guest uploads disabled.'}), 403
 
     #config end
 
@@ -89,7 +89,7 @@ def upload_image(album_id):
             conn.close()
             os.unlink(temp_file.name)  # 删除临时文件
             return jsonify({
-                'error': f'图片已存在于相册 "{existing_image["album_name"]}" 中',
+                'error': f'Photo already exists in album "{existing_image["album_name"]}".',
                 'existing_filename': existing_image['original_filename'],
                 'album_name': existing_image['album_name']
             }), 409
@@ -104,7 +104,7 @@ def upload_image(album_id):
         image_processing_queue.put(task)
 
         return jsonify({
-            'message': '图片已加入处理队列',
+            'message': 'Queued.',
             'filename': filename,
             'queue_position': image_processing_queue.qsize(),
             'immediate_response': True
@@ -114,7 +114,7 @@ def upload_image(album_id):
         # 清理临时文件
         if os.path.exists(temp_file.name):
             os.unlink(temp_file.name)
-        return jsonify({'error': f'上传失败: {str(e)}'}), 500
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 
 @bp.route('/api/upload/status/<filename>', methods=['GET'])
@@ -124,7 +124,7 @@ def get_upload_status(filename):
         if filename in current_processing:
             return jsonify({
                 'status': 'processing',
-                'message': '正在处理中'
+                'message': 'Processing…'
             })
 
     # 检查是否已处理完成

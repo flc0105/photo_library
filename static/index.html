@@ -716,17 +716,17 @@
                                 <div class="caption">
                                     <template v-if="showExifOnHover">
                                         <div class="exif-content" v-if="hasExifInfo(image.id)">
-                                            <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
-                                                <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                            <div class="camera-line" v-if="getExifValue(image.id, 'Camera Model')">
+                                                <span class="camera-model">{{ getExifValue(image.id, 'Camera Model') }}</span>
                                             </div>
                                             <div class="exposure-line">
                                                 <span class="exposure-item"><span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span></span>
                                                 <span class="exposure-sep">｜</span>
-                                                <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span></span>
+                                                <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, 'Aperture') }}</span></span>
                                                 <span class="exposure-sep">｜</span>
-                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span></span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, 'Shutter Speed') }}</span></span>
                                                 <span class="exposure-sep">｜</span>
-                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '焦距') }}</span></span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, 'Focal Length') }}</span></span>
                                             </div>
                                         </div>
                                         <div class="exif-loading" v-else-if="exifLoading[image.id]"><div class="loading-spinner"></div></div>
@@ -890,17 +890,17 @@
                                 <div class="caption">
                                     <template v-if="showExifOnHover">
                                         <div class="exif-content" v-if="hasExifInfo(image.id)">
-                                            <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
-                                                <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                            <div class="camera-line" v-if="getExifValue(image.id, 'Camera Model')">
+                                                <span class="camera-model">{{ getExifValue(image.id, 'Camera Model') }}</span>
                                             </div>
                                             <div class="exposure-line">
                                                 <span class="exposure-item"><span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span></span>
                                                 <span class="exposure-sep">｜</span>
-                                                <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span></span>
+                                                <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, 'Aperture') }}</span></span>
                                                 <span class="exposure-sep">｜</span>
-                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span></span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, 'Shutter Speed') }}</span></span>
                                                 <span class="exposure-sep">｜</span>
-                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '焦距') }}</span></span>
+                                                <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, 'Focal Length') }}</span></span>
                                             </div>
                                         </div>
                                         <div class="exif-loading" v-else-if="exifLoading[image.id]"><div class="loading-spinner"></div></div>
@@ -929,7 +929,7 @@
         <div v-if="currentView === 'smart-album'" class="smart-view-result-loading" v-loading="smartAlbumLoading">
             <div class="back-button">
                 <el-button @click="currentSmartAlbum.is_explore ? backToExplore() : backToAlbums()">
-                    {{ currentSmartAlbum.is_explore ? 'Back to Explore' : '返回相册列表' }}
+                    {{ currentSmartAlbum.is_explore ? 'Back to Explore' : 'Back' }}
                 </el-button>
             </div>
 
@@ -939,19 +939,19 @@
                     <div v-if="currentSmartAlbum.description" style="color:#606266; margin-top:6px;">{{ currentSmartAlbum.description }}</div>
                 </div>
                 <div v-if="!currentSmartAlbum.is_explore" class="album-actions">
-                    <el-button @click="runSmartAlbum">运行查询</el-button>
-                    <el-button @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? '查看重建进度' : '重建索引' }}</el-button>
-                    <el-button @click="openSmartAlbumIndexSync">{{ smartAlbumSyncActive || smartAlbumSyncScanning ? '查看同步进度' : '同步索引' }}</el-button>
-                    <el-button v-if="isAdmin" @click="editSmartAlbum()">编辑</el-button>
-                    <el-button v-if="isAdmin" type="danger" @click="deleteSmartAlbum()">删除</el-button>
+                    <el-button @click="runSmartAlbum">Run</el-button>
+                    <el-button @click="refreshSmartAlbumIndex">{{ smartAlbumIndexRefreshing ? 'Index Progress' : 'Rebuild Index' }}</el-button>
+                    <el-button @click="openSmartAlbumIndexSync">{{ smartAlbumSyncActive || smartAlbumSyncScanning ? 'Sync Progress' : 'Sync Index' }}</el-button>
+                    <el-button v-if="isAdmin" @click="editSmartAlbum()">Edit</el-button>
+                    <el-button v-if="isAdmin" type="danger" @click="deleteSmartAlbum()">Delete</el-button>
                 </div>
             </div>
 
             <div style="margin:0 0 16px; color:#909399; font-size:12px; line-height:1.7;">
-                <span>结果 {{ smartAlbumImages.length }} 张</span>
-                <span> · 索引 {{ smartAlbumIndex.asset_count || 0 }} 张 / {{ smartAlbumIndex.set_count || 0 }} 个 Set</span>
+                <span>{{ smartAlbumImages.length }} Photos</span>
+                <span> · Indexed {{ smartAlbumIndex.asset_count || 0 }} Photos / {{ smartAlbumIndex.set_count || 0 }} Sets</span>
                 <span v-if="smartAlbumIndex.last_refresh_at"> · {{ formatDate(smartAlbumIndex.last_refresh_at) }}</span>
-                <span v-else style="color:#e6a23c;"> · 尚未建立索引，请先重建索引</span>
+                <span v-else style="color:#e6a23c;"> · Index required</span>
                 <div v-if="smartAlbumIndex.warnings && smartAlbumIndex.warnings.length" style="color:#e6a23c;">
                     {{ smartAlbumIndex.warnings.join('；') }}
                 </div>
@@ -961,8 +961,8 @@
 
             <div v-if="smartAlbumImages.length > 0">
                 <div v-if="filteredImages.length > 0" style="margin:10px 0; color:#666; font-size:13px;">
-                    <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
-                    <span>排序: {{ getCurrentSmartAlbumSortLabel }}</span>
+                    <span>Filter: {{ getCurrentFilterLabel }}</span> ·
+                    <span>Sort: {{ getCurrentSmartAlbumSortLabel }}</span>
                 </div>
 
                 <div v-if="viewMode === 'grid'" class="image-grid">
@@ -972,7 +972,7 @@
                             <button class="action-button"
                                     :class="{ 'favorited': image.is_favorited }"
                                     @click.stop="toggleImageFavorite(image)"
-                                    :title="image.is_favorited ? '取消收藏' : '收藏'">
+                                    :title="image.is_favorited ? 'Unfavorite' : 'Favorite'">
                                 <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'"><Star/></el-icon>
                             </button>
                         </div>
@@ -990,17 +990,17 @@
                             <div class="caption">
                                 <template v-if="showExifOnHover">
                                     <div class="exif-content" v-if="hasExifInfo(image.id)">
-                                        <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
-                                            <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                        <div class="camera-line" v-if="getExifValue(image.id, 'Camera Model')">
+                                            <span class="camera-model">{{ getExifValue(image.id, 'Camera Model') }}</span>
                                         </div>
                                         <div class="exposure-line">
                                             <span class="exposure-item"><span class="exposure-value">ISO {{ getExifValue(image.id, 'ISO') }}</span></span>
                                             <span class="exposure-sep">｜</span>
-                                            <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span></span>
+                                            <span class="exposure-item"><span class="exposure-value">ƒ/{{ getExifValue(image.id, 'Aperture') }}</span></span>
                                             <span class="exposure-sep">｜</span>
-                                            <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span></span>
+                                            <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, 'Shutter Speed') }}</span></span>
                                             <span class="exposure-sep">｜</span>
-                                            <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, '焦距') }}</span></span>
+                                            <span class="exposure-item"><span class="exposure-value">{{ getExifValue(image.id, 'Focal Length') }}</span></span>
                                         </div>
                                     </div>
                                     <div class="exif-loading" v-else-if="exifLoading[image.id]"><div class="loading-spinner"></div></div>
@@ -1016,7 +1016,7 @@
                 </div>
             </div>
             <div v-else-if="!smartAlbumQueryError && !smartAlbumLoading" class="empty-state">
-                <p>当前查询没有结果。</p>
+                <p>No results.</p>
             </div>
         </div>
 
@@ -1025,7 +1025,7 @@
              ========================================================= -->
         <div v-if="currentView === 'album-detail'">
             <div class="back-button">
-                <el-button @click="backToAlbums">返回相册列表</el-button>
+                <el-button @click="backToAlbums">Back</el-button>
             </div>
 
             <div class="header">
@@ -1034,7 +1034,7 @@
                     <!-- 浏览模式切换 -->
                     <el-dropdown trigger="click" placement="bottom-start" style="margin-right: 10px;">
                         <el-button>
-                            <span>{{ viewMode === 'grid' ? '网格模式' : '瀑布流模式' }}</span>
+                            <span>{{ viewMode === 'grid' ? 'Grid' : 'Waterfall' }}</span>
                             <el-icon class="el-icon--right">
                                 <arrow-down/>
                             </el-icon>
@@ -1045,50 +1045,50 @@
                                         :class="{ 'is-active': viewMode === 'grid' }"
                                         @click="viewMode = 'grid'"
                                 >
-                                    网格模式
+                                    Grid
                                 </el-dropdown-item>
                                 <el-dropdown-item
                                         :class="{ 'is-active': viewMode === 'waterfall' }"
                                         @click="viewMode = 'waterfall'"
                                 >
-                                    瀑布流模式
+                                    Waterfall
                                 </el-dropdown-item>
                             </el-dropdown-menu>
                         </template>
                     </el-dropdown>
 
-                    <el-button v-if="isAdmin" @click="showEditAlbumDialog = true">编辑相册</el-button>
-                    <el-button v-if="canUpload" @click="showUploadDialog = true">上传图片</el-button>
-                    <el-button v-if="isAdmin" type="danger" @click="deleteAlbum(currentAlbum.id)">删除相册</el-button>
+                    <el-button v-if="isAdmin" @click="showEditAlbumDialog = true">Edit Album</el-button>
+                    <el-button v-if="canUpload" @click="showUploadDialog = true">Upload Photos</el-button>
+                    <el-button v-if="isAdmin" type="danger" @click="deleteAlbum(currentAlbum.id)">Delete Album</el-button>
                     <el-button @click="showShareDialog('album')">
-                        分享相册
+                        Share Album
                     </el-button>
 
                     <el-button :disabled="getFavoriteCount === 0" @click="exportFavoriteList">
-                        选图{{ getFavoriteCount > 0 ? `(${getFavoriteCount})` : '' }}
+                        Favorites{{ getFavoriteCount > 0 ? ` (${getFavoriteCount})` : '' }}
                     </el-button>
                 </div>
             </div>
 
             <!-- 相册元信息 -->
             <div class="album-meta" style="margin-bottom: 20px;">
-                <p v-if="currentAlbum.shoot_date"><strong>拍摄日期:</strong> {{ formatDate(currentAlbum.shoot_date) }}
+                <p v-if="currentAlbum.shoot_date"><strong>Shot:</strong> {{ formatDate(currentAlbum.shoot_date) }}
                 </p>
-                <p v-if="currentAlbum.model_name"><strong>模特:</strong> {{ currentAlbum.model_name }}</p>
-                <p v-if="currentAlbum.location"><strong>地点:</strong> {{ currentAlbum.location }}</p>
-                <p v-if="currentAlbum.description"><strong>描述:</strong> {{ currentAlbum.description }}</p>
+                <p v-if="currentAlbum.model_name"><strong>Model:</strong> {{ currentAlbum.model_name }}</p>
+                <p v-if="currentAlbum.location"><strong>Location:</strong> {{ currentAlbum.location }}</p>
+                <p v-if="currentAlbum.description"><strong>Description:</strong> {{ currentAlbum.description }}</p>
             </div>
 
             <!-- 筛选和排序状态显示 -->
             <div v-if="filteredImages.length > 0" style="margin: 10px 0; color: #666; font-size: 13px;">
-                <span>筛选: {{ getCurrentFilterLabel }}</span> ｜
-                <span>排序: {{ getCurrentSortLabel }}</span>
+                <span>Filter: {{ getCurrentFilterLabel }}</span> ·
+                <span>Sort: {{ getCurrentSortLabel }}</span>
             </div>
 
             <!-- 网格模式 -->
             <div v-if="viewMode === 'grid'">
                 <div v-if="images.length === 0" class="empty-state">
-                    <p>这个相册还没有图片，上传一些吧！</p>
+                    <p>No photos.</p>
                 </div>
                 <div v-else class="image-grid">
                     <div
@@ -1113,7 +1113,7 @@
                                     class="action-button"
                                     :class="{ 'favorited': image.is_favorited }"
                                     @click.stop="toggleFavorite(image.id)"
-                                    :title="image.is_favorited ? '取消收藏' : '收藏'"
+                                    :title="image.is_favorited ? 'Unfavorite' : 'Favorite'"
                             >
                                 <el-icon :color="image.is_favorited ? '#f56c6c' : '#c0c4cc'">
                                     <Star/>
@@ -1127,7 +1127,7 @@
             <!-- 瀑布流模式 -->
             <div v-if="viewMode === 'waterfall'">
                 <div v-if="images.length === 0" class="empty-state">
-                    <p>这个相册还没有图片，上传一些吧！</p>
+                    <p>No photos.</p>
                 </div>
                 <div v-else class="pl-waterfall">
                     <div
@@ -1170,8 +1170,8 @@
 
 
                                     <!-- 第二行：相机信息 -->
-                                    <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">
-                                        <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>
+                                    <div class="camera-line" v-if="getExifValue(image.id, 'Camera Model')">
+                                        <span class="camera-model">{{ getExifValue(image.id, 'Camera Model') }}</span>
                                     </div>
 
 
@@ -1182,15 +1182,15 @@
                 </span>
                                         <span class="exposure-sep">｜</span>
                                         <span class="exposure-item">
-                    <span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span>
+                    <span class="exposure-value">ƒ/{{ getExifValue(image.id, 'Aperture') }}</span>
                 </span>
                                         <span class="exposure-sep">｜</span>
                                         <span class="exposure-item">
-                    <span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span>
+                    <span class="exposure-value">{{ getExifValue(image.id, 'Shutter Speed') }}</span>
                 </span>
                                         <span class="exposure-sep">｜</span>
                                         <span class="exposure-item">
-                    <span class="exposure-value">{{getExifValue(image.id, '焦距') }}</span>
+                    <span class="exposure-value">{{getExifValue(image.id, 'Focal Length') }}</span>
                 </span>
                                     </div>
                                 </div>
@@ -1235,8 +1235,8 @@
 
 
 <!--                                    &lt;!&ndash; 第二行：相机信息 &ndash;&gt;-->
-<!--                                    <div class="camera-line" v-if="getExifValue(image.id, '相机型号')">-->
-<!--                                        <span class="camera-model">{{ getExifValue(image.id, '相机型号') }}</span>-->
+<!--                                    <div class="camera-line" v-if="getExifValue(image.id, 'Camera Model')">-->
+<!--                                        <span class="camera-model">{{ getExifValue(image.id, 'Camera Model') }}</span>-->
 <!--                                    </div>-->
 
 
@@ -1247,15 +1247,15 @@
 <!--                </span>-->
 <!--                                        <span class="exposure-sep">｜</span>-->
 <!--                                        <span class="exposure-item">-->
-<!--                    <span class="exposure-value">ƒ/{{ getExifValue(image.id, '光圈') }}</span>-->
+<!--                    <span class="exposure-value">ƒ/{{ getExifValue(image.id, 'Aperture') }}</span>-->
 <!--                </span>-->
 <!--                                        <span class="exposure-sep">｜</span>-->
 <!--                                        <span class="exposure-item">-->
-<!--                    <span class="exposure-value">{{ getExifValue(image.id, '快门速度') }}</span>-->
+<!--                    <span class="exposure-value">{{ getExifValue(image.id, 'Shutter Speed') }}</span>-->
 <!--                </span>-->
 <!--                                        <span class="exposure-sep">｜</span>-->
 <!--                                        <span class="exposure-item">-->
-<!--                    <span class="exposure-value">{{getExifValue(image.id, '焦距') }}</span>-->
+<!--                    <span class="exposure-value">{{getExifValue(image.id, 'Focal Length') }}</span>-->
 <!--                </span>-->
 <!--                                    </div>-->
 <!--                                </div>-->
@@ -1550,9 +1550,9 @@
                         size="small"
                         :type="selectionMode ? 'primary' : 'default'"
                         @click="toggleSelectionMode"
-                        title="多选模式"
+                        title="Select Photos"
                 >
-                    {{ selectionMode ? '取消多选' : '多选' }}
+                    {{ selectionMode ? 'Cancel Selection' : 'Select' }}
                 </el-button>
 
                 <el-button
@@ -1561,9 +1561,9 @@
                         size="small"
                         @click="selectAllImages"
                         :disabled="!selectionMode || filteredImages.length === 0"
-                        :title="isAllSelected ? '取消全选' : '全选'"
+                        :title="isAllSelected ? 'Deselect All' : 'Select All'"
                 >
-                    {{ isAllSelected ? '取消全选' : '全选' }}
+                    {{ isAllSelected ? 'Deselect All' : 'Select All' }}
                 </el-button>
 
                 <el-button
@@ -1574,7 +1574,7 @@
                         @click="batchDeleteImages"
                         :disabled="!selectionMode || selectedImages.length === 0"
                 >
-                    删除{{ selectedImages.length > 0 ? `(${selectedImages.length})` : '' }}
+                    Delete{{ selectedImages.length > 0 ? ` (${selectedImages.length})` : '' }}
                 </el-button>
 
                 <el-button
@@ -1585,14 +1585,14 @@
                         @click="showMoveDialog"
                         :disabled="!selectionMode || selectedImages.length === 0"
                 >
-                    移动{{ selectedImages.length > 0 ? `(${selectedImages.length})` : '' }}
+                    Move{{ selectedImages.length > 0 ? ` (${selectedImages.length})` : '' }}
                 </el-button>
 
 
                 <!-- 排序按钮 -->
                 <el-dropdown v-if="currentView !== 'smart-album' && !(currentImage && currentImage.smart_album_id)" @command="changeSort" trigger="click">
                     <el-button class="toolbar-btn" size="small">
-                        排序
+                        Sort
                     </el-button>
                     <template #dropdown>
                         <el-dropdown-menu>
@@ -1610,7 +1610,7 @@
 
                 <el-dropdown v-if="currentView === 'smart-album' || (currentImage && currentImage.smart_album_id)" @command="changeSmartAlbumSort" trigger="click">
                     <el-button class="toolbar-btn" size="small">
-                        排序
+                        Sort
                     </el-button>
                     <template #dropdown>
                         <el-dropdown-menu>
@@ -1630,7 +1630,7 @@
                 <!-- 筛选按钮 -->
                 <el-dropdown @command="changeFilter" trigger="click">
                     <el-button class="toolbar-btn" size="small" :type="currentFilter !== 'all' ? 'primary' : 'default'">
-                        筛选
+                        Filter
                     </el-button>
                     <template #dropdown>
                         <el-dropdown-menu>
@@ -2138,9 +2138,9 @@
             <div v-loading="smartAlbumHelpLoading" style="line-height:1.65;">
                 <template v-if="smartAlbumRuntime">
                     <div style="margin-bottom:16px; color:#606266; font-size:13px;">
-                        <code>photos</code> 是当前已建立索引且仍启用的 Library Sources 照片集合；代码需要给 <code>result</code> 赋值。
-                        查询运行在受限 Python 环境中，不开放文件写入、进程、网络或数据库修改能力。
-                        <code>photo.exif</code>、<code>photo.capture.exif</code> 与 <code>photo.set.manifest</code> 是只读 AttrMap，支持属性访问、<code>[]</code>、<code>.get()</code>、<code>.items()</code> 和 <code>.to_dict()</code>。
+                        <code>photos</code> contains indexed photos from enabled Library Sources. Assign the output to <code>result</code>.
+                        Code runs in a restricted Python environment with no file writes, processes, network access, or database changes.
+                        <code>photo.exif</code>, <code>photo.capture.exif</code>, and <code>photo.set.manifest</code> are read-only AttrMaps supporting attributes, <code>[]</code>, <code>.get()</code>, <code>.items()</code>, and <code>.to_dict()</code>.
                     </div>
 
                     <div v-for="group in (smartAlbumRuntime.photo_contract_groups || [])" :key="group.label"
@@ -2153,7 +2153,7 @@
                     </div>
 
                     <div style="margin:18px 0 12px;">
-                        <strong>查询助手</strong>
+                        <strong>Helpers</strong>
                         <div v-for="helper in (smartAlbumRuntime.helper_docs || [])" :key="helper.name"
                              style="margin-top:10px; padding:10px 12px; border:1px solid #ebeef5; border-radius:6px;">
                             <code>{{ helper.signature }}</code>
@@ -2164,18 +2164,18 @@
                 </template>
             </div>
             <template #footer>
-                <el-button @click="showSmartAlbumHelpDialog = false">关闭</el-button>
+                <el-button @click="showSmartAlbumHelpDialog = false">Close</el-button>
             </template>
         </el-dialog>
 
         <!-- 编辑相册对话框 -->
-        <el-dialog v-model="showEditAlbumDialog" title="编辑相册">
+        <el-dialog v-model="showEditAlbumDialog" title="Edit Album">
             <el-form :model="currentAlbum">
-                <el-form-item label="相册名称">
-                    <el-input v-model="currentAlbum.name" placeholder="请输入相册名称"></el-input>
+                <el-form-item label="Album Name">
+                    <el-input v-model="currentAlbum.name" placeholder="Album name"></el-input>
                 </el-form-item>
-                <el-form-item label="所属分组">
-                    <el-select v-model="currentAlbum.group_ids" multiple placeholder="请选择分组" style="width: 100%;">
+                <el-form-item label="Groups">
+                    <el-select v-model="currentAlbum.group_ids" multiple placeholder="Select groups" style="width: 100%;">
                         <el-option
                                 v-for="group in allGroups"
                                 :key="group.id"
@@ -2185,37 +2185,37 @@
                         </el-option>
                     </el-select>
                 </el-form-item>
-                <el-form-item label="拍摄日期">
+                <el-form-item label="Shoot Date">
                     <el-date-picker v-model="currentAlbum.shoot_date" type="date"
-                                    placeholder="选择拍摄日期"></el-date-picker>
+                                    placeholder="Select date"></el-date-picker>
                 </el-form-item>
-                <el-form-item label="模特">
-                    <el-input v-model="currentAlbum.model_name" placeholder="请输入模特名字"></el-input>
+                <el-form-item label="Model">
+                    <el-input v-model="currentAlbum.model_name" placeholder="Model"></el-input>
                 </el-form-item>
-                <el-form-item label="地点">
-                    <el-input v-model="currentAlbum.location" placeholder="请输入拍摄地点"></el-input>
+                <el-form-item label="Location">
+                    <el-input v-model="currentAlbum.location" placeholder="Location"></el-input>
                 </el-form-item>
-                <el-form-item label="描述">
+                <el-form-item label="Description">
                     <el-input v-model="currentAlbum.description" type="textarea"
-                              placeholder="请输入相册描述"></el-input>
+                              placeholder="Description"></el-input>
                 </el-form-item>
 
 
                 <!-- 密码管理 -->
-                <el-form-item label="密码保护">
+                <el-form-item label="Password">
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <el-switch
                                 v-model="passwordEnabled"
                                 @change="handlePasswordToggle"
                         />
-                        <span>{{ passwordEnabled ? '已启用' : '未启用' }}</span>
+                        <span>{{ passwordEnabled ? 'Enabled' : 'Disabled' }}</span>
                     </div>
                 </el-form-item>
-                <el-form-item v-if="passwordEnabled" label="设置密码">
+                <el-form-item v-if="passwordEnabled" label="Set Password">
                     <el-input
                             v-model="newPassword"
                             type="password"
-                            placeholder="输入新密码"
+                            placeholder="New password"
                             style="width: 200px;"
                     />
                 </el-form-item>
@@ -2223,23 +2223,23 @@
 
             </el-form>
             <template #footer>
-                <el-button @click="showEditAlbumDialog = false">取消</el-button>
-                <el-button type="primary" @click="updateAlbum">保存</el-button>
+                <el-button @click="showEditAlbumDialog = false">Cancel</el-button>
+                <el-button type="primary" @click="updateAlbum">Save</el-button>
             </template>
         </el-dialog>
 
 
         <!--上传图片对话框-->
-        <el-dialog v-model="showUploadDialog" title="上传图片">
+        <el-dialog v-model="showUploadDialog" title="Upload Photos">
             <el-upload drag multiple :action="`/api/albums/${currentAlbum.id}/images`" :on-success="handleUploadSuccess"
                        :on-error="handleUploadError" :before-upload="beforeUpload">
-                <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+                <div class="el-upload__text">Drop files here or <em>click to upload</em></div>
                 <template #tip>
-                    <div class="el-upload__tip">只能上传jpg/png文件</div>
+                    <div class="el-upload__tip">JPG/PNG only</div>
                 </template>
             </el-upload>
             <template #footer>
-                <el-button @click="showUploadDialog = false">关闭</el-button>
+                <el-button @click="showUploadDialog = false">Close</el-button>
             </template>
         </el-dialog>
 
@@ -2268,15 +2268,15 @@
         </el-dialog>
 
         <!-- 移动对话框 -->
-        <el-dialog v-model="showMoveToAlbumDialog" title="移动图片到其他相册" width="500px">
+        <el-dialog v-model="showMoveToAlbumDialog" title="Move Photos" width="500px">
             <div v-if="selectedImages.length > 0">
                 <p style="margin-bottom: 15px;">
-                    已将选择 <strong>{{ selectedImages.length }}</strong> 张图片：
+                    Selected: <strong>{{ selectedImages.length }}</strong> photos
                 </p>
 
                 <el-select
                         v-model="targetAlbumId"
-                        placeholder="请选择目标相册"
+                        placeholder="Select album"
                         style="width: 100%;"
                         filterable
                         clearable
@@ -2290,28 +2290,28 @@
                     >
                         <span style="float: left">{{ album.name }}</span>
                         <span style="float: right; color: #8492a6; font-size: 13px">
-                    {{ album.image_count }} 张图片
+                    {{ album.image_count }} Photos
                 </span>
                     </el-option>
                 </el-select>
 
                 <div style="margin-top: 20px; color: #909399; font-size: 13px;">
-                    <p>提示：</p>
+                    <p>Note:</p>
                     <ul style="padding-left: 20px; margin: 10px 0;">
-                        <li>目标相册不能是当前相册</li>
-                        <li>移动后图片将从当前相册移除</li>
+                        <li>Choose a different album.</li>
+                        <li>Photos are removed from the current album.</li>
                     </ul>
                 </div>
             </div>
 
             <template #footer>
-                <el-button @click="showMoveToAlbumDialog = false">取消</el-button>
+                <el-button @click="showMoveToAlbumDialog = false">Cancel</el-button>
                 <el-button
                         type="primary"
                         @click="moveSelectedImages"
                         :disabled="!targetAlbumId || targetAlbumId === currentAlbum.id"
                 >
-                    确认移动
+                    Move
                 </el-button>
             </template>
         </el-dialog>

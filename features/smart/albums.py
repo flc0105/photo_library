@@ -410,7 +410,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         description = str(data.get('description') or '')
         python_code = str(data.get('python_code') or DEFAULT_QUERY_CODE)
         if not name:
-            return jsonify({'error': '相册名称不能为空'}), 400
+            return jsonify({'error': 'Name required.'}), 400
         # Parse/validate before saving. Execution happens when the album runs.
         try:
             from features.smart.runtime import _validate_script
@@ -440,7 +440,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         row = _album_row(conn, album_id)
         conn.close()
         if not row:
-            return jsonify({'error': 'Smart Album 不存在'}), 404
+            return jsonify({'error': 'Smart Album not found.'}), 404
         return jsonify({'album': _album_dict(row), 'index': _index_status(smart_db_path)})
 
     @bp.route('/api/smart-albums/<int:album_id>', methods=['PUT'])
@@ -453,13 +453,13 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         existing = _album_row(conn, album_id)
         if not existing:
             conn.close()
-            return jsonify({'error': 'Smart Album 不存在'}), 404
+            return jsonify({'error': 'Smart Album not found.'}), 404
         name = str(data.get('name', existing['name']) or '').strip()
         description = str(data.get('description', existing['description']) or '')
         python_code = str(data.get('python_code', existing['python_code']) or '')
         if not name:
             conn.close()
-            return jsonify({'error': '相册名称不能为空'}), 400
+            return jsonify({'error': 'Name required.'}), 400
         try:
             from features.smart.runtime import _validate_script
             _validate_script(python_code)
@@ -486,7 +486,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         row = _album_row(conn, album_id)
         if not row:
             conn.close()
-            return jsonify({'error': 'Smart Album 不存在'}), 404
+            return jsonify({'error': 'Smart Album not found.'}), 404
         conn.execute('DELETE FROM smart_albums WHERE id=?', (album_id,))
         conn.commit()
         conn.close()
@@ -501,7 +501,7 @@ def create_smart_album_blueprint(admin_guard, main_db_path):
         row = _album_row(conn, album_id)
         conn.close()
         if not row:
-            return jsonify({'error': 'Smart Album 不存在'}), 404
+            return jsonify({'error': 'Smart Album not found.'}), 404
         try:
             results, status = _run_album_query(smart_db_path, main_db_path, row)
             conn = _connect(smart_db_path)

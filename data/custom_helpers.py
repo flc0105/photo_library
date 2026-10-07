@@ -89,7 +89,7 @@ def shoot_time(photo):
 def sample_per_set(items, count=1, seed=None):
     """Randomly keep up to ``count`` Photos from every Source + Set group."""
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-        raise ValueError('sample_per_set() 的 count 必须是 >= 1 的整数。')
+        raise ValueError('sample_per_set() count must be an integer >= 1.')
 
     materialized = list(items)
     groups = {}
@@ -128,7 +128,7 @@ def preferred_versions(items, stage_order=('revision', 'model_edit', 'base_edit'
     ``stage_order`` to change the policy, for example to include Final.
     """
     if isinstance(stage_order, str):
-        raise TypeError('stage_order 必须是 stage 名称序列，不能是单个字符串。')
+        raise TypeError('stage_order must be a sequence of stage names, not a string.')
 
     order = []
     seen_stages = set()

@@ -61,7 +61,7 @@ def admin_required(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         if not is_admin_request():
-            return jsonify({'error': '需要管理员权限'}), 401
+            return jsonify({'error': 'Admin access required.'}), 401
         return func(*args, **kwargs)
     return wrapper
 
