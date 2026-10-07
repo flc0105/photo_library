@@ -34,37 +34,37 @@ def metadata_fields_path():
 
 def _tag_parts(value, label):
     if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f'Final Metadata 字段配置 {label} 必须是非空 ExifTool Group:Tag')
+        raise RuntimeError(f'Metadata field config {label} must be a non-empty ExifTool Group:Tag.')
     if value != value.strip() or not _TAG_REF_RE.fullmatch(value):
-        raise RuntimeError(f'Final Metadata 字段配置 {label} 无效：{value!r}')
+        raise RuntimeError(f'Metadata field config {label} invalid: {value!r}')
     return value.split(':', 1)
 
 
 def _normalize_fixed(value, index):
     if not isinstance(value, dict):
-        raise RuntimeError(f'Final Metadata 字段配置 fields[{index}].fixed 必须是 object')
+        raise RuntimeError(f'Metadata field config fields[{index}].fixed must be an object.')
     extra = sorted(set(value) - {'raw', 'display'})
     if extra:
         raise RuntimeError(
-            f'Final Metadata 字段配置 fields[{index}].fixed 存在未知项：{", ".join(extra)}'
+            f'Metadata field config fields[{index}].fixed has unknown keys: {", ".join(extra)}'
         )
     if 'raw' not in value or value['raw'] is None or isinstance(value['raw'], (dict, list)):
-        raise RuntimeError(f'Final Metadata 字段配置 fields[{index}].fixed.raw 必须是标量值')
+        raise RuntimeError(f'Metadata field config fields[{index}].fixed.raw must be scalar.')
     display = value.get('display')
     if not isinstance(display, str) or not display.strip() or display != display.strip():
-        raise RuntimeError(f'Final Metadata 字段配置 fields[{index}].fixed.display 必须是非空字符串')
+        raise RuntimeError(f'Metadata field config fields[{index}].fixed.display must be a non-empty string.')
     return {'raw': value['raw'], 'display': display}
 
 
 def _normalize_contract(data):
     if not isinstance(data, dict):
-        raise RuntimeError('Final Metadata 字段配置必须是 JSON object')
+        raise RuntimeError('Metadata field config must be a JSON object.')
     extra_top = sorted(set(data) - {'fields'})
     if extra_top:
-        raise RuntimeError(f'Final Metadata 字段配置存在未知顶层项：{", ".join(extra_top)}')
+        raise RuntimeError(f'Metadata field config has unknown top-level keys: {", ".join(extra_top)}')
     raw_fields = data.get('fields')
     if not isinstance(raw_fields, list) or not raw_fields:
-        raise RuntimeError('Final Metadata 字段配置 fields 必须是非空列表')
+        raise RuntimeError('Metadata field config fields must be a non-empty list.')
 
     fields = []
     seen_keys = set()
@@ -72,28 +72,28 @@ def _normalize_contract(data):
     for index, raw in enumerate(raw_fields):
         if not isinstance(raw, dict):
             raise RuntimeError(
-                f'Final Metadata 字段配置 fields[{index}] 必须是字段 object；不接受字段名字符串'
+                f'Metadata field config fields[{index}] must be an object.'
             )
         extra = sorted(set(raw) - {'key', 'output', 'sources', 'fixed'})
         if extra:
             raise RuntimeError(
-                f'Final Metadata 字段配置 fields[{index}] 存在未知项：{", ".join(extra)}'
+                f'Metadata field config fields[{index}] has unknown keys: {", ".join(extra)}'
             )
 
         key = raw.get('key')
         if not isinstance(key, str) or not key.strip() or key != key.strip() or not _TAG_NAME_RE.fullmatch(key):
-            raise RuntimeError(f'Final Metadata 字段配置 fields[{index}].key 无效：{key!r}')
+            raise RuntimeError(f'Metadata field config fields[{index}].key invalid: {key!r}')
         output = raw.get('output')
         _output_group, output_tag = _tag_parts(output, f'fields[{index}].output')
         if key != output_tag:
             raise RuntimeError(
-                f'Final Metadata 字段配置字段名必须与 output tag 一致：{key} != {output_tag}'
+                f'Metadata field config field key must match output tag: {key} != {output_tag}'
             )
         if key in seen_keys:
-            raise RuntimeError(f'Final Metadata 字段配置包含重复字段：{key}')
+            raise RuntimeError(f'Metadata field config has duplicate field: {key}')
         output_cf = output.casefold()
         if output_cf in seen_outputs:
-            raise RuntimeError(f'Final Metadata 字段配置包含重复 output：{output}')
+            raise RuntimeError(f'Metadata field config has duplicate output: {output}')
         seen_keys.add(key)
         seen_outputs.add(output_cf)
 
@@ -102,26 +102,26 @@ def _normalize_contract(data):
             sources = []
         else:
             if not isinstance(raw_sources, list) or not raw_sources:
-                raise RuntimeError(f'Final Metadata 字段配置 fields[{index}].sources 必须是非空列表')
+                raise RuntimeError(f'Metadata field config fields[{index}].sources must be a non-empty list.')
             sources = []
             seen_sources = set()
             for source_index, source in enumerate(raw_sources):
                 _tag_parts(source, f'fields[{index}].sources[{source_index}]')
                 source_cf = source.casefold()
                 if source_cf in seen_sources:
-                    raise RuntimeError(f'Final Metadata 字段配置字段 {key} 包含重复 source：{source}')
+                    raise RuntimeError(f'Metadata field {key} has duplicate source: {source}')
                 seen_sources.add(source_cf)
                 sources.append(source)
             if sources[0].casefold() != output.casefold():
                 raise RuntimeError(
-                    f'Final Metadata 字段配置字段 {key} 的第一个 source 必须是 output：{output}'
+                    f'Metadata field {key} first source must be output: {output}'
                 )
 
         fixed = None
         if 'fixed' in raw:
             fixed = _normalize_fixed(raw['fixed'], index)
         elif not sources:
-            raise RuntimeError(f'Final Metadata 字段配置字段 {key} 必须提供 sources 或 fixed')
+            raise RuntimeError(f'Metadata field {key} requires sources or fixed.')
 
         field = {
             'key': key,
@@ -140,11 +140,11 @@ def _normalize_contract(data):
 def load_metadata_contract():
     path = metadata_fields_path()
     if not path.exists():
-        raise RuntimeError(f'Final Metadata 字段配置不存在：{path}')
+        raise RuntimeError(f'Metadata field config not found: {path}')
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
     except Exception as exc:
-        raise RuntimeError(f'Final Metadata 字段配置 JSON 无效：{exc}') from exc
+        raise RuntimeError(f'Metadata field config JSON invalid: {exc}') from exc
     return _normalize_contract(data)
 
 
@@ -201,11 +201,11 @@ def _run_exiftool_listx(exiftool_path):
     )
     if result.returncode != 0 or not result.stdout.strip():
         detail = (result.stderr or result.stdout or '').strip()
-        raise RuntimeError(f'无法使用 ExifTool 验证字段配置：{detail or f"exit {result.returncode}"}')
+        raise RuntimeError(f'ExifTool field validation failed: {detail or f"exit {result.returncode}"}')
     try:
         root = ET.fromstring(result.stdout)
     except ET.ParseError as exc:
-        raise RuntimeError(f'ExifTool 字段目录无法解析：{exc}') from exc
+        raise RuntimeError(f'ExifTool field list parse failed: {exc}') from exc
 
     readable = set()
     writable = set()
@@ -256,15 +256,15 @@ def validate_metadata_fields_with_exiftool(exiftool_path, fields=None):
         for source in field_read_keys(field):
             if source.casefold() not in readable:
                 raise RuntimeError(
-                    f'Final Metadata 字段配置包含 ExifTool 不识别的 source tag：{source}'
+                    f'Metadata field config has unknown ExifTool source tag: {source}'
                 )
         output = field['output']
         if output.casefold() not in readable:
             raise RuntimeError(
-                f'Final Metadata 字段配置包含 ExifTool 不识别的 output tag：{output}'
+                f'Metadata field config has unknown ExifTool output tag: {output}'
             )
         if output.casefold() not in writable:
             raise RuntimeError(
-                f'Final Metadata 字段配置 output tag 不可写：{output}'
+                f'Metadata field config output tag is not writable: {output}'
             )
     return True

@@ -74,9 +74,9 @@ def _get_plan(plan_id, source_id, set_rel):
     with _PLAN_LOCK:
         plan = _PLANS.get(str(plan_id))
     if not plan:
-        raise ValueError('Metadata Preview 已过期，请重新打开')
+        raise ValueError('Metadata Preview expired. Reopen Write Metadata.')
     if plan.get('kind') != 'final_metadata' or int(plan.get('source_id')) != int(source_id) or plan.get('set_rel') != set_rel:
-        raise ValueError('Metadata Preview 与当前 Set 不匹配，请重新打开')
+        raise ValueError('Metadata Preview does not match the current Set.')
     return plan
 
 
@@ -92,7 +92,7 @@ def _new_task(total):
         'completed': 0,
         'current': 0,
         'percent': 0,
-        'message': '等待开始…',
+        'message': 'Queued…',
         'logs': [],
         'result': None,
         'error': None,
@@ -148,8 +148,8 @@ def _verify_signatures(signatures):
     if changed:
         names = ', '.join(changed[:8])
         if len(changed) > 8:
-            names += f' 等 {len(changed)} 个文件'
-        raise RuntimeError(f'文件在 Preview 后发生变化，请重新 Preview：{names}')
+            names += f' ({len(changed)} files total)'
+        raise RuntimeError(f'Files changed after Preview: {names}')
 
 
 def _logical_id(filename):
@@ -216,8 +216,8 @@ def _choose_candidate(final_path: Path, candidates, stage_label):
 
     names = ', '.join(path.name for path in candidates[:6])
     if len(candidates) > 6:
-        names += f' 等 {len(candidates)} 个'
-    return None, f'{stage_label} 同一照片存在多个来源文件，无法唯一确定：{names}'
+        names += f' ({len(candidates)} files total)'
+    return None, f'{stage_label}: multiple matching files: {names}'
 
 
 def _donor_candidates(final_path: Path, original_index, raw_index):
@@ -237,7 +237,7 @@ def _donor_candidates(final_path: Path, original_index, raw_index):
             candidates.append((path, stage_label))
 
     if not candidates:
-        return [], '01_Original/JPG 与 01_Original/RAW 都没有对应来源文件'
+        return [], 'No matching Original JPG/RAW.'
     return candidates, None
 
 
@@ -246,9 +246,9 @@ def _dependency_status():
     version = probe_exiftool_version(path)
     messages = []
     if not path:
-        messages.append('找不到 ExifTool')
+        messages.append('ExifTool not found.')
     elif version != EXIFTOOL_REQUIRED_VERSION:
-        messages.append(f'ExifTool {version or "unknown"}（需要 {EXIFTOOL_REQUIRED_VERSION}）')
+        messages.append(f'ExifTool {version or "unknown"}; requires {EXIFTOOL_REQUIRED_VERSION}.')
 
     return {
         'ready': bool(path and version == EXIFTOOL_REQUIRED_VERSION),
@@ -293,11 +293,11 @@ def _run_exiftool_json(exiftool_path, files, fields, numeric=False):
         check=False,
     )
     if result.returncode not in (0, 1):
-        raise RuntimeError(result.stderr.strip() or 'ExifTool 读取 metadata 失败')
+        raise RuntimeError(result.stderr.strip() or 'ExifTool metadata read failed.')
     try:
         records = json.loads(result.stdout or '[]')
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f'ExifTool 返回无效 JSON：{exc}') from exc
+        raise RuntimeError(f'Invalid ExifTool JSON: {exc}') from exc
 
     by_path = {}
     for record in records:
@@ -375,10 +375,10 @@ def _select_qualified_donor(candidates, records, fields):
         missing = _missing_source_field_labels(donor_record, fields)
         if not missing:
             return donor_path, donor_stage, None
-        incomplete.append(f'{donor_stage} 缺少配置字段：{", ".join(missing)}')
+        incomplete.append(f'{donor_stage} missing fields: {", ".join(missing)}')
 
-    detail = '；'.join(incomplete)
-    return None, None, f'没有合格的 Metadata 来源文件；{detail}' if detail else '没有合格的 Metadata 来源文件'
+    detail = '; '.join(incomplete)
+    return None, None, f'No valid metadata source: {detail}' if detail else 'No valid metadata source.'
 
 
 def _metadata_plan(source_id, set_dir: Path, set_rel: str):
@@ -456,28 +456,28 @@ def _metadata_plan(source_id, set_dir: Path, set_rel: str):
         if row['donor_error']:
             errors.append(row['donor_error'])
         if donor_path is not None and not donor_path.exists():
-            errors.append('Metadata 来源文件已不存在')
+            errors.append('Metadata source no longer exists.')
         missing_source_fields = [
             field['label']
             for field in field_rows
             if not field['source_value'] and not field['output_fixed']
         ]
         if donor_path is not None and missing_source_fields:
-            errors.append('Metadata 来源文件缺少配置字段：' + ', '.join(missing_source_fields))
+            errors.append('Metadata source missing fields: ' + ', '.join(missing_source_fields))
         try:
             jfif_sha = _jfif_segment_sha256(final_path)
         except Exception as exc:
-            errors.append(f'Final JFIF 校验失败：{exc}')
+            errors.append(f'Final JFIF check failed: {exc}')
             jfif_sha = ''
         try:
             if dependency['exiftool_path']:
                 icc_sha = _icc_sha256(dependency['exiftool_path'], final_path)
                 if icc_sha != FINAL_SRGB_ICC_SHA256:
-                    errors.append(f'Final ICC 不是 canonical {FINAL_SRGB_PROFILE_DESCRIPTION}')
+                    errors.append(f'Final ICC is not canonical {FINAL_SRGB_PROFILE_DESCRIPTION}')
             else:
                 icc_sha = ''
         except Exception as exc:
-            errors.append(f'Final ICC 校验失败：{exc}')
+            errors.append(f'Final ICC check failed: {exc}')
             icc_sha = ''
         status = 'blocked' if errors else 'ready'
         if status == 'blocked':
@@ -545,19 +545,19 @@ def _run_process(args, label, timeout=60, binary=False):
         stderr = result.stderr if not binary else (result.stderr or b'').decode('utf-8', errors='replace')
         stdout = result.stdout if not binary else (result.stdout or b'').decode('utf-8', errors='replace')
         detail = (stderr or stdout or '').strip()
-        raise RuntimeError(f'{label}失败：{detail or f"exit {result.returncode}"}')
+        raise RuntimeError(f'{label} failed: {detail or f"exit {result.returncode}"}')
     return result
 
 
 def _image_data_md5(exiftool_path, path: Path):
     result = _run_process(
         [exiftool_path, '-s3', '-ImageDataMD5', str(path)],
-        '读取 JPEG ImageDataMD5',
+        'Read JPEG ImageDataMD5',
         timeout=30,
     )
     value = (result.stdout or '').strip()
     if not re.fullmatch(r'[0-9A-Fa-f]{32}', value):
-        raise RuntimeError(f'无法获得 JPEG ImageDataMD5：{path.name}')
+        raise RuntimeError(f'JPEG ImageDataMD5 unavailable: {path.name}')
     return value.lower()
 
 
@@ -608,7 +608,7 @@ def _clear_staged_metadata(exiftool_path, staged_path: Path):
     # byte-identical to the original Final.
     _run_process(
         _clear_metadata_args(exiftool_path, staged_path),
-        '清空 Final metadata（保留 JFIF / ICC）',
+        'Clear Final metadata (preserve JFIF / ICC)',
         timeout=60,
     )
 
@@ -616,7 +616,7 @@ def _clear_staged_metadata(exiftool_path, staged_path: Path):
 def _rebuild_staged_metadata(exiftool_path, staged_path: Path, donor_path: Path, fields):
     _run_process(
         _rebuild_metadata_args(exiftool_path, staged_path, donor_path, fields),
-        '重建 Final metadata',
+        'Rebuild Final metadata',
         timeout=60,
     )
 
@@ -662,14 +662,14 @@ def _runtime_metadata_commands(
 def _jfif_segment_sha256(path: Path):
     data = path.read_bytes()
     if len(data) < 4 or data[:2] != b'\xff\xd8':
-        raise RuntimeError(f'不是有效 JPEG：{path.name}')
+        raise RuntimeError(f'Invalid JPEG: {path.name}')
 
     jfif_segments = []
     pos = 2
     size = len(data)
     while pos < size:
         if data[pos] != 0xFF:
-            raise RuntimeError(f'JPEG marker 结构异常：{path.name}')
+            raise RuntimeError(f'Invalid JPEG marker structure: {path.name}')
         segment_start = pos
         while pos < size and data[pos] == 0xFF:
             pos += 1
@@ -685,46 +685,46 @@ def _jfif_segment_sha256(path: Path):
         if marker == 0xDA:  # Start of Scan; APP metadata must be before this.
             break
         if pos + 2 > size:
-            raise RuntimeError(f'JPEG segment 长度缺失：{path.name}')
+            raise RuntimeError(f'JPEG segment length missing: {path.name}')
         segment_length = int.from_bytes(data[pos:pos + 2], 'big')
         if segment_length < 2:
-            raise RuntimeError(f'JPEG segment 长度无效：{path.name}')
+            raise RuntimeError(f'Invalid JPEG segment length: {path.name}')
         segment_end = pos + segment_length
         if segment_end > size:
-            raise RuntimeError(f'JPEG segment 越界：{path.name}')
+            raise RuntimeError(f'JPEG segment out of bounds: {path.name}')
         payload = data[pos + 2:segment_end]
         if marker == 0xE0 and payload.startswith(b'JFIF\x00'):
             jfif_segments.append(data[segment_start:segment_end])
         pos = segment_end
 
     if len(jfif_segments) != 1:
-        raise RuntimeError(f'要求且仅允许 1 个 JFIF APP0，实际 {len(jfif_segments)} 个：{path.name}')
+        raise RuntimeError(f'Expected 1 JFIF APP0, found {len(jfif_segments)}: {path.name}')
     return hashlib.sha256(jfif_segments[0]).hexdigest()
 
 
 def _icc_sha256(exiftool_path, path: Path):
     result = _run_process(
         [exiftool_path, '-b', '-ICC_Profile', str(path)],
-        '读取 Final ICC',
+        'Read Final ICC',
         timeout=30,
         binary=True,
     )
     data = result.stdout or b''
     if not data:
-        raise RuntimeError(f'Final 缺少 ICC profile：{path.name}')
+        raise RuntimeError(f'Final ICC missing: {path.name}')
     return hashlib.sha256(data).hexdigest()
 
 
 def _forbidden_metadata(exiftool_path, path: Path, fields):
     result = _run_process(
         [exiftool_path, '-j', '-a', '-G1', '-s', str(path)],
-        '验证 Final metadata',
+        'Validate Final metadata',
         timeout=60,
     )
     try:
         records = json.loads(result.stdout or '[]')
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f'验证 metadata 时 ExifTool JSON 无效：{exc}') from exc
+        raise RuntimeError(f'Invalid ExifTool JSON during metadata validation: {exc}') from exc
     record = records[0] if records else {}
     allowed_outputs = {field_output_key(field) for field in fields}
     forbidden = []
@@ -746,13 +746,13 @@ def _forbidden_metadata(exiftool_path, path: Path, fields):
 def _metadata_contract_analysis(exiftool_path, path: Path, fields):
     result = _run_process(
         [exiftool_path, '-j', '-a', '-G1', '-s', str(path)],
-        '验证 Final metadata contract',
+        'Validate Final metadata contract',
         timeout=60,
     )
     try:
         records = json.loads(result.stdout or '[]')
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f'验证 metadata contract 时 ExifTool JSON 无效：{exc}') from exc
+        raise RuntimeError(f'Invalid ExifTool JSON during contract validation: {exc}') from exc
     record = records[0] if records else {}
 
     expected = {}
@@ -788,24 +788,24 @@ def _validate_staged(exiftool_path, original_final: Path, staged_path: Path, fie
     before_md5 = _image_data_md5(exiftool_path, original_final)
     after_md5 = _image_data_md5(exiftool_path, staged_path)
     if before_md5 != after_md5:
-        raise RuntimeError(f'JPEG image data 发生变化，拒绝发布：{original_final.name}')
+        raise RuntimeError(f'JPEG image data changed: {original_final.name}')
 
     before_display = _display_rgb_sha256(original_final)
     after_display = _display_rgb_sha256(staged_path)
     if before_display != after_display:
-        raise RuntimeError(f'metadata 清理导致显示像素发生变化，拒绝发布：{original_final.name}')
+        raise RuntimeError(f'Display pixels changed: {original_final.name}')
 
     before_icc_sha = _icc_sha256(exiftool_path, original_final)
     if before_icc_sha != FINAL_SRGB_ICC_SHA256:
-        raise RuntimeError(f'原 Final ICC 不是 canonical profile，拒绝处理：{original_final.name}')
+        raise RuntimeError(f'Final ICC is not canonical: {original_final.name}')
     after_icc_sha = _icc_sha256(exiftool_path, staged_path)
     if after_icc_sha != before_icc_sha:
-        raise RuntimeError(f'ICC 在 metadata workflow 中发生变化，拒绝发布：{original_final.name}')
+        raise RuntimeError(f'ICC changed: {original_final.name}')
 
     before_jfif_sha = _jfif_segment_sha256(original_final)
     after_jfif_sha = _jfif_segment_sha256(staged_path)
     if after_jfif_sha != before_jfif_sha:
-        raise RuntimeError(f'JFIF APP0 在 metadata workflow 中发生变化，拒绝发布：{original_final.name}')
+        raise RuntimeError(f'JFIF APP0 changed: {original_final.name}')
 
     contract = _metadata_contract_analysis(exiftool_path, staged_path, fields)
     if not contract['exact']:
@@ -814,12 +814,12 @@ def _validate_staged(exiftool_path, original_final: Path, staged_path: Path, fie
             details.append('Missing: ' + ', '.join(contract['missing']))
         if contract['extras']:
             details.append('Extra: ' + ', '.join(contract['extras'][:8]))
-        raise RuntimeError(f'Final metadata contract 不匹配：{" · ".join(details)}')
+        raise RuntimeError(f'Metadata contract mismatch: {" · ".join(details)}')
 
     forbidden = _forbidden_metadata(exiftool_path, staged_path, fields)
     if forbidden:
         preview = ', '.join(forbidden[:8])
-        raise RuntimeError(f'清理后仍存在禁止 metadata：{preview}')
+        raise RuntimeError(f'Forbidden metadata remains: {preview}')
 
 
 def _publish_replacements(staged_items):
@@ -840,7 +840,7 @@ def _publish_replacements(staged_items):
                 rollback_errors.append(f'{item["final_path"].name}: {rollback_exc}')
         if rollback_errors:
             raise RuntimeError(
-                f'发布 Final metadata 失败：{exc}；且回滚失败：{"; ".join(rollback_errors)}'
+                f'Metadata publish failed: {exc}; rollback failed: {"; ".join(rollback_errors)}'
             ) from exc
         raise
 
@@ -849,7 +849,7 @@ def _thumbnail(path: Path, exiftool_path=None):
     preview_buffer = None
     if path.suffix.lower() in _ORIGINAL_RAW_EXTENSIONS:
         if not exiftool_path:
-            raise RuntimeError('RAW metadata donor 缩略图需要 ExifTool')
+            raise RuntimeError('ExifTool required for RAW preview.')
         for tag in ('JpgFromRaw', 'PreviewImage', 'ThumbnailImage'):
             result = subprocess.run(
                 [str(exiftool_path), '-b', f'-{tag}', str(path)],
@@ -862,7 +862,7 @@ def _thumbnail(path: Path, exiftool_path=None):
                 preview_buffer = io.BytesIO(result.stdout)
                 break
         if preview_buffer is None:
-            raise RuntimeError(f'无法从 RAW metadata donor 提取 JPEG 预览：{path.name}')
+            raise RuntimeError(f'RAW preview unavailable: {path.name}')
 
     image_source = preview_buffer if preview_buffer is not None else path
     with Image.open(image_source) as image:
@@ -891,10 +891,10 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable.')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set.')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -937,21 +937,21 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
             with _PLAN_LOCK:
                 plan = _PLANS.get(str(plan_id))
             if not plan or plan.get('kind') != 'final_metadata' or int(plan.get('source_id')) != int(source_id):
-                raise FileNotFoundError('Metadata Preview 已过期')
+                raise FileNotFoundError('Metadata Preview expired.')
             row = next((item for item in plan['rows_internal'] if item['id'] == str(row_id)), None)
             if not row:
-                raise FileNotFoundError('Preview row 不存在')
+                raise FileNotFoundError('Preview row not found.')
             if side == 'final':
                 path = Path(row['final_path'])
             elif side == 'source':
                 if not row['donor_path']:
-                    raise FileNotFoundError('没有 metadata donor')
+                    raise FileNotFoundError('Metadata source not found.')
                 path = Path(row['donor_path'])
             else:
-                raise ValueError('thumbnail side 无效')
+                raise ValueError('Invalid thumbnail side.')
             expected = plan['signatures'].get(str(path))
             if not expected or _file_signature(path) != expected:
-                raise RuntimeError('图片在 Preview 后发生变化，请重新 Preview')
+                raise RuntimeError('File changed after Preview. Refresh.')
             return send_file(
                 _thumbnail(path, (plan.get('dependency') or {}).get('exiftool_path')),
                 mimetype='image/jpeg',
@@ -971,14 +971,14 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
             plan = _get_plan(str(data.get('plan_id') or ''), source_id, set_rel)
             current_fields = load_metadata_fields()
             if metadata_contract_signature(current_fields) != plan['contract_signature']:
-                raise RuntimeError('Final Metadata 字段配置在 Preview 后发生变化，请重新 Preview')
+                raise RuntimeError('Metadata fields changed. Refresh Preview.')
             dependency = _dependency_status()
             if not dependency['ready']:
-                raise RuntimeError(f'需要固定 ExifTool {EXIFTOOL_REQUIRED_VERSION}，请处理 Runtime 后重新 Preview')
+                raise RuntimeError(f'ExifTool {EXIFTOOL_REQUIRED_VERSION} required. Refresh Preview.')
 
             raw_row_ids = data.get('row_ids')
             if not isinstance(raw_row_ids, list):
-                raise ValueError('row_ids 必须是列表')
+                raise ValueError('Invalid row selection.')
             requested_ids = []
             seen_ids = set()
             for value in raw_row_ids:
@@ -987,16 +987,16 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     seen_ids.add(row_id)
                     requested_ids.append(row_id)
             if not requested_ids:
-                raise ValueError('至少选择一张 Final 写入 metadata')
+                raise ValueError('Select at least one Final.')
 
             public_by_id = {row['id']: row for row in plan['rows']}
             internal_by_id = {row['id']: row for row in plan['rows_internal']}
             unknown_ids = [row_id for row_id in requested_ids if row_id not in public_by_id or row_id not in internal_by_id]
             if unknown_ids:
-                raise ValueError('Metadata 选择已失效，请重新 Preview')
+                raise ValueError('Metadata selection expired. Refresh Preview.')
             blocked_selected = [public_by_id[row_id]['final_name'] for row_id in requested_ids if public_by_id[row_id]['status'] == 'blocked']
             if blocked_selected:
-                raise RuntimeError(f'所选文件中仍有阻断项：{", ".join(blocked_selected[:6])}')
+                raise RuntimeError(f'Selected files are blocked: {", ".join(blocked_selected[:6])}')
 
             selected_rows = [internal_by_id[row_id] for row_id in requested_ids]
             selected_signature_paths = set()
@@ -1017,7 +1017,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                 commands_by_row_id = {}
                 written_at_by_row_id = {}
                 try:
-                    _update_task(task_id, status='running', message='开始重建 Final metadata…')
+                    _update_task(task_id, status='running', message='Writing metadata…')
                     with tempfile.TemporaryDirectory(prefix='.final-metadata-', dir=str(set_dir)) as temp_name:
                         temp_dir = Path(temp_name)
                         staged_dir = temp_dir / 'staged'
@@ -1072,7 +1072,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                         # changed after Preview while ExifTool was working.
                         _verify_signatures(selected_signatures)
                         if metadata_contract_signature(load_metadata_fields()) != plan['contract_signature']:
-                            raise RuntimeError('Final Metadata 字段配置在执行期间发生变化，请重新 Preview')
+                            raise RuntimeError('Metadata fields changed during write. Refresh Preview.')
                         published = _publish_replacements(staged_items)
 
                     image_data_md5_by_path = {}
@@ -1104,7 +1104,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                         task_id,
                         status='done',
                         completed=len(selected_rows),
-                        message=f'完成：重建 {len(published)} 张 Final metadata',
+                        message=f'Written {len(published)} Final files.',
                         result=result,
                         log=f'Published metadata for {len(published)} Final file(s)',
                     )
@@ -1121,7 +1121,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
                     _update_task(
                         task_id,
                         status='error',
-                        message='Final Metadata 失败',
+                        message='Metadata failed.',
                         error=str(exc),
                         log=f'ERROR: {exc}',
                     )
@@ -1138,7 +1138,7 @@ def create_final_metadata_blueprint(admin_guard, get_source, resolve_path):
             return denied
         task = _task_snapshot(task_id)
         if not task:
-            return jsonify({'error': '任务不存在或已过期'}), 404
+            return jsonify({'error': 'Task expired.'}), 404
         task.pop('created_at', None)
         task.pop('updated_at', None)
         return jsonify(task)

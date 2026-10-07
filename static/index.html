@@ -38,19 +38,25 @@
                     <el-button v-if="isAdmin" @click="showManageGroupsDialog = true">Groups</el-button>
                     <el-button v-if="isAdmin" @click="openExplore">Explore</el-button>
                     <el-button v-if="isAdmin" @click="showConfigDialog = true">Settings</el-button>
-                    <el-dropdown class="admin-status-dropdown" trigger="click" placement="bottom-end" @command="handleAdminMenuCommand">
-                        <div class="admin-status-trigger" :title="isAdmin ? 'Signed in' : 'Signed out'">
-                            <span class="admin-status-dot" :class="{ 'is-authenticated': isAdmin }"></span>
+                    <div
+                            v-if="!isAdmin"
+                            class="admin-status-trigger admin-sign-in-trigger"
+                            title="Sign in"
+                            @click="showAdminLogin = true"
+                    >
+                        <span class="admin-status-dot"></span>
+                        <span>Sign In</span>
+                    </div>
+                    <el-dropdown v-else class="admin-status-dropdown" trigger="click" placement="bottom-end" @command="handleAdminMenuCommand">
+                        <div class="admin-status-trigger" title="Signed in">
+                            <span class="admin-status-dot is-authenticated"></span>
                             <span>Admin</span>
                             <el-icon class="admin-status-chevron"><ArrowDown /></el-icon>
                         </div>
                         <template #dropdown>
                             <el-dropdown-menu>
-                                <el-dropdown-item v-if="!isAdmin" command="login">Sign In</el-dropdown-item>
-                                <template v-else>
-                                    <el-dropdown-item command="password">Change Password</el-dropdown-item>
-                                    <el-dropdown-item command="logout" divided>Sign Out</el-dropdown-item>
-                                </template>
+                                <el-dropdown-item command="password">Change Password</el-dropdown-item>
+                                <el-dropdown-item command="logout" divided>Sign Out</el-dropdown-item>
                             </el-dropdown-menu>
                         </template>
                     </el-dropdown>
@@ -1325,7 +1331,7 @@
                                    circle
                                    type="danger"
                                    @click="softDeleteCurrentLibraryImage"
-                                   title="Move to Deleted"
+                                   title="Delete Photo"
                         >
                             <el-icon>
                                 <Delete/>
@@ -3004,7 +3010,7 @@
             <template #header>
                 <div class="validation-dialog-title">
                     <span>Build Final</span>
-                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看 Build Final 规则" @click="finalBuilderRulesVisible = true">?</el-button>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="Build Final rules" @click="finalBuilderRulesVisible = true">?</el-button>
                 </div>
             </template>
             <div v-loading="finalBuilderLoading" style="min-height:220px;">
@@ -3012,7 +3018,7 @@
                     <el-step title="Select Sources"></el-step>
                     <el-step title="Build Plan"></el-step>
                     <el-step title="Build"></el-step>
-                    <el-step title="Metadata (Optional)"></el-step>
+                    <el-step title="Metadata"></el-step>
                 </el-steps>
 
                 <template v-if="finalBuilderStep === 0 && finalBuilderSelection">
@@ -3030,8 +3036,8 @@
                                 <span style="color:#909399; font-size:12px; margin-left:6px;">{{ group.items.length }} files</span>
                             </div>
                             <div style="white-space:nowrap;">
-                                <el-button size="small" plain @click="selectFinalBuilderGroup(group, true)" :disabled="!group.items.length">全选</el-button>
-                                <el-button size="small" plain @click="selectFinalBuilderGroup(group, false)" :disabled="!group.items.length">全不选</el-button>
+                                <el-button size="small" plain @click="selectFinalBuilderGroup(group, true)" :disabled="!group.items.length">Select All</el-button>
+                                <el-button size="small" plain @click="selectFinalBuilderGroup(group, false)" :disabled="!group.items.length">Clear</el-button>
                             </div>
                         </div>
 
@@ -3052,7 +3058,7 @@
                                               style="width:100%; height:100%; display:block;"></el-image>
                                     <div style="position:absolute; top:9px; right:9px; line-height:1;">
                                         <el-checkbox :model-value="finalBuilderIsSelected(item.id)"
-                                                     aria-label="选择此图片"
+                                                     aria-label="Select image"
                                                      @change="setFinalBuilderSelected(item.id, $event)"></el-checkbox>
                                     </div>
                                 </div>
@@ -3112,7 +3118,7 @@
                                         Center Crop {{ Number(scope.row.geometry.crop_percent).toFixed(2) }}% · L {{ scope.row.geometry.crop_left }} / R {{ scope.row.geometry.crop_right }} / T {{ scope.row.geometry.crop_top }} / B {{ scope.row.geometry.crop_bottom }} px
                                     </div>
                                     <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Crop skipped · already exact {{ scope.row.geometry.target_ratio }}</div>
-                                    <div v-if="scope.row.geometry.pixel_insufficient" style="font-size:12px; color:#f56c6c; margin-top:4px;">Low Res · 目标尺寸像素不足</div>
+                                    <div v-if="scope.row.geometry.pixel_insufficient" style="font-size:12px; color:#f56c6c; margin-top:4px;">Low Res · Below target</div>
                                     <div v-else-if="scope.row.geometry.resize_required" style="font-size:12px; color:#909399; margin-top:4px;">Resize: Lanczos · 3 lobes → {{ scope.row.geometry.target_width }}×{{ scope.row.geometry.target_height }}</div>
                                     <div v-else style="font-size:12px; color:#67c23a; margin-top:4px;">Resize skipped · already target size</div>
                                 </template>
@@ -3144,7 +3150,7 @@
                 <template v-else-if="finalBuilderStep === 2">
                     <div style="padding:20px 4px;">
                         <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:10px;">
-                            <strong>{{ finalBuilderTask.message || '处理中…' }}</strong>
+                            <strong>{{ finalBuilderTask.message || 'Processing…' }}</strong>
                             <span v-if="finalBuilderTask.total">{{ finalBuilderTask.completed }} / {{ finalBuilderTask.total }}</span>
                         </div>
                         <el-progress :percentage="finalBuilderTask.percent || 0"
@@ -3155,7 +3161,7 @@
                         </div>
                         <div v-if="finalBuilderTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
                             <strong>Done</strong>
-                            <span>Final 已生成到 05_Final；源文件未修改。</span>
+                            <span>Built. Sources unchanged.</span>
                         </div>
                     </div>
                 </template>
@@ -3163,33 +3169,33 @@
 
             <template #footer>
                 <template v-if="finalBuilderStep === 0">
-                    <el-button @click="closeFinalBuilder" :disabled="finalBuilderLoading">关闭</el-button>
-                    <el-button type="primary" @click="previewFinalBuilder" :disabled="!finalBuilderCanPreview">Preview Build Plan</el-button>
+                    <el-button @click="closeFinalBuilder" :disabled="finalBuilderLoading">Close</el-button>
+                    <el-button type="primary" @click="previewFinalBuilder" :disabled="!finalBuilderCanPreview">Preview</el-button>
                 </template>
                 <template v-else-if="finalBuilderStep === 1">
-                    <el-button @click="backFinalBuilderSelection" :disabled="finalBuilderLoading">返回选择</el-button>
+                    <el-button @click="backFinalBuilderSelection" :disabled="finalBuilderLoading">Back</el-button>
                     <el-button type="primary" @click="executeFinalBuilder" :disabled="!finalBuilderCanExecute">Build Final</el-button>
                 </template>
                 <template v-else-if="finalBuilderStep === 2 && finalBuilderTask.status === 'done'">
                     <el-button @click="closeFinalBuilder">Skip Metadata</el-button>
-                    <el-button type="primary" @click="continueFinalBuilderMetadata">Continue to Metadata</el-button>
+                    <el-button type="primary" @click="continueFinalBuilderMetadata">Write Metadata</el-button>
                 </template>
                 <template v-else>
                     <el-button type="primary"
                                @click="closeFinalBuilder"
-                               :disabled="['queued','running'].includes(finalBuilderTask.status)">关闭</el-button>
+                               :disabled="['queued','running'].includes(finalBuilderTask.status)">Close</el-button>
                 </template>
             </template>
         </el-dialog>
 
         <el-dialog v-model="finalBuilderRulesVisible" title="Build Final Rules" width="720px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list">
-                <li><strong>默认选择：</strong>Revision 默认选中；Model Edit 只默认选择没有 Revision 的图片；Model Edit 与 Revision 都为空时，Base Edit 默认全选。最终以复选框为准。</li>
-                <li><strong>尺寸：</strong>居中裁成 2:3 / 3:2，并输出到 {{ finalBuilderSelection?.profile?.resolution_label || '—' }}。裁切超过 {{ finalBuilderSelection?.profile?.crop_warning_percent ?? '—' }}% 标记 Warning；像素不足则 Block。</li>
-                <li><strong>JPEG：</strong>Q{{ finalBuilderSelection?.profile?.quality ?? '—' }} · {{ finalBuilderSelection?.profile?.chroma || '—' }} · {{ finalBuilderSelection?.profile?.progressive ? 'Progressive JPEG' : 'Sequential JPEG' }} · {{ finalBuilderSelection?.profile?.huffman_optimize ? 'Huffman optimize' : 'No Huffman optimize' }} · {{ finalBuilderSelection?.profile?.icc_profile || '—' }} ICC；缩放使用 Lanczos（lobes=3）。</li>
-                <li><strong>写入：</strong>Preview 后才执行；源文件不修改，已有同名 Final 或输出冲突会停止。</li>
+                <li><strong>Selection:</strong> Revision is selected first; Model Edit fills gaps; Base Edit is used only when later stages are empty. Checkboxes decide.</li>
+                <li><strong>Size:</strong> Center crop to 2:3 / 3:2 and output {{ finalBuilderSelection?.profile?.resolution_label || '—' }}. Crop over {{ finalBuilderSelection?.profile?.crop_warning_percent ?? '—' }}% warns; insufficient pixels block.</li>
+                <li><strong>JPEG:</strong> Q{{ finalBuilderSelection?.profile?.quality ?? '—' }} · {{ finalBuilderSelection?.profile?.chroma || '—' }} · {{ finalBuilderSelection?.profile?.progressive ? 'Progressive JPEG' : 'Sequential JPEG' }} · {{ finalBuilderSelection?.profile?.huffman_optimize ? 'Huffman optimize' : 'No Huffman optimize' }} · {{ finalBuilderSelection?.profile?.icc_profile || '—' }} ICC · Lanczos 3-lobe.</li>
+                <li><strong>Write:</strong> Preview first. Sources stay unchanged. Existing or conflicting outputs block.</li>
             </ol>
-            <template #footer><el-button @click="finalBuilderRulesVisible = false">关闭</el-button></template>
+            <template #footer><el-button @click="finalBuilderRulesVisible = false">Close</el-button></template>
         </el-dialog>
 
         <!-- Final metadata rebuild: Final-driven donor mapping -> preview -> staged ExifTool write. -->
@@ -3202,7 +3208,7 @@
             <template #header>
                 <div class="validation-dialog-title">
                     <span>Write Metadata</span>
-                    <el-button class="validation-rules-button" size="small" circle plain aria-label="查看 Write Metadata 规则" @click="finalMetadataRulesVisible = true">?</el-button>
+                    <el-button class="validation-rules-button" size="small" circle plain aria-label="Write Metadata rules" @click="finalMetadataRulesVisible = true">?</el-button>
                 </div>
             </template>
             <div v-loading="finalMetadataLoading" style="min-height:220px;">
@@ -3235,13 +3241,13 @@
                                 <el-checkbox :model-value="finalMetadataAllRowsSelected"
                                              :indeterminate="finalMetadataSomeRowsSelected"
                                              @change="setAllFinalMetadataRowsSelected"
-                                             aria-label="选择全部可写 Final"></el-checkbox>
+                                             aria-label="Select all writable Finals"></el-checkbox>
                             </template>
                             <template #default="scope">
                                 <el-checkbox :model-value="finalMetadataIsRowSelected(scope.row)"
                                              :disabled="scope.row.status === 'blocked'"
                                              @change="setFinalMetadataRowSelected(scope.row, $event)"
-                                             :aria-label="`选择 ${scope.row.final_name}`"></el-checkbox>
+                                             :aria-label="`Select ${scope.row.final_name}`"></el-checkbox>
                             </template>
                         </el-table-column>
                         <el-table-column type="expand" width="44">
@@ -3249,7 +3255,7 @@
                                 <div style="padding:8px 18px 14px;">
                                     <div style="display:grid; grid-template-columns:190px minmax(0,1fr) minmax(0,1fr); gap:0; border:1px solid #ebeef5; border-radius:6px; overflow:hidden;">
                                         <div style="padding:8px 10px; font-weight:600; background:#f5f7fa;">Field</div>
-                                        <div style="padding:8px 10px; font-weight:600; background:#f5f7fa; border-left:1px solid #ebeef5;">Final 当前值</div>
+                                        <div style="padding:8px 10px; font-weight:600; background:#f5f7fa; border-left:1px solid #ebeef5;">Final Value</div>
                                         <div style="padding:8px 10px; font-weight:600; background:#f5f7fa; border-left:1px solid #ebeef5;">Metadata Source</div>
                                         <template v-for="field in scope.row.fields" :key="field.key">
                                             <div style="padding:7px 10px; border-top:1px solid #ebeef5;">
@@ -3283,8 +3289,8 @@
                                         <code style="display:block; overflow-wrap:anywhere;">{{ scope.row.final_name }}</code>
                                         <div style="font-size:11px; color:#a8abb2; margin-top:4px; overflow-wrap:anywhere;">{{ scope.row.final_relative_path }}</div>
                                         <div style="font-size:11px; color:#909399; margin-top:4px;">
-                                            当前字段 {{ scope.row.final_present }}/{{ scope.row.field_count }}
-                                            <span v-if="scope.row.metadata_complete" style="color:#a8abb2;"> · 已完整，默认不写</span>
+                                            Fields {{ scope.row.final_present }}/{{ scope.row.field_count }}
+                                            <span v-if="scope.row.metadata_complete" style="color:#a8abb2;"> · Complete · skipped</span>
                                         </div>
                                     </div>
                                 </div>
@@ -3300,7 +3306,7 @@
                                     <div style="min-width:0; flex:1;">
                                         <div><el-tag size="small" type="info">{{ scope.row.donor_stage }}</el-tag> <code>{{ scope.row.donor_name }}</code></div>
                                         <div style="font-size:11px; color:#a8abb2; margin-top:4px; overflow-wrap:anywhere;">{{ scope.row.donor_relative_path }}</div>
-                                        <div style="font-size:11px; color:#909399; margin-top:4px;">可提供字段 {{ scope.row.source_present }}/{{ scope.row.field_count }}</div>
+                                        <div style="font-size:11px; color:#909399; margin-top:4px;">Fields {{ scope.row.source_present }}/{{ scope.row.field_count }}</div>
                                     </div>
                                 </div>
                                 <div v-else>
@@ -3311,13 +3317,13 @@
                         </el-table-column>
                     </el-table>
 
-                    <div v-if="finalMetadataPlan.summary.final_count === 0" class="workflow-empty-result">05_Final 中没有找到 JPG/JPEG。</div>
+                    <div v-if="finalMetadataPlan.summary.final_count === 0" class="workflow-empty-result">No Final JPEG files.</div>
                 </template>
 
                 <template v-else-if="finalMetadataStep === 1">
                     <div style="padding:20px 4px;">
                         <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:10px;">
-                            <strong>{{ finalMetadataTask.message || '处理中…' }}</strong>
+                            <strong>{{ finalMetadataTask.message || 'Processing…' }}</strong>
                             <span v-if="finalMetadataTask.total">{{ finalMetadataTask.completed }} / {{ finalMetadataTask.total }}</span>
                         </div>
                         <el-progress :percentage="finalMetadataTask.percent || 0"
@@ -3328,7 +3334,7 @@
                         </div>
                         <div v-if="finalMetadataTask.status === 'done'" class="workflow-warning-box neutral" style="margin-top:14px;">
                             <strong>Verified</strong>
-                            <span>Metadata 已写入；JFIF / ICC 与图像数据保持不变。</span>
+                            <span>Written. JPEG data, JFIF, and ICC unchanged.</span>
                         </div>
                     </div>
                 </template>
@@ -3336,26 +3342,26 @@
 
             <template #footer>
                 <template v-if="finalMetadataStep === 0">
-                    <el-button @click="closeFinalMetadata" :disabled="finalMetadataLoading">关闭</el-button>
-                    <el-button @click="refreshFinalMetadataPlan" :disabled="finalMetadataLoading">重新 Preview</el-button>
+                    <el-button @click="closeFinalMetadata" :disabled="finalMetadataLoading">Close</el-button>
+                    <el-button @click="refreshFinalMetadataPlan" :disabled="finalMetadataLoading">Refresh</el-button>
                     <el-button type="primary" @click="executeFinalMetadata" :disabled="!finalMetadataCanExecute">Write Metadata</el-button>
                 </template>
                 <template v-else>
                     <el-button type="primary"
                                @click="closeFinalMetadata"
-                               :disabled="['queued','running'].includes(finalMetadataTask.status)">关闭</el-button>
+                               :disabled="['queued','running'].includes(finalMetadataTask.status)">Close</el-button>
                 </template>
             </template>
         </el-dialog>
 
         <el-dialog v-model="finalMetadataRulesVisible" title="Write Metadata Rules" width="720px" append-to-body class="validation-rules-dialog">
             <ol class="validation-rules-list">
-                <li><strong>默认选择：</strong>metadata 不完整且可写的 Final 默认选中；完整文件默认不选。最终以复选框为准。</li>
-                <li><strong>Profile：</strong>Original/JPG 优先；不存在或 metadata 不完整时使用 Original/RAW 的 CR3。保留 JFIF / ICC，只写当前白名单字段。</li>
-                <li><strong>Block：</strong>找不到唯一来源时停止该文件，不自动猜测。</li>
-                <li><strong>验证：</strong>在临时副本完成后再发布；JFIF / ICC、JPEG 图像数据和显示像素必须保持不变，也不能留下额外业务 metadata。</li>
+                <li><strong>Selection:</strong> Incomplete writable Finals are selected by default; complete files are skipped. Checkboxes decide.</li>
+                <li><strong>Source:</strong> Prefer Original JPG; fall back to matching CR3 when missing or incomplete. Preserve JFIF / ICC and write only configured fields.</li>
+                <li><strong>Block:</strong> Missing or ambiguous metadata sources block the file.</li>
+                <li><strong>Verify:</strong> Stage before publish. JPEG data, display pixels, JFIF, and ICC must stay unchanged; no extra business metadata is allowed.</li>
             </ol>
-            <template #footer><el-button @click="finalMetadataRulesVisible = false">关闭</el-button></template>
+            <template #footer><el-button @click="finalMetadataRulesVisible = false">Close</el-button></template>
         </el-dialog>
 
         <!-- First version uses a blocking progress dialog intentionally: file operations stay visible. -->

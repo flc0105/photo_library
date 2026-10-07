@@ -113,9 +113,9 @@ def _get_plan(plan_id, kind, source_id, set_rel):
     with _PLAN_LOCK:
         plan = _PLANS.get(plan_id)
     if not plan:
-        raise ValueError('预览结果已过期，请重新开始 Build Final')
+        raise ValueError('Preview expired. Reopen Build Final.')
     if plan.get('kind') != kind or int(plan.get('source_id')) != int(source_id) or plan.get('set_rel') != set_rel:
-        raise ValueError('预览结果与当前 Set 不匹配，请重新开始 Build Final')
+        raise ValueError('Preview does not match the current Set.')
     return plan
 
 
@@ -131,7 +131,7 @@ def _new_task(total):
         'completed': 0,
         'current': 0,
         'percent': 0,
-        'message': '等待开始…',
+        'message': 'Queued…',
         'logs': [],
         'result': None,
         'error': None,
@@ -187,8 +187,8 @@ def _verify_signatures(signatures):
     if changed:
         names = ', '.join(changed[:8])
         if len(changed) > 8:
-            names += f' 等 {len(changed)} 个文件'
-        raise RuntimeError(f'源文件在预览后发生变化，请重新 Preview：{names}')
+            names += f' ({len(changed)} files total)'
+        raise RuntimeError(f'Files changed after Preview: {names}')
 
 
 def _logical_id(filename: str):
@@ -229,13 +229,13 @@ def _selection_plan(source_id, set_dir: Path, set_rel: str):
             logical_id = _logical_id(path.name)
             if stage_key == 'revision':
                 default_selected = True
-                default_reason = '默认选中'
+                default_reason = 'Default'
             elif stage_key == 'model_edit':
                 default_selected = logical_id.casefold() not in revision_ids
-                default_reason = '默认选中' if default_selected else '已有 Revision'
+                default_reason = 'Default' if default_selected else 'Revision exists'
             else:
                 default_selected = not later_stage_has_any
-                default_reason = '默认选中' if default_selected else '手动选择'
+                default_reason = 'Default' if default_selected else 'Manual'
 
             item_id = uuid.uuid4().hex
             relative_path = path.relative_to(set_dir).as_posix()
@@ -443,10 +443,10 @@ def _source_color_info(image):
 def _fixed_srgb_icc_path():
     path = PROJECT_ROOT / 'assets' / FINAL_SRGB_ICC_FILENAME
     if not path.is_file():
-        raise RuntimeError(f'缺少固定 sRGB ICC：{FINAL_SRGB_ICC_FILENAME}')
+        raise RuntimeError(f'sRGB ICC not found: {FINAL_SRGB_ICC_FILENAME}')
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if digest != FINAL_SRGB_ICC_SHA256:
-        raise RuntimeError('固定 sRGB ICC hash 不匹配；拒绝生成 Final')
+        raise RuntimeError('sRGB ICC hash mismatch.')
     return path
 
 
@@ -481,7 +481,7 @@ def _read_image_info(path: Path):
 
 def _geometry_plan(width: int, height: int):
     if width <= 0 or height <= 0:
-        raise ValueError('无法读取有效像素尺寸')
+        raise ValueError('Invalid image dimensions.')
 
     portrait = height >= width
     if portrait:
@@ -496,7 +496,7 @@ def _geometry_plan(width: int, height: int):
         target_ratio = '3:2'
 
     if crop_width <= 0 or crop_height <= 0:
-        raise ValueError('图片尺寸过小，无法计算 2:3 / 3:2 裁切')
+        raise ValueError('Image too small for 2:3 / 3:2 crop.')
 
     target = choose_target_for_crop(crop_width, crop_height, portrait)
     target_width = int(target['target_width'])
@@ -600,16 +600,16 @@ def _dependency_status():
     status['imagemagick_banner'] = magick_info['banner']
     if not magick_path:
         status['messages'].append(
-            f'找不到 ImageMagick {IMAGEMAGICK_REQUIRED_VERSION} {IMAGEMAGICK_REQUIRED_QUANTUM}'
+            f'ImageMagick {IMAGEMAGICK_REQUIRED_VERSION} {IMAGEMAGICK_REQUIRED_QUANTUM} not found.'
         )
     else:
         if magick_info['version'] != IMAGEMAGICK_REQUIRED_VERSION:
             status['messages'].append(
-                f'ImageMagick {magick_info["version"] or "unknown"}（需要 {IMAGEMAGICK_REQUIRED_VERSION}）'
+                f'ImageMagick {magick_info["version"] or "unknown"}; requires {IMAGEMAGICK_REQUIRED_VERSION}.'
             )
         if magick_info['quantum'] != IMAGEMAGICK_REQUIRED_QUANTUM:
             status['messages'].append(
-                f'ImageMagick {magick_info["quantum"] or "unknown build"}（需要 {IMAGEMAGICK_REQUIRED_QUANTUM}）'
+                f'ImageMagick {magick_info["quantum"] or "unknown build"}; requires {IMAGEMAGICK_REQUIRED_QUANTUM}.'
             )
 
     try:
@@ -626,11 +626,11 @@ def _dependency_status():
     status['cjpeg_path'], status['libjpeg_turbo_version'] = chosen
     if not status['cjpeg_path']:
         status['messages'].append(
-            '找不到 cjpeg（libjpeg-turbo）；macOS 可安装官方 3.2.0 DMG，默认路径 /opt/libjpeg-turbo/bin/cjpeg'
+            'cjpeg (libjpeg-turbo) not found.'
         )
     elif status['libjpeg_turbo_version'] != _FINAL_RUNTIME['libjpeg_turbo']:
         status['messages'].append(
-            f'libjpeg-turbo {status["libjpeg_turbo_version"] or "unknown"}（需要 {_FINAL_RUNTIME["libjpeg_turbo"]}）'
+            f'libjpeg-turbo {status["libjpeg_turbo_version"] or "unknown"}; requires {_FINAL_RUNTIME["libjpeg_turbo"]}.'
         )
 
     status['ready'] = (
@@ -645,15 +645,15 @@ def _dependency_status():
 def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, selected_ids):
     selected_ids = [str(item_id) for item_id in selected_ids]
     if not selected_ids:
-        raise ValueError('至少选择一张图片')
+        raise ValueError('Select at least one photo.')
     if len(selected_ids) != len(set(selected_ids)):
-        raise ValueError('选择列表包含重复项')
+        raise ValueError('Duplicate selection.')
 
     selected_records = []
     for item_id in selected_ids:
         record = selection['records'].get(item_id)
         if not record:
-            raise ValueError('选择列表包含已失效的文件，请重新开始')
+            raise ValueError('Selection expired. Reopen Build Final.')
         selected_records.append(record)
 
     _verify_signatures({record['path']: selection['signatures'][record['path']] for record in selected_records})
@@ -674,30 +674,30 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
         geometry = None
 
         if not logical_id:
-            errors.append('无法解析文件标识')
+            errors.append('Invalid file ID.')
         try:
             info = _read_image_info(source_path)
             geometry = _geometry_plan(info['width'], info['height'])
         except Exception as exc:
-            errors.append(f'图像分析失败：{exc}')
+            errors.append(f'Image analysis failed: {exc}')
 
         if info and info['alpha_has_transparency']:
-            errors.append('存在实际透明像素；JPEG 不支持透明，Final Builder 不擅自决定背景合成颜色')
+            errors.append('Transparent pixels are not supported by JPEG.')
         elif info and info['has_alpha']:
-            warnings.append('Alpha 通道实际全不透明；Build 时只移除 Alpha，不改变可见像素')
+            warnings.append('Opaque alpha will be removed.')
 
         if info and info['mode'] == 'CMYK':
-            errors.append('Final 输入契约是 sRGB；CMYK 不允许按 sRGB 直接解释')
+            errors.append('CMYK is not supported; sRGB required.')
         if info and info['color_status'] == 'non_srgb':
-            errors.append(f'sRGB 预检未通过：{info["color_description"]}')
+            errors.append(f'sRGB check failed: {info["color_description"]}')
         elif info and info['color_status'] == 'invalid':
-            errors.append(f'sRGB 预检无法完成：{info["color_description"]}')
+            errors.append(f'sRGB check unavailable: {info["color_description"]}')
         if geometry and geometry['pixel_insufficient']:
-            errors.append('Center Crop 后像素不足目标尺寸')
+            errors.append('Below target resolution after crop.')
         if geometry and geometry['crop_warning']:
-            warnings.append(f'Center Crop 将移除 {geometry["crop_percent"]:.2f}% 画面，超过 {FINAL_CROP_WARNING_PERCENT:.0f}%')
+            warnings.append(f'Crop removes {geometry["crop_percent"]:.2f}% (> {FINAL_CROP_WARNING_PERCENT:.0f}%).')
         if output_path.exists():
-            errors.append('05_Final 已有同名文件；禁止静默覆盖')
+            errors.append('Final already exists.')
 
         item = {
             'source_item_id': record['id'],
@@ -739,7 +739,7 @@ def _build_execution_plan(source_id, set_dir: Path, set_rel: str, selection, sel
         conflict_count += 1
         names = ' / '.join(item['source_name'] for item in grouped)
         for item in grouped:
-            item['errors'].append(f'多个已选源会生成同一 Final：{names}')
+            item['errors'].append(f'Multiple sources map to the same Final: {names}')
             item['status'] = 'blocked'
 
     dependency = _dependency_status()
@@ -790,19 +790,19 @@ def _verify_srgb_inputs(items):
                     continue
                 color = _source_color_info(image)
         except Exception as exc:
-            failures.append(f'{item["source_name"]}: sRGB 预检失败：{exc}')
+            failures.append(f'{item["source_name"]}: sRGB check failed: {exc}')
             continue
 
         if color['status'] == 'non_srgb':
-            failures.append(f'{item["source_name"]}: 非 sRGB · {color["description"]}')
+            failures.append(f'{item["source_name"]}: not sRGB · {color["description"]}')
         elif color['status'] == 'invalid':
-            failures.append(f'{item["source_name"]}: ICC 无法解析')
+            failures.append(f'{item["source_name"]}: invalid ICC')
 
     if failures:
-        detail = '；'.join(failures[:6])
+        detail = '; '.join(failures[:6])
         if len(failures) > 6:
-            detail += f'；另有 {len(failures) - 6} 张'
-        raise RuntimeError(f'执行前 sRGB 检查失败：{detail}')
+            detail += f'; +{len(failures) - 6} more'
+        raise RuntimeError(f'sRGB check failed: {detail}')
 
 
 
@@ -914,7 +914,7 @@ def _render_final(item, temp_dir: Path, magick_path: str, cjpeg_path: str, set_d
             stderr=magick_stderr_file,
         )
         if renderer.stdout is None:
-            raise RuntimeError('无法打开 ImageMagick stdout')
+            raise RuntimeError('ImageMagick stdout unavailable.')
         cjpeg = subprocess.Popen(
             cjpeg_command,
             cwd=str(set_dir),
@@ -935,17 +935,17 @@ def _render_final(item, temp_dir: Path, magick_path: str, cjpeg_path: str, set_d
             if renderer.poll() is None:
                 renderer.kill()
                 renderer.wait()
-            raise RuntimeError('Final 图像变换 / 编码超时（300 秒）')
+            raise RuntimeError('Build timed out after 300s.')
 
         magick_stderr_file.seek(0)
         renderer_stderr = magick_stderr_file.read().decode('utf-8', errors='replace').strip()
         if renderer.returncode != 0 and renderer_stderr:
-            raise RuntimeError(f'ImageMagick 图像变换失败：{renderer_stderr}')
+            raise RuntimeError(f'ImageMagick failed: {renderer_stderr}')
         if cjpeg.returncode != 0 or not jpeg_path.is_file():
             detail = (cjpeg_stderr or b'').decode('utf-8', errors='replace').strip()
-            raise RuntimeError(f'libjpeg-turbo 编码失败：{detail or "cjpeg returned non-zero"}')
+            raise RuntimeError(f'libjpeg-turbo failed: {detail or "cjpeg returned non-zero"}')
         if renderer.returncode != 0:
-            raise RuntimeError('ImageMagick 图像变换失败：magick returned non-zero')
+            raise RuntimeError('ImageMagick failed: magick returned non-zero')
     finally:
         if cjpeg is not None and cjpeg.poll() is None:
             cjpeg.kill()
@@ -963,21 +963,21 @@ def _validate_output(path: Path, item):
     with Image.open(path) as image:
         image.load()
         if image.format != 'JPEG':
-            raise RuntimeError('输出不是 JPEG')
+            raise RuntimeError('Output is not JPEG.')
         if image.size != (geometry['target_width'], geometry['target_height']):
-            raise RuntimeError(f'输出尺寸验证失败：{image.width}×{image.height}')
+            raise RuntimeError(f'Output size mismatch: {image.width}×{image.height}')
         icc_blob = image.info.get('icc_profile')
         if not icc_blob:
-            raise RuntimeError('输出缺少 sRGB ICC profile')
+            raise RuntimeError('Output is missing sRGB ICC.')
         if hashlib.sha256(bytes(icc_blob)).hexdigest() != FINAL_SRGB_ICC_SHA256:
-            raise RuntimeError('输出 sRGB ICC 与 Final 固定 profile 不一致')
+            raise RuntimeError('Output sRGB ICC mismatch.')
         if image.getexif():
-            raise RuntimeError('图像生成阶段不应携带 EXIF；请检查编码流程')
+            raise RuntimeError('Output contains unexpected EXIF.')
         sampling = JpegImagePlugin.get_sampling(image)
         if sampling != FINAL_JPEG_PIL_SAMPLING:
-            raise RuntimeError(f'输出不是 {FINAL_JPEG_CHROMA_SAMPLING} chroma sampling（Pillow sampling={sampling}）')
+            raise RuntimeError(f'Output chroma is not {FINAL_JPEG_CHROMA_SAMPLING} (Pillow={sampling}).')
         if not FINAL_JPEG_PROGRESSIVE and (image.info.get('progressive') or image.info.get('progression')):
-            raise RuntimeError('输出意外成为 Progressive JPEG')
+            raise RuntimeError('Output is unexpectedly progressive JPEG.')
 
 
 def _publish_staged(staged, final_dir: Path):
@@ -1013,7 +1013,7 @@ def _publish_staged(staged, final_dir: Path):
 
         return published
     except FileExistsError as exc:
-        raise FileExistsError(f'发布前发现同名 Final；禁止覆盖：{Path(exc.filename).name if exc.filename else exc}') from exc
+        raise FileExistsError(f'Final already exists: {Path(exc.filename).name if exc.filename else exc}') from exc
     finally:
         if len(published) != len(staged):
             # Roll back any files/reservations created by this publication attempt.
@@ -1032,10 +1032,10 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
     def resolve_set(source_id, path_value):
         source = get_source(source_id)
         if not source:
-            raise FileNotFoundError('Source 不存在或已禁用')
+            raise FileNotFoundError('Source unavailable.')
         root, target, rel = resolve_path(source, path_value)
         if not target.is_dir() or not _SET_RE.fullmatch(target.name):
-            raise ValueError('当前目录不是 Set')
+            raise ValueError('Current folder is not a Set.')
         return source, root, target, rel
 
     def require_set(source_id):
@@ -1071,13 +1071,13 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
             with _PLAN_LOCK:
                 plan = _PLANS.get(str(plan_id))
             if not plan or plan.get('kind') != 'final_selection' or int(plan.get('source_id')) != int(source_id):
-                raise FileNotFoundError('选择预览已过期')
+                raise FileNotFoundError('Selection preview expired.')
             record = plan['records'].get(str(item_id))
             if not record:
-                raise FileNotFoundError('预览图片不存在')
+                raise FileNotFoundError('Preview image not found.')
             path = Path(record['path'])
             if _file_signature(path) != plan['signatures'][str(path)]:
-                raise RuntimeError('源图已发生变化，请重新打开 Build Final')
+                raise RuntimeError('Source changed. Reopen Build Final.')
 
             with Image.open(path) as image:
                 image = ImageOps.exif_transpose(image)
@@ -1118,7 +1118,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
             data = request.get_json(silent=True) or {}
             selection = _get_plan(str(data.get('selection_plan_id') or ''), 'final_selection', source_id, set_rel)
             if load_metadata_field_keys() != selection.get('metadata_field_keys'):
-                raise RuntimeError('Final Metadata 字段配置在选择后发生变化，请重新打开 Build Final')
+                raise RuntimeError('Metadata fields changed. Reopen Build Final.')
             plan = _build_execution_plan(source_id, set_dir, set_rel, selection, data.get('selected_ids') or [])
             plan['metadata_field_keys'] = list(selection['metadata_field_keys'])
             plan_id = _remember_plan(plan)
@@ -1146,17 +1146,17 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
             data = request.get_json(silent=True) or {}
             plan = _get_plan(str(data.get('plan_id') or ''), 'final_build', source_id, set_rel)
             if load_metadata_field_keys() != plan.get('metadata_field_keys'):
-                raise RuntimeError('Final Metadata 字段配置在 Preview 后发生变化，请重新打开 Build Final')
+                raise RuntimeError('Metadata fields changed after Preview. Reopen Build Final.')
             dependency = _dependency_status()
             if not dependency['ready']:
-                raise RuntimeError('Final Runtime 不符合要求，请处理后重新 Preview')
+                raise RuntimeError('Final runtime is not ready. Refresh Preview.')
             if any(item['status'] == 'blocked' for item in plan['items']):
-                raise RuntimeError('Build Plan 中仍有阻断项，请先处理')
+                raise RuntimeError('Build plan still has blocked items.')
             _verify_signatures(plan['signatures'])
             _verify_srgb_inputs(plan['items'])
             for item in plan['items']:
                 if Path(item['output_path']).exists():
-                    raise FileExistsError(f'05_Final 已有同名文件：{item["output_name"]}')
+                    raise FileExistsError(f'Final already exists: {item["output_name"]}')
 
             task_id = _new_task(len(plan['items']))
 
@@ -1165,7 +1165,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                 commands_by_stem = {}
                 built_at_by_stem = {}
                 try:
-                    _update_task(task_id, status='running', message='开始生成 Final…')
+                    _update_task(task_id, status='running', message='Building…')
                     manifest_ok, manifest_error = prepare_build_manifest(
                         Path(plan['set_dir']),
                         metadata_fields=plan['metadata_field_keys'],
@@ -1176,7 +1176,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                     with tempfile.TemporaryDirectory(prefix='.final-builder-', dir=str(temp_parent)) as temp_name:
                         temp_dir = Path(temp_name)
                         for index, item in enumerate(plan['items'], start=1):
-                            message = f'编码 {index}/{len(plan["items"])} · {item["source_name"]}'
+                            message = f'Encoding {index}/{len(plan["items"])} · {item["source_name"]}'
                             _update_task(task_id, current=index, message=message, log=message)
                             jpeg_path, command_trace = _render_final(
                                 item,
@@ -1196,7 +1196,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                         # never cause a mixed Final batch to be published silently.
                         _verify_signatures(plan['signatures'])
                         if load_metadata_field_keys() != plan.get('metadata_field_keys'):
-                            raise RuntimeError('Final Metadata 字段配置在 Build 期间发生变化，请重新执行')
+                            raise RuntimeError('Metadata fields changed during build. Run again.')
                         published = _publish_staged(staged, Path(plan['final_dir']))
 
                     manifest_ok, manifest_error = record_build_success(
@@ -1217,9 +1217,9 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                         task_id,
                         status='done',
                         completed=len(plan['items']),
-                        message=f'完成：生成 {len(published)} 张 Final',
+                        message=f'Built {len(published)} Final files.',
                         result=result,
-                        log=f'Published {len(published)} file(s) to 05_Final',
+                        log=f'Published {len(published)} Final file(s)',
                     )
                 except Exception as exc:
                     manifest_ok, manifest_error = record_build_failure(
@@ -1231,7 +1231,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
                     )
                     if not manifest_ok:
                         _update_task(task_id, log=f'build.json skipped: {manifest_error}')
-                    _update_task(task_id, status='error', message='Build Final 失败', error=str(exc), log=f'ERROR: {exc}')
+                    _update_task(task_id, status='error', message='Build failed.', error=str(exc), log=f'ERROR: {exc}')
 
             threading.Thread(target=worker, daemon=True).start()
             return jsonify({'task_id': task_id})
@@ -1245,7 +1245,7 @@ def create_final_builder_blueprint(admin_guard, get_source, resolve_path):
             return denied
         task = _task_snapshot(task_id)
         if not task:
-            return jsonify({'error': '任务不存在或已过期'}), 404
+            return jsonify({'error': 'Task expired.'}), 404
         task.pop('created_at', None)
         task.pop('updated_at', None)
         return jsonify(task)

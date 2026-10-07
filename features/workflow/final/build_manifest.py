@@ -179,56 +179,56 @@ def _validate_commands(section_name, commands):
     if commands is None:
         return
     if not isinstance(commands, dict):
-        raise RuntimeError(f'build.json {section_name}.commands 结构无效')
+        raise RuntimeError(f'build.json {section_name}.commands is invalid')
 
     allowed = _COMMANDS_KEYS
     extra = sorted(set(commands) - allowed)
     if extra:
         raise RuntimeError(
-            f'build.json {section_name}.commands 包含当前 schema 未定义字段：{", ".join(extra)}'
+            f'build.json {section_name}.commands has unknown fields: {", ".join(extra)}'
         )
 
     steps = commands.get('steps')
     if not isinstance(steps, list):
-        raise RuntimeError(f'build.json {section_name}.commands.steps 结构无效')
+        raise RuntimeError(f'build.json {section_name}.commands.steps is invalid')
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
-            raise RuntimeError(f'build.json {section_name}.commands.steps[{index}] 结构无效')
+            raise RuntimeError(f'build.json {section_name}.commands.steps[{index}] is invalid')
         extra_step = sorted(set(step) - _COMMAND_STEP_KEYS)
         if extra_step:
             raise RuntimeError(
-                f'build.json {section_name}.commands.steps[{index}] 包含当前 schema 未定义字段：'
+                f'build.json {section_name}.commands.steps[{index}] has unknown fields: '
                 f'{", ".join(extra_step)}'
             )
         if not isinstance(step.get('argv'), list):
-            raise RuntimeError(f'build.json {section_name}.commands.steps[{index}].argv 结构无效')
+            raise RuntimeError(f'build.json {section_name}.commands.steps[{index}].argv is invalid')
 
     pipeline = commands.get('pipeline')
     if not isinstance(pipeline, dict):
-        raise RuntimeError(f'build.json {section_name}.commands.pipeline 结构无效')
+        raise RuntimeError(f'build.json {section_name}.commands.pipeline is invalid')
     extra_pipeline = sorted(set(pipeline) - _PIPELINE_KEYS)
     if extra_pipeline:
         raise RuntimeError(
-            f'build.json {section_name}.commands.pipeline 包含当前 schema 未定义字段：'
+            f'build.json {section_name}.commands.pipeline has unknown fields: '
             + ', '.join(extra_pipeline)
         )
     if not isinstance(pipeline.get('replay_shell'), str) or not pipeline['replay_shell'].strip():
-        raise RuntimeError(f'build.json {section_name}.commands.pipeline.replay_shell 结构无效')
+        raise RuntimeError(f'build.json {section_name}.commands.pipeline.replay_shell is invalid')
 
 
 def _validate_current_manifest(data):
     for stem, image in data['images'].items():
         if not isinstance(image, dict):
-            raise RuntimeError(f'build.json images.{stem} 结构无效')
+            raise RuntimeError(f'build.json images.{stem} is invalid')
 
         source = image.get('source')
         if source is not None:
             if not isinstance(source, dict):
-                raise RuntimeError(f'build.json images.{stem}.source 结构无效')
+                raise RuntimeError(f'build.json images.{stem}.source is invalid')
             extra_source = sorted(set(source) - _SOURCE_RECORD_KEYS)
             if extra_source:
                 raise RuntimeError(
-                    f'build.json images.{stem}.source 包含当前 schema 未定义字段：'
+                    f'build.json images.{stem}.source has unknown fields: '
                     + ', '.join(extra_source)
                 )
 
@@ -237,12 +237,12 @@ def _validate_current_manifest(data):
             if section is None:
                 continue
             if not isinstance(section, dict):
-                raise RuntimeError(f'build.json images.{stem}.{section_name} 结构无效')
+                raise RuntimeError(f'build.json images.{stem}.{section_name} is invalid')
             allowed_section = _BUILD_RECORD_KEYS if section_name == 'build' else _METADATA_RECORD_KEYS
             extra_section = sorted(set(section) - allowed_section)
             if extra_section:
                 raise RuntimeError(
-                    f'build.json images.{stem}.{section_name} 包含当前 schema 未定义字段：'
+                    f'build.json images.{stem}.{section_name} has unknown fields: '
                     + ', '.join(extra_section)
                 )
             if 'commands' in section:
@@ -258,9 +258,9 @@ def _load_manifest(set_dir: Path, metadata_fields=None):
     except Exception:
         # build.json is optional provenance only.  Do not guess around a damaged
         # user-visible file; callers simply skip the manifest update.
-        raise RuntimeError(f'无法读取 {path.name}')
+        raise RuntimeError(f'Cannot read {path.name}')
     if not isinstance(data, dict) or not isinstance(data.get('images'), dict):
-        raise RuntimeError(f'{path.name} 结构无效')
+        raise RuntimeError(f'{path.name} is invalid')
     _validate_current_manifest(data)
     data['profile'] = _current_profile(metadata_fields)
     data['tools'] = dict(_TOOLS)
@@ -349,7 +349,7 @@ def record_build_success(
                 continue
             built_at = (built_at_by_stem or {}).get(stem)
             if not built_at:
-                raise RuntimeError(f'缺少逐张 Final build time：{stem}')
+                raise RuntimeError(f'Missing Final build time: {stem}')
             final_path = set_dir / str(item.get('output_relative_path') or f'05_Final/{stem}.jpg')
             data['images'][stem] = {
                 'source': _build_source_record(item),
@@ -438,7 +438,7 @@ def record_metadata_success(
         for row in rows:
             written_at = (written_at_by_row_id or {}).get(row['id'])
             if not written_at:
-                raise RuntimeError(f'缺少逐张 Final metadata time：{row["id"]}')
+                raise RuntimeError(f'Missing Final metadata time: {row["id"]}')
             final_path = Path(row['final_path'])
             stem = final_path.stem.split('-', 1)[0]
             public_row = public_by_id.get(row['id']) or {}
